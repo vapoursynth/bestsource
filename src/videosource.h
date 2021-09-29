@@ -42,7 +42,7 @@ struct VideoProperties {
     AVRational TimeBase;
     int64_t StartTime;
     int64_t Duration;
-    int64_t NumFrames;
+    int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown
 
     AVRational FPS;
     //AVRational RFF; // why RFF? seems like a h264 haxx

@@ -167,12 +167,7 @@ LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableF
         if (!DecodeSuccess)
             throw VideoException("Couldn't decode initial frame");
 
-
-
-
-
-
-
+        SetVideoProperties();
 
     } catch (...) {
         Free();
@@ -229,7 +224,21 @@ bool LWVideoDecoder::HasMoreFrames() const {
 }
 
 void LWVideoDecoder::SetVideoProperties() {
+    VP.Width = CodecContext->width;
+    VP.Height = CodecContext->height;
+    VP.PixFmt = CodecContext->pix_fmt;
+  
     VP.FPS = CodecContext->framerate;
+    VP.Duration = FormatContext->streams[TrackNumber]->duration;
+
+    VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
+    if (!VP.NumFrames) {
+        if (VP.FPS.num)
+            VP.NumFrames = (VP.Duration * VP.FPS.num) / VP.FPS.den;
+    }
+
+    if (VP.NumFrames <= 0)
+        VP.NumFrames = -1;
 
     // sanity check framerate
     if (VP.FPS.den <= 0 || VP.FPS.num <= 0) {
@@ -253,7 +262,7 @@ void LWVideoDecoder::SetVideoProperties() {
     assert(VP.StartTime != AV_NOPTS_VALUE);
     if (VP.StartTime == AV_NOPTS_VALUE)
         VP.StartTime = 0;
-    VP.Duration = FormatContext->streams[TrackNumber]->duration;
+
 
     // attempt to correct framerate to the proper NTSC fraction, if applicable
     CorrectRationalFramerate(VP.FPS.num, VP.FPS.den); // fixme, is this still useful? test with mkv
@@ -414,8 +423,6 @@ const VideoProperties &BestVideoSource::GetVideoProperties() const {
 AVFrame *BestVideoSource::GetFrame(int64_t N) {
     if (N < 0)
         return nullptr;
-
-    // Check if in cache, use a simple check from start and end and narrow it from both ends at once
 
     for (auto &iter : Cache) {
         if (iter.FrameNumber == N)
