@@ -426,7 +426,7 @@ AVFrame *BestVideoSource::GetFrame(int64_t N) {
 
     for (auto &iter : Cache) {
         if (iter.FrameNumber == N)
-            return av_frame_clone(iter.Frame);
+            return iter.Frame;
     }
 
     int Index = -1;
@@ -483,7 +483,7 @@ AVFrame *BestVideoSource::GetFrame(int64_t N) {
             }
 
             if (FrameNumber == N)
-                RetFrame = av_frame_clone(Frame);
+                RetFrame = Frame;
         } else if (FrameNumber < N) {
             Decoder->SkipNextAVFrame();
         }
@@ -499,18 +499,6 @@ AVFrame *BestVideoSource::GetFrame(int64_t N) {
 
     return RetFrame;
 }
-
-/*
-void FFMS_VideoSource::SanityCheckFrameForData(AVFrame *Frame) {
-    for (int i = 0; i < 4; i++) {
-        if (Frame->data[i] != nullptr && Frame->linesize[i] != 0)
-            return;
-    }
-
-    throw FFMS_Exception(FFMS_ERROR_DECODING, FFMS_ERROR_CODEC, "Insanity detected: decoder returned an empty frame");
-}
-*/
-
 
 /*
 * 

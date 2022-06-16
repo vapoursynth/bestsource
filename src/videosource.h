@@ -45,8 +45,6 @@ struct VideoProperties {
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown
 
     AVRational FPS;
-    //AVRational RFF; // why RFF? seems like a h264 haxx
-
     AVRational SAR;
 
     int Width;
