@@ -76,7 +76,11 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
     int Track = vsapi->mapGetIntSaturated(in, "track", 0, &err);
     if (err)
         Track = -1;
-    bool VariableFormat = vsapi->mapGetIntSaturated(in, "variableformat", 0, &err);
+    int SeekPreRoll = vsapi->mapGetIntSaturated(in, "seekpreroll", 0, &err);
+    if (err)
+        SeekPreRoll = 20;
+    bool VariableFormat = !!vsapi->mapGetInt(in, "variableformat", 0, &err);
+    bool ApplyRFF = !!vsapi->mapGetInt(in, "applyrff", 0, &err);
     bool ExactFrames = !!vsapi->mapGetInt(in, "exactframes", 0, &err);
 
     FFmpegOptions opts;
@@ -98,6 +102,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         D->VI.height = VP.Height;
         D->VI.fpsNum = VP.FPS.num;
         D->VI.fpsDen = VP.FPS.den;
+        D->V->SetSeekPreRoll(SeekPreRoll);
     } catch (VideoException &e) {
         delete D;
         vsapi->mapSetError(out, (std::string("BestVideoSource: ") + e.what()).c_str());
@@ -109,5 +114,5 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestvideosource", "bvs", "Best Video Source", VS_MAKE_VERSION(0, 8), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("Source", "source:data;track:int:opt;variableformat:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("Source", "source:data;track:int:opt;variableformat:int:opt;applyrff:int:opt;seekpreroll:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
 }

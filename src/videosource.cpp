@@ -543,11 +543,11 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
                 return false;
         }
 
-
         for (int plane = 0; plane < Desc->nb_components; plane++) {
             buf.src[plane] = Frame->data[plane];
             buf.src_stride[plane] = Frame->linesize[plane];
         }
+
         for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
             buf.dst[plane] = Dst[plane];
             buf.dst_stride[plane] = Stride[plane];
