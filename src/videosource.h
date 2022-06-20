@@ -29,6 +29,7 @@ struct AVFormatContext;
 struct AVCodecContext;
 struct AVFrame;
 struct AVPacket;
+struct AVPixFmtDescriptor;
 
 extern "C" {
 #include <libavutil/rational.h>
@@ -38,18 +39,31 @@ class VideoException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+struct VideoFormat {
+    int ColorFamily; /* Other = 0, Gray = 1, RGB = 2, YUV = 3 */
+    bool Alpha;
+    bool Float;
+    int Bits;
+    int SubSamplingW;
+    int SubSamplingH;
+
+    void Set(const AVPixFmtDescriptor *Desc);
+};
+
 struct VideoProperties {
     AVRational TimeBase;
     int64_t StartTime;
     int64_t Duration;
-    int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown
+    int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
+    int64_t NumFields; // number of fields when taking RFF into consideration, -1 too
 
     AVRational FPS;
     AVRational SAR;
 
+    int PixFmt;
+    VideoFormat VF;
     int Width;
     int Height;
-    int PixFmt;
 
     /* Stereo 3D */
     int Stereo3DType;
@@ -90,6 +104,7 @@ private:
     AVCodecContext *CodecContext = nullptr;
     AVFrame *DecodeFrame = nullptr;
     int64_t CurrentFrame = 0;
+    int64_t CurrentField = 0;
     int TrackNumber = -1;
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
@@ -104,10 +119,46 @@ public:
     ~LWVideoDecoder();
     int64_t GetRelativeStartTime(int Track) const; // Returns INT64_MIN on error
     int64_t GetFrameNumber() const;
+    int64_t GetFieldNumber() const;
     const VideoProperties &GetVideoProperties() const;
     AVFrame *GetNextAVFrame();
     bool SkipNextAVFrame();
     bool HasMoreFrames() const;
+};
+
+
+class BestVideoFrame {
+private:
+    AVFrame *Frame;
+public:
+    BestVideoFrame(AVFrame *Frame);
+    ~BestVideoFrame();
+    const AVFrame *GetAVFrame() const;
+    bool ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride);
+
+    int PixFmt; // Pointless since it can be gotten from the underlying frame?
+    VideoFormat VF;
+    int Width;
+    int Height;
+
+    /* MasteringDisplayPrimaries */
+    bool HasMasteringDisplayPrimaries = false;
+    AVRational MasteringDisplayPrimaries[3][2] = {};
+    AVRational MasteringDisplayWhitePoint[2] = {};
+
+    /* MasteringDisplayLuminance */
+    bool HasMasteringDisplayLuminance = false;
+    AVRational MasteringDisplayMinLuminance = {};
+    AVRational MasteringDisplayMaxLuminance = {};
+
+    /* ContentLightLevel */
+    bool HasContentLightLevel = false;
+    unsigned ContentLightLevelMax = 0;
+    unsigned ContentLightLevelAverage = 0;
+
+    /* DolbyVisionRPU */
+    uint8_t *DolbyVisionRPU = nullptr;
+    int DolbyVisionRPUSize = 0;
 };
 
 class BestVideoSource {
@@ -128,7 +179,7 @@ private:
     int Track;
     bool VariableFormat;
     int Threads;
-    bool HasExactNumVideoFrames = false;
+    bool HasExactNumVideoFrames = false; // whether 
     uint64_t DecoderSequenceNum = 0;
     uint64_t DecoderLastUse[MaxVideoSources] = {};
     LWVideoDecoder *Decoders[MaxVideoSources] = {};
@@ -143,7 +194,7 @@ public:
     void SetSeekPreRoll(size_t Frames); /* the number of frames to cache before the position being fast forwarded to, default is 10 frames */
     bool GetExactDuration();
     const VideoProperties &GetVideoProperties() const;
-    AVFrame *GetFrame(int64_t N);
+    BestVideoFrame *GetFrame(int64_t N);
 };
 
 #endif

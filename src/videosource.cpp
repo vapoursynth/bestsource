@@ -33,6 +33,34 @@ extern "C" {
 #include <libavutil/mastering_display_metadata.h>
 }
 
+static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *desc) {
+    return !!(desc->flags & AV_PIX_FMT_FLAG_FLOAT);
+}
+
+static bool HasAlpha(const AVPixFmtDescriptor *desc) {
+    return !!(desc->flags & AV_PIX_FMT_FLAG_ALPHA);
+}
+
+static int GetColorFamily(const AVPixFmtDescriptor *desc) {
+    if (desc->nb_components <= 2)
+        return 1;
+    else if (desc->flags & AV_PIX_FMT_FLAG_RGB)
+        return 2;
+    else
+        return 3;
+}
+
+static int GetBitDepth(const AVPixFmtDescriptor *desc) {
+    return desc->comp[0].depth;
+}
+
+static int IsRealPlanar(const AVPixFmtDescriptor *desc) {
+    int maxPlane = 0;
+    for (int i = 0; i < desc->nb_components; i++)
+        maxPlane = std::max(maxPlane, desc->comp[i].plane);
+    return (maxPlane + 1) == desc->nb_components;
+}
+
 // attempt to correct framerate to a common fraction if close to one
 static void CorrectRationalFramerate(int &Num, int &Den) {
     // Make sure fps is a normalized rational number
@@ -196,6 +224,10 @@ int64_t LWVideoDecoder::GetFrameNumber() const {
     return CurrentFrame;
 }
 
+int64_t LWVideoDecoder::GetFieldNumber() const {
+    return CurrentField;
+}
+
 const VideoProperties &LWVideoDecoder::GetVideoProperties() const {
     return VP;
 }
@@ -203,6 +235,7 @@ const VideoProperties &LWVideoDecoder::GetVideoProperties() const {
 AVFrame *LWVideoDecoder::GetNextAVFrame() {
     if (DecodeSuccess) {
         CurrentFrame++;
+        CurrentField += 2 + DecodeFrame->repeat_pict;
         AVFrame *Tmp = DecodeFrame;
         DecodeFrame = nullptr;
         DecodeSuccess = DecodeNextAVFrame();
@@ -214,6 +247,7 @@ AVFrame *LWVideoDecoder::GetNextAVFrame() {
 bool LWVideoDecoder::SkipNextAVFrame() {
     if (DecodeSuccess) {
         CurrentFrame++;
+        CurrentField += 2 + DecodeFrame->repeat_pict;
         DecodeSuccess = DecodeNextAVFrame();
     }
     return DecodeSuccess;
@@ -227,6 +261,7 @@ void LWVideoDecoder::SetVideoProperties() {
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
     VP.PixFmt = CodecContext->pix_fmt;
+    VP.VF.Set(av_pix_fmt_desc_get(CodecContext->pix_fmt));
   
     VP.FPS = CodecContext->framerate;
     VP.Duration = FormatContext->streams[TrackNumber]->duration;
@@ -239,6 +274,9 @@ void LWVideoDecoder::SetVideoProperties() {
 
     if (VP.NumFrames <= 0)
         VP.NumFrames = -1;
+
+    if (VP.NumFrames > 0)
+        VP.NumFields = VP.NumFrames * 2;
 
     // sanity check framerate
     if (VP.FPS.den <= 0 || VP.FPS.num <= 0) {
@@ -353,6 +391,131 @@ void LWVideoDecoder::SetVideoProperties() {
     }
 }
 
+void VideoFormat::Set(const AVPixFmtDescriptor *Desc) {
+    Alpha = HasAlpha(Desc);
+    Float = GetSampleTypeIsFloat(Desc);
+    ColorFamily = GetColorFamily(Desc);
+    Bits = GetBitDepth(Desc);
+    SubSamplingW = Desc->log2_chroma_w;
+    SubSamplingH = Desc->log2_chroma_h;
+}
+
+BestVideoFrame::BestVideoFrame(AVFrame *f) {
+    Frame = av_frame_clone(f);
+    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
+    VF.Set(Desc);
+    PixFmt = Frame->format;
+    Width = Frame->width;
+    Height = Frame->height;
+
+    /*
+    KeyFrame = Frame->key_frame;
+    PictType = av_get_picture_type_char(Frame->pict_type);
+    RepeatPict = Frame->repeat_pict;
+    InterlacedFrame = Frame->interlaced_frame;
+    TopFieldFirst = Frame->top_field_first;
+    ColorPrimaries = Frame->color_primaries;
+    TransferCharateristics = Frame->color_trc;
+    ChromaLocation = Frame->chroma_location;
+    */
+
+    const AVFrameSideData *MasteringDisplaySideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    if (MasteringDisplaySideData) {
+        const AVMasteringDisplayMetadata *MasteringDisplay = reinterpret_cast<const AVMasteringDisplayMetadata *>(MasteringDisplaySideData->data);
+        if (MasteringDisplay->has_primaries) {
+            HasMasteringDisplayPrimaries = !!MasteringDisplay->has_primaries;
+            for (int i = 0; i < 3; i++) {
+                MasteringDisplayPrimaries[i][0] = MasteringDisplay->display_primaries[i][0];
+                MasteringDisplayPrimaries[i][1] = MasteringDisplay->display_primaries[i][1];
+            }
+            MasteringDisplayWhitePoint[0] = MasteringDisplay->white_point[0];
+            MasteringDisplayWhitePoint[1] = MasteringDisplay->white_point[1];
+        }
+
+        if (MasteringDisplay->has_luminance) {
+            HasMasteringDisplayLuminance = !!MasteringDisplay->has_luminance;
+            MasteringDisplayMinLuminance = MasteringDisplay->min_luminance;
+            MasteringDisplayMaxLuminance = MasteringDisplay->max_luminance;
+        }
+
+        HasMasteringDisplayPrimaries = !!MasteringDisplayPrimaries[0][0].num && !!MasteringDisplayPrimaries[0][1].num &&
+            !!MasteringDisplayPrimaries[1][0].num && !!MasteringDisplayPrimaries[1][1].num &&
+            !!MasteringDisplayPrimaries[2][0].num && !!MasteringDisplayPrimaries[2][1].num &&
+            !!MasteringDisplayWhitePoint[0].num && !!MasteringDisplayWhitePoint[1].num;
+
+        /* MasteringDisplayMinLuminance can be 0 */
+        HasMasteringDisplayLuminance = !!MasteringDisplayMaxLuminance.num;
+    }
+
+    const AVFrameSideData *ContentLightSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    if (ContentLightSideData) {
+        const AVContentLightMetadata *ContentLightLevel = reinterpret_cast<const AVContentLightMetadata *>(ContentLightSideData->data);
+        ContentLightLevelMax = ContentLightLevel->MaxCLL;
+        ContentLightLevelAverage = ContentLightLevel->MaxFALL;
+    }
+
+    HasContentLightLevel = !!ContentLightLevelMax || !!ContentLightLevelAverage;
+
+    /* too new?
+    const AVFrameSideData *DolbyVisionRPUSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
+    if (DolbyVisionRPUSideData) {
+        DolbyVisionRPU = DolbyVisionRPUSideData->data;
+        DolbyVisionRPUSize = DolbyVisionRPUSideData->size;
+    }
+    */
+}
+
+BestVideoFrame::~BestVideoFrame() {
+    av_frame_free(&Frame);
+}
+
+const AVFrame *BestVideoFrame::GetAVFrame() const {
+    return Frame;
+};
+
+bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
+    if (VF.ColorFamily == 0)
+        return false;
+    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
+    if (IsRealPlanar(Desc)) {
+
+        size_t bytesPerSample = 0;
+
+        if (VF.Bits <= 8)
+            bytesPerSample = 1;
+        if (VF.Bits > 8 && VF.Bits <= 16)
+            bytesPerSample = 2;
+        else if (VF.Bits > 16 && VF.Bits <= 32)
+            bytesPerSample = 4;
+        else if (VF.Bits > 32 && VF.Bits <= 64)
+            bytesPerSample = 8;
+
+        if (!bytesPerSample)
+            return false;
+
+        for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+            int planew = Frame->width;
+            int planeh = Frame->height;
+            if (plane > 0) {
+                planew >>= Desc->log2_chroma_w;
+                planeh >>= Desc->log2_chroma_h;
+            }
+            const uint8_t *src = Frame->data[plane];
+            uint8_t *dst = Dst[plane];
+            for (int h = 0; h < planeh; h++) {
+                memcpy(dst, src, bytesPerSample * planew);
+                src += Frame->linesize[plane];
+                dst += Stride[plane];
+            }
+        }
+        return true;
+    } else {
+        // libp2p or swscale here?
+    }
+
+    return false;
+}
+
 BestVideoSource::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Frame) : FrameNumber(FrameNumber), Frame(Frame) {
     Size = 0;
     for (int i = 0; i < AV_NUM_DATA_POINTERS; i++)
@@ -409,6 +572,7 @@ bool BestVideoSource::GetExactDuration() {
 
     while (Decoder->SkipNextAVFrame());
     VP.NumFrames = Decoder->GetFrameNumber();
+    VP.NumFields = Decoder->GetFieldNumber();
     HasExactNumVideoFrames = true;
     delete Decoder;
     Decoders[Index] = nullptr;
@@ -420,13 +584,13 @@ const VideoProperties &BestVideoSource::GetVideoProperties() const {
     return VP;
 }
 
-AVFrame *BestVideoSource::GetFrame(int64_t N) {
+BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
     if (N < 0)
         return nullptr;
 
     for (auto &iter : Cache) {
         if (iter.FrameNumber == N)
-            return iter.Frame;
+            return new BestVideoFrame(iter.Frame);
     }
 
     int Index = -1;
@@ -490,6 +654,7 @@ AVFrame *BestVideoSource::GetFrame(int64_t N) {
 
         if (!Decoder->HasMoreFrames()) {
             VP.NumFrames = Decoder->GetFrameNumber();
+            VP.NumFields = Decoder->GetFieldNumber();
             HasExactNumVideoFrames = true;
             delete Decoder;
             Decoders[Index] = nullptr;
@@ -497,33 +662,7 @@ AVFrame *BestVideoSource::GetFrame(int64_t N) {
         }
     }
 
-    return RetFrame;
+    if (RetFrame)
+        return new BestVideoFrame(RetFrame);
+    return nullptr;
 }
-
-/*
-* 
-* PER FRAME SHIT TO EXPOSE LATER
-* 
-        if (LocalFrame.HasMasteringDisplayPrimaries) {
-            VP.HasMasteringDisplayPrimaries = LocalFrame.HasMasteringDisplayPrimaries;
-            for (int i = 0; i < 3; i++) {
-                VP.MasteringDisplayPrimariesX[i] = LocalFrame.MasteringDisplayPrimariesX[i];
-                VP.MasteringDisplayPrimariesY[i] = LocalFrame.MasteringDisplayPrimariesY[i];
-            }
-
-            // Simply copy this from the first frame to make it easier to access
-            VP.MasteringDisplayWhitePointX = LocalFrame.MasteringDisplayWhitePointX;
-            VP.MasteringDisplayWhitePointY = LocalFrame.MasteringDisplayWhitePointY;
-        }
-        if (LocalFrame.HasMasteringDisplayLuminance) {
-            VP.HasMasteringDisplayLuminance = LocalFrame.HasMasteringDisplayLuminance;
-            VP.MasteringDisplayMinLuminance = LocalFrame.MasteringDisplayMinLuminance;
-            VP.MasteringDisplayMaxLuminance = LocalFrame.MasteringDisplayMaxLuminance;
-        }
-        if (LocalFrame.HasContentLightLevel) {
-            VP.HasContentLightLevel = LocalFrame.HasContentLightLevel;
-            VP.ContentLightLevelMax = LocalFrame.ContentLightLevelMax;
-            VP.ContentLightLevelAverage = LocalFrame.ContentLightLevelAverage;
-        }
-
-*/
