@@ -23,6 +23,8 @@
 #include <thread>
 #include <cassert>
 
+#include "../libp2p/p2p_api.h"
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -510,7 +512,48 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
         }
         return true;
     } else {
-        // libp2p or swscale here?
+        p2p_buffer_param buf = {};
+
+        switch (PixFmt) {
+            case AV_PIX_FMT_YUYV422:
+                buf.packing = p2p_yuy2;
+                break;
+            case AV_PIX_FMT_RGB24:
+                buf.packing = p2p_rgb24;
+                break;
+            case AV_PIX_FMT_UYVY422:
+                buf.packing = p2p_uyvy;
+                break;
+            case AV_PIX_FMT_NV12:
+                buf.packing = p2p_nv12;
+                break;
+            case AV_PIX_FMT_ARGB:
+                buf.packing = p2p_argb32;
+                break;
+            case AV_PIX_FMT_RGBA:
+                buf.packing = p2p_rgba32;
+                break;
+            case AV_PIX_FMT_RGB48:
+                buf.packing = p2p_rgb48;
+                break;
+            case AV_PIX_FMT_RGBA64:
+                buf.packing = p2p_rgba64;
+                break;
+            default:
+                return false;
+        }
+
+
+        for (int plane = 0; plane < Desc->nb_components; plane++) {
+            buf.src[plane] = Frame->data[plane];
+            buf.src_stride[plane] = Frame->linesize[plane];
+        }
+        for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+            buf.dst[plane] = Dst[plane];
+            buf.dst_stride[plane] = Stride[plane];
+        }
+
+        p2p_unpack_frame(&buf, 0);
     }
 
     return false;

@@ -180,7 +180,7 @@ private:
     int Track;
     bool VariableFormat;
     int Threads;
-    bool HasExactNumVideoFrames = false; // whether 
+    bool HasExactNumVideoFrames = false;
     uint64_t DecoderSequenceNum = 0;
     uint64_t DecoderLastUse[MaxVideoSources] = {};
     LWVideoDecoder *Decoders[MaxVideoSources] = {};
