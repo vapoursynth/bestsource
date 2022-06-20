@@ -136,7 +136,7 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
 
     if (TrackNumber < 0) {
         for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++) {
-            if (FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            if (FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
                 if (TrackNumber == -1) {
                     TrackNumber = i;
                     break;

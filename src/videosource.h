@@ -31,6 +31,7 @@ struct AVFrame;
 struct AVPacket;
 struct AVPixFmtDescriptor;
 
+// FIXME, replace with a custom rational class that can be assigned with AVRational
 extern "C" {
 #include <libavutil/rational.h>
 }
