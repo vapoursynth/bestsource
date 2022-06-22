@@ -267,6 +267,7 @@ void LWVideoDecoder::SetVideoProperties() {
   
     VP.FPS = CodecContext->framerate;
     VP.Duration = FormatContext->streams[TrackNumber]->duration;
+    VP.TimeBase = FormatContext->streams[TrackNumber]->time_base;
 
     VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
     if (!VP.NumFrames) {
@@ -303,11 +304,8 @@ void LWVideoDecoder::SetVideoProperties() {
     if (VP.StartTime == AV_NOPTS_VALUE)
         VP.StartTime = 0;
 
-
     // attempt to correct framerate to the proper NTSC fraction, if applicable
-    CorrectRationalFramerate(VP.FPS.num, VP.FPS.den); // fixme, is this still useful? test with mkv
-    // correct the timebase, if necessary
-    //CorrectTimebase(&VP, &Frames.TB); <= fixme, not useful?
+    CorrectRationalFramerate(VP.FPS.num, VP.FPS.den); // FIXME, is this still relevant? should probably be an option to turn it off
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;
@@ -410,16 +408,16 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
     Width = Frame->width;
     Height = Frame->height;
 
-    /*
-    KeyFrame = Frame->key_frame;
+    KeyFrame = !!Frame->key_frame;
     PictType = av_get_picture_type_char(Frame->pict_type);
     RepeatPict = Frame->repeat_pict;
-    InterlacedFrame = Frame->interlaced_frame;
-    TopFieldFirst = Frame->top_field_first;
-    ColorPrimaries = Frame->color_primaries;
-    TransferCharateristics = Frame->color_trc;
+    InterlacedFrame = !!Frame->interlaced_frame;
+    TopFieldFirst = !!Frame->top_field_first;
+    Matrix = Frame->colorspace;
+    Primaries = Frame->color_primaries;
+    Transfer = Frame->color_trc;
     ChromaLocation = Frame->chroma_location;
-    */
+    ColorRange = Frame->color_range;
 
     const AVFrameSideData *MasteringDisplaySideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
     if (MasteringDisplaySideData) {

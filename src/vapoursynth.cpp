@@ -27,6 +27,10 @@
 #include <limits>
 #include <string>
 
+extern "C" {
+#include <libavutil/rational.h>
+}
+
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
@@ -36,31 +40,96 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
     BestVideoSourceData *d = reinterpret_cast<BestVideoSourceData *>(instanceData);
 
     if (activationReason == arInitial) {
-        VSFrame *dst = nullptr;
+        VSFrame *Dst = nullptr;
+        std::unique_ptr<BestVideoFrame> Src;
         try {
-            std::unique_ptr<BestVideoFrame> src(d->V->GetFrame(n));
-            if (!src)
+            Src.reset(d->V->GetFrame(n));
+            if (!Src)
                 throw VideoException("No frame returned for frame number " + std::to_string(n));
-            dst = vsapi->newVideoFrame(&d->VI.format, d->VI.width, d->VI.height, nullptr, core);
-            uint8_t *dstPtrs[3] = {};
-            ptrdiff_t dstStride[3] = {};
+            Dst = vsapi->newVideoFrame(&d->VI.format, d->VI.width, d->VI.height, nullptr, core);
+            uint8_t *DstPtrs[3] = {};
+            ptrdiff_t DstStride[3] = {};
 
             for (int plane = 0; plane < d->VI.format.numPlanes; plane++) {
-                dstPtrs[plane] = vsapi->getWritePtr(dst, plane);
-                dstStride[plane] = vsapi->getStride(dst, plane);
+                DstPtrs[plane] = vsapi->getWritePtr(Dst, plane);
+                DstStride[plane] = vsapi->getStride(Dst, plane);
             }
 
-            if (!src->ExportAsPlanar(dstPtrs, dstStride)) {
+            if (!Src->ExportAsPlanar(DstPtrs, DstStride)) {
                 throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
         } catch (VideoException &e) {
-            vsapi->freeFrame(dst);
+            vsapi->freeFrame(Dst);
             vsapi->setFilterError(e.what(), frameCtx);
             return nullptr;
         }
 
-        return dst;
+        const VideoProperties &VP = d->V->GetVideoProperties();
+        VSMap *Props = vsapi->getFramePropertiesRW(Dst);
+
+        // Set AR variables
+        if (VP.SAR.num > 0 && VP.SAR.den > 0) {
+            vsapi->mapSetInt(Props, "_SARNum", VP.SAR.num, maAppend);
+            vsapi->mapSetInt(Props, "_SARDen", VP.SAR.den, maAppend);
+        }
+
+        vsapi->mapSetInt(Props, "_Matrix", Src->Matrix, maAppend);
+        vsapi->mapSetInt(Props, "_Primaries", Src->Primaries, maAppend);
+        vsapi->mapSetInt(Props, "_Transfer", Src->Transfer, maAppend);
+        if (Src->ChromaLocation > 0)
+            vsapi->mapSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, maAppend);
+
+        if (Src->ColorRange == 1) // FIXME, ugly hardcoded ffmpeg constants
+            vsapi->mapSetInt(Props, "_ColorRange", 1, maAppend);
+        else if (Src->ColorRange == 2)
+            vsapi->mapSetInt(Props, "_ColorRange", 0, maAppend);
+        vsapi->mapSetData(Props, "_PictType", &Src->PictType, 1, dtUtf8, maAppend);
+
+        // Set field information
+        int FieldBased = 0;
+        if (Src->InterlacedFrame)
+            FieldBased = (Src->TopFieldFirst ? 2 : 1);
+        vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
+
+        if (Src->HasMasteringDisplayPrimaries) {
+            for (int i = 0; i < 3; i++) {
+                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", av_q2d(Src->MasteringDisplayPrimaries[i][0]), maAppend);
+                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesY", av_q2d(Src->MasteringDisplayPrimaries[i][1]), maAppend);
+            }
+            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointX", av_q2d(Src->MasteringDisplayWhitePoint[0]), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointY", av_q2d(Src->MasteringDisplayWhitePoint[1]), maAppend);
+        }
+
+        if (Src->HasMasteringDisplayLuminance) {
+            vsapi->mapSetFloat(Props, "MasteringDisplayMinLuminance", av_q2d(Src->MasteringDisplayMinLuminance), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayMaxLuminance", av_q2d(Src->MasteringDisplayMaxLuminance), maAppend);
+        }
+
+        if (Src->HasContentLightLevel) {
+            vsapi->mapSetInt(Props, "ContentLightLevelMax", Src->ContentLightLevelMax, maAppend);
+            vsapi->mapSetInt(Props, "ContentLightLevelAverage", Src->ContentLightLevelAverage, maAppend);
+        }
+
+        if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize) {
+            vsapi->mapSetData(Props, "DolbyVisionRPU", (const char *)Src->DolbyVisionRPU, Src->DolbyVisionRPUSize, dtBinary, maAppend);
+        }
+
+        vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
+        vsapi->mapSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, maAppend);
+        vsapi->mapSetInt(Props, "Rotation", VP.Rotation, maAppend);
+
+        /*
+        OutputFrame(Frame, Dst, vsapi);
+        if (OutputAlpha) {
+            VSFrame *AlphaDst = vsapi->newVideoFrame(&VI[1].format, VI[1].width, VI[1].height, nullptr, core);
+            vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maReplace);
+            OutputAlphaFrame(Frame, VI[0].format.numPlanes, AlphaDst, vsapi);
+            vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maReplace);
+        }
+        */
+
+        return Dst;
     }
 
     return nullptr;

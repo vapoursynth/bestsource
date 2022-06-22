@@ -142,6 +142,18 @@ public:
     int Width;
     int Height;
 
+    int Matrix;
+    int Primaries;
+    int Transfer;
+    int ChromaLocation;
+    int ColorRange;
+
+    bool InterlacedFrame;
+    bool TopFieldFirst;
+    char PictType;
+    bool KeyFrame;
+    int RepeatPict;
+
     /* MasteringDisplayPrimaries */
     bool HasMasteringDisplayPrimaries = false;
     AVRational MasteringDisplayPrimaries[3][2] = {};
