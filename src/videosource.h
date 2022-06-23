@@ -1,4 +1,4 @@
-//  Copyright (c) 2021 Fredrik Mellbin
+//  Copyright (c) 2022 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -56,7 +56,7 @@ struct VideoProperties {
     int64_t StartTime;
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
-    int64_t NumFields; // number of fields when taking RFF into consideration, -1 too
+    int64_t NumFields; // same as NumFrames but for total fields with RFF taken into consideration
 
     AVRational FPS;
     AVRational SAR;

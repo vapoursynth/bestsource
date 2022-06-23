@@ -1,4 +1,4 @@
-//  Copyright (c) 2021 Fredrik Mellbin
+//  Copyright (c) 2022 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -286,18 +286,6 @@ void LWVideoDecoder::SetVideoProperties() {
         VP.FPS.den = 1;
         VP.FPS.num = 30;
     }
-
-    // FIXME, time_base is deprecated for decoding
-    /*
-    VP.RFF.den = CodecContext->time_base.num;
-    VP.RFF.num = CodecContext->time_base.den;
-    if (CodecContext->codec_id == AV_CODEC_ID_H264) {
-        if (VP.RFF.num & 1)
-            VP.RFF.den *= 2;
-        else
-            VP.RFF.num /= 2;
-    }
-    */
 
     VP.StartTime = FormatContext->streams[TrackNumber]->start_time;
     assert(VP.StartTime != AV_NOPTS_VALUE);

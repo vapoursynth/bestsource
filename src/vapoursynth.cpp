@@ -1,4 +1,4 @@
-//  Copyright (c) 2020-2022 Fredrik Mellbin
+//  Copyright (c) 2022 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -149,7 +149,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
     if (err)
         SeekPreRoll = 20;
     bool VariableFormat = !!vsapi->mapGetInt(in, "variableformat", 0, &err);
-    bool ApplyRFF = !!vsapi->mapGetInt(in, "applyrff", 0, &err);
     bool ExactFrames = !!vsapi->mapGetInt(in, "exactframes", 0, &err);
 
     FFmpegOptions opts;
@@ -183,5 +182,5 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestvideosource", "bvs", "Best Video Source", VS_MAKE_VERSION(0, 8), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("Source", "source:data;track:int:opt;variableformat:int:opt;applyrff:int:opt;seekpreroll:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("Source", "source:data;track:int:opt;variableformat:int:opt;seekpreroll:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
 }
