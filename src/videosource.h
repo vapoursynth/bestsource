@@ -21,6 +21,7 @@
 #ifndef VIDEOSOURCE_H
 #define VIDEOSOURCE_H
 
+#include "BSRational.h"
 #include <cstdint>
 #include <stdexcept>
 #include <list>
@@ -31,17 +32,12 @@ struct AVFrame;
 struct AVPacket;
 struct AVPixFmtDescriptor;
 
-// FIXME, replace with a custom rational class that can be assigned with AVRational
-extern "C" {
-#include <libavutil/rational.h>
-}
-
 class VideoException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
 struct VideoFormat {
-    int ColorFamily; /* Other = 0, Gray = 1, RGB = 2, YUV = 3 */
+    int ColorFamily; /* Unknown = 0, Gray = 1, RGB = 2, YUV = 3 */
     bool Alpha;
     bool Float;
     int Bits;
@@ -52,14 +48,14 @@ struct VideoFormat {
 };
 
 struct VideoProperties {
-    AVRational TimeBase;
+    BSRational TimeBase;
     int64_t StartTime;
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
     int64_t NumFields; // same as NumFrames but for total fields with RFF taken into consideration
 
-    AVRational FPS;
-    AVRational SAR;
+    BSRational FPS;
+    BSRational SAR;
 
     int PixFmt;
     VideoFormat VF;
@@ -72,13 +68,13 @@ struct VideoProperties {
 
     /* MasteringDisplayPrimaries */
     bool HasMasteringDisplayPrimaries;
-    AVRational MasteringDisplayPrimaries[3][2];
-    AVRational MasteringDisplayWhitePoint[2];
+    BSRational MasteringDisplayPrimaries[3][2];
+    BSRational MasteringDisplayWhitePoint[2];
 
     /* MasteringDisplayLuminance */
     bool HasMasteringDisplayLuminance;
-    AVRational MasteringDisplayMinLuminance;
-    AVRational MasteringDisplayMaxLuminance;
+    BSRational MasteringDisplayMinLuminance;
+    BSRational MasteringDisplayMaxLuminance;
 
     /* ContentLightLevel */
     bool HasContentLightLevel;
@@ -157,13 +153,13 @@ public:
 
     /* MasteringDisplayPrimaries */
     bool HasMasteringDisplayPrimaries = false;
-    AVRational MasteringDisplayPrimaries[3][2] = {};
-    AVRational MasteringDisplayWhitePoint[2] = {};
+    BSRational MasteringDisplayPrimaries[3][2] = {};
+    BSRational MasteringDisplayWhitePoint[2] = {};
 
     /* MasteringDisplayLuminance */
     bool HasMasteringDisplayLuminance = false;
-    AVRational MasteringDisplayMinLuminance = {};
-    AVRational MasteringDisplayMaxLuminance = {};
+    BSRational MasteringDisplayMinLuminance = {};
+    BSRational MasteringDisplayMaxLuminance = {};
 
     /* ContentLightLevel */
     bool HasContentLightLevel = false;

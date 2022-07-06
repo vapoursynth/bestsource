@@ -27,10 +27,6 @@
 #include <limits>
 #include <string>
 
-extern "C" {
-#include <libavutil/rational.h>
-}
-
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
     VSVideoFormat AlphaFormat = {};
@@ -56,7 +52,6 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
                 DstPtrs[plane] = vsapi->getWritePtr(Dst, plane);
                 DstStride[plane] = vsapi->getStride(Dst, plane);
             }
-
 
             ptrdiff_t AlphaStride = 0;
             if (Src->HasAlpha()) {
@@ -107,16 +102,16 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
 
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", av_q2d(Src->MasteringDisplayPrimaries[i][0]), maAppend);
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesY", av_q2d(Src->MasteringDisplayPrimaries[i][1]), maAppend);
+                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), maAppend);
+                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesY", Src->MasteringDisplayPrimaries[i][1].ToDouble(), maAppend);
             }
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointX", av_q2d(Src->MasteringDisplayWhitePoint[0]), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointY", av_q2d(Src->MasteringDisplayWhitePoint[1]), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointX", Src->MasteringDisplayWhitePoint[0].ToDouble(), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointY", Src->MasteringDisplayWhitePoint[1].ToDouble(), maAppend);
         }
 
         if (Src->HasMasteringDisplayLuminance) {
-            vsapi->mapSetFloat(Props, "MasteringDisplayMinLuminance", av_q2d(Src->MasteringDisplayMinLuminance), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayMaxLuminance", av_q2d(Src->MasteringDisplayMaxLuminance), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayMinLuminance", Src->MasteringDisplayMinLuminance.ToDouble(), maAppend);
+            vsapi->mapSetFloat(Props, "MasteringDisplayMaxLuminance", Src->MasteringDisplayMaxLuminance.ToDouble(), maAppend);
         }
 
         if (Src->HasContentLightLevel) {
