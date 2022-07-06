@@ -64,6 +64,7 @@ static int IsRealPlanar(const AVPixFmtDescriptor *desc) {
 }
 
 // attempt to correct framerate to a common fraction if close to one
+// FIXME, unused and not exposed at the moment. Pointless?
 static void CorrectRationalFramerate(int &Num, int &Den) {
     // Make sure fps is a normalized rational number
     av_reduce(&Den, &Num, Den, Num, INT_MAX);
@@ -291,9 +292,6 @@ void LWVideoDecoder::SetVideoProperties() {
     assert(VP.StartTime != AV_NOPTS_VALUE);
     if (VP.StartTime == AV_NOPTS_VALUE)
         VP.StartTime = 0;
-
-    // attempt to correct framerate to the proper NTSC fraction, if applicable
-    CorrectRationalFramerate(VP.FPS.num, VP.FPS.den); // FIXME, is this still relevant? should probably be an option to turn it off
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;
