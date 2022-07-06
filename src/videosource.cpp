@@ -461,7 +461,12 @@ const AVFrame *BestVideoFrame::GetAVFrame() const {
     return Frame;
 };
 
-bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
+bool BestVideoFrame::HasAlpha() const {
+    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
+    return ::HasAlpha(Desc);
+};
+
+bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
@@ -481,7 +486,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
         if (!bytesPerSample)
             return false;
 
-        for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+        int numBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
+        for (int plane = 0; plane < numBasePlanes; plane++) {
             int planew = Frame->width;
             int planeh = Frame->height;
             if (plane > 0) {
@@ -496,6 +502,17 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
                 dst += Stride[plane];
             }
         }
+
+        if (::HasAlpha(Desc) && AlphaDst) {
+            const uint8_t *src = Frame->data[3];
+            uint8_t *dst = AlphaDst;
+            for (int h = 0; h < Frame->height; h++) {
+                memcpy(dst, src, bytesPerSample * Frame->width);
+                src += Frame->linesize[3];
+                dst += AlphaStride;
+            }
+        }
+
         return true;
     } else {
         p2p_buffer_param buf = {};
@@ -537,6 +554,10 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride) {
         for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
             buf.dst[plane] = Dst[plane];
             buf.dst_stride[plane] = Stride[plane];
+            if (::HasAlpha(Desc) && AlphaDst) {
+                buf.dst[3] = AlphaDst;
+                buf.dst_stride[3] = AlphaStride;
+            }
         }
 
         p2p_unpack_frame(&buf, 0);

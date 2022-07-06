@@ -135,7 +135,8 @@ public:
     BestVideoFrame(AVFrame *Frame);
     ~BestVideoFrame();
     const AVFrame *GetAVFrame() const;
-    bool ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride);
+    bool HasAlpha() const;
+    bool ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
 
     int PixFmt; // Pointless since it can be gotten from the underlying frame?
     VideoFormat VF;

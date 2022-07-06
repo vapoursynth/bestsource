@@ -33,6 +33,7 @@ extern "C" {
 
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
+    VSVideoFormat AlphaFormat = {};
     std::unique_ptr<BestVideoSource> V;
 };
 
@@ -41,6 +42,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
 
     if (activationReason == arInitial) {
         VSFrame *Dst = nullptr;
+        VSFrame *AlphaDst = nullptr;
         std::unique_ptr<BestVideoFrame> Src;
         try {
             Src.reset(d->V->GetFrame(n));
@@ -55,18 +57,29 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
                 DstStride[plane] = vsapi->getStride(Dst, plane);
             }
 
-            if (!Src->ExportAsPlanar(DstPtrs, DstStride)) {
+
+            ptrdiff_t AlphaStride = 0;
+            if (Src->HasAlpha()) {
+                AlphaDst = vsapi->newVideoFrame(&d->AlphaFormat, d->VI.width, d->VI.height, nullptr, core);
+                AlphaStride = vsapi->getStride(AlphaDst, 0);
+                vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
+            }
+
+            if (!Src->ExportAsPlanar(DstPtrs, DstStride, vsapi->getWritePtr(AlphaDst, 0), AlphaStride)) {
                 throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
         } catch (VideoException &e) {
             vsapi->freeFrame(Dst);
+            vsapi->freeFrame(AlphaDst);
             vsapi->setFilterError(e.what(), frameCtx);
             return nullptr;
         }
 
         const VideoProperties &VP = d->V->GetVideoProperties();
         VSMap *Props = vsapi->getFramePropertiesRW(Dst);
+        if (AlphaDst)
+            vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
         // Set AR variables
         if (VP.SAR.num > 0 && VP.SAR.den > 0) {
@@ -119,16 +132,6 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
         vsapi->mapSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, maAppend);
         vsapi->mapSetInt(Props, "Rotation", VP.Rotation, maAppend);
 
-        /*
-        OutputFrame(Frame, Dst, vsapi);
-        if (OutputAlpha) {
-            VSFrame *AlphaDst = vsapi->newVideoFrame(&VI[1].format, VI[1].width, VI[1].height, nullptr, core);
-            vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maReplace);
-            OutputAlphaFrame(Frame, VI[0].format.numPlanes, AlphaDst, vsapi);
-            vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maReplace);
-        }
-        */
-
         return Dst;
     }
 
@@ -176,6 +179,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         vsapi->mapSetError(out, (std::string("BestVideoSource: ") + e.what()).c_str());
         return;
     }
+
+    vsapi->queryVideoFormat(&D->AlphaFormat, cfGray, D->VI.format.sampleType, D->VI.format.bitsPerSample, 0, 0, core);
 
     vsapi->createVideoFilter(out, "Source", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, core);
 }
