@@ -79,7 +79,7 @@ public:
     LWAudioDecoder(const char *SourceFile, int Track, const FFmpegAudioOptions &Options); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
-    int64_t GetRelativeStartTime(int Track) const; // Returns INT64_MIN on error
+    int64_t GetRelativeStartTime(int Track) const; // Offset in samples, negative number means nth video track
     int64_t GetSamplePosition() const;
     int64_t GetSampleLength() const;
     int64_t GetFrameNumber() const;

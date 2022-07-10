@@ -176,8 +176,22 @@ int LWAudioDecoder::GetTrack() const {
 }
 
 int64_t LWAudioDecoder::GetRelativeStartTime(int Track) const {
+    if (Track < 0) {
+        for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++) {
+            if (FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                if (Track == -1) {
+                    Track = i;
+                    break;
+                } else {
+                    Track++;
+                }
+            }
+        }
+    }
+
     if (Track < 0 || Track >= static_cast<int>(FormatContext->nb_streams))
-        return INT64_MIN;
+        throw AudioException("Invalid track index");
+
     return 0;
 }
 

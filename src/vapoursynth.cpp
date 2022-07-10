@@ -101,6 +101,8 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
 
+        // FIXME, missing frame duration/absolute time
+
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {
                 vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), maAppend);
