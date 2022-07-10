@@ -18,9 +18,6 @@
     <ClCompile Include="..\src\videosource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\avisynth.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\vapoursynth.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -33,12 +30,18 @@
     <ClCompile Include="..\src\BSRational.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\SrcAttribCache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\videosource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\BSRational.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\SrcAttribCache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -19,6 +19,7 @@
 //  THE SOFTWARE.
 
 #include "videosource.h"
+#include "SrcAttribCache.h"
 #include <algorithm>
 #include <thread>
 #include <cassert>
@@ -34,6 +35,8 @@ extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/mastering_display_metadata.h>
 }
+
+#define VERSION_CHECK(LIB, cmp, major, minor, micro) ((LIB) cmp (AV_VERSION_INT(major, minor, micro)))
 
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *desc) {
     return !!(desc->flags & AV_PIX_FMT_FLAG_FLOAT);
@@ -215,6 +218,10 @@ void LWVideoDecoder::Free() {
 
 LWVideoDecoder::~LWVideoDecoder() {
     Free();
+}
+
+int LWVideoDecoder::GetTrack() const {
+    return TrackNumber;
 }
 
 int64_t LWVideoDecoder::GetRelativeStartTime(int Track) const {
@@ -442,13 +449,13 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
 
     HasContentLightLevel = !!ContentLightLevelMax || !!ContentLightLevelAverage;
 
-    /* too new?
+#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 57, 9, 100)
     const AVFrameSideData *DolbyVisionRPUSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
     if (DolbyVisionRPUSideData) {
         DolbyVisionRPU = DolbyVisionRPUSideData->data;
         DolbyVisionRPUSize = DolbyVisionRPUSideData->size;
     }
-    */
+#endif
 }
 
 BestVideoFrame::~BestVideoFrame() {
@@ -576,11 +583,20 @@ BestVideoSource::CacheBlock::~CacheBlock() {
 }
 
 BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions *Options)
-    : Source(SourceFile), Track(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    : Source(SourceFile), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (Options)
         FFOptions = *Options;
-    Decoders[0] = new LWVideoDecoder(Source.c_str(), Track, VariableFormat, Threads, FFOptions);
+    Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
     VP = Decoders[0]->GetVideoProperties();
+    VideoTrack = Decoders[0]->GetTrack();
+    
+    SourceAttributes attr = {};
+    if (GetSourceAttributes(Source, attr)) {
+        if (attr.tracks.count(VideoTrack) && attr.tracks[VideoTrack] > 0) {
+            VP.NumFrames = attr.tracks[VideoTrack];
+            HasExactNumVideoFrames = true;
+        }
+    }
     
     MaxSize = 1024 * 1024 * 1024;
 }
@@ -588,6 +604,10 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
 BestVideoSource::~BestVideoSource() {
     for (auto iter : Decoders)
         delete iter;
+}
+
+int BestVideoSource::GetTrack() const {
+    return VideoTrack;
 }
 
 void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
@@ -612,7 +632,7 @@ bool BestVideoSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWVideoDecoder(Source.c_str(), Track, VariableFormat, Threads, FFOptions);
+        Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
         Index = 0;
     }
 
@@ -621,6 +641,11 @@ bool BestVideoSource::GetExactDuration() {
     while (Decoder->SkipNextAVFrame());
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
+
+    SourceAttributes attr;
+    attr.tracks[VideoTrack] = VP.NumFrames;
+    SetSourceAttributes(Source, attr);
+
     HasExactNumVideoFrames = true;
     delete Decoder;
     Decoders[Index] = nullptr;
@@ -652,7 +677,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source.c_str(), Track, VariableFormat, Threads, FFOptions);
+                Decoders[i] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
                 break;
             }
         }
@@ -666,7 +691,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source.c_str(), Track, VariableFormat, Threads, FFOptions);
+        Decoders[Index] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
     }
 
     LWVideoDecoder *Decoder = Decoders[Index];
@@ -703,7 +728,12 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         if (!Decoder->HasMoreFrames()) {
             VP.NumFrames = Decoder->GetFrameNumber();
             VP.NumFields = Decoder->GetFieldNumber();
-            HasExactNumVideoFrames = true;
+            if (!HasExactNumVideoFrames) {
+                SourceAttributes attr;
+                attr.tracks[VideoTrack] = VP.NumFrames;
+                SetSourceAttributes(Source, attr);
+                HasExactNumVideoFrames = true;
+            }
             delete Decoder;
             Decoders[Index] = nullptr;
             Decoder = nullptr;

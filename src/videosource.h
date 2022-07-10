@@ -52,7 +52,7 @@ struct VideoProperties {
     int64_t StartTime;
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
-    int64_t NumFields; // same as NumFrames but for total fields with RFF taken into consideration
+    int64_t NumFields; // same as NumFrames but for total fields with RFF taken into consideration, currently broken
 
     BSRational FPS;
     BSRational SAR;
@@ -114,6 +114,7 @@ private:
 public:
     LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions &Options); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
+    int GetTrack() const; // Useful when opening nth video track to get the actual number
     int64_t GetRelativeStartTime(int Track) const; // Returns INT64_MIN on error
     int64_t GetFrameNumber() const;
     int64_t GetFieldNumber() const;
@@ -186,7 +187,7 @@ private:
     FFmpegOptions FFOptions = {};
     VideoProperties VP = {};
     std::string Source;
-    int Track;
+    int VideoTrack;
     bool VariableFormat;
     int Threads;
     bool HasExactNumVideoFrames = false;
@@ -196,10 +197,11 @@ private:
     std::list<CacheBlock> Cache;
     size_t MaxSize;
     size_t CacheSize = 0;
-    int64_t PreRoll = 10;
+    int64_t PreRoll = 20;
 public:
     BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions *Options = nullptr);
     ~BestVideoSource();
+    int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(size_t Frames); /* the number of frames to cache before the position being fast forwarded to, default is 10 frames */
     bool GetExactDuration();

@@ -60,7 +60,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
                 vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
             }
 
-            if (!Src->ExportAsPlanar(DstPtrs, DstStride, vsapi->getWritePtr(AlphaDst, 0), AlphaStride)) {
+            if (!Src->ExportAsPlanar(DstPtrs, DstStride, AlphaDst ? vsapi->getWritePtr(AlphaDst, 0) : nullptr, AlphaStride)) {
                 throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
             }
 

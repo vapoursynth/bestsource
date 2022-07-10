@@ -18,18 +18,17 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
+#ifndef SRC_ATTRIB_CACHE_H
+#define SRC_ATTRIB_CACHE_H
 
-#include "BSRational.h"
+#include <string>
+#include <map>
 
-extern "C" {
-#include <libavutil/rational.h>
-}
+struct SourceAttributes {
+    std::map<int, int64_t> tracks;
+};
 
-BSRational::BSRational(const AVRational &r) {
-    num = r.num;
-    den = r.den;
-}
+bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs); // reads json db of known files and looks for 
+bool SetSourceAttributes(const std::string &filename, const SourceAttributes &attrs);
 
-double BSRational::ToDouble() const {
-    return num / (double)den;
-}
+#endif
