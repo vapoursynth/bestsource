@@ -65,6 +65,7 @@ static file_ptr_t OpenCacheFile(bool write) {
     if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &app) != S_OK)
         return nullptr;
     std::wstring cachePath = app;
+    CoTaskMemFree(app);
     cachePath += L"\\bscache.json";
     return file_ptr_t(_wfopen(cachePath.c_str(), write ? L"wb" : L"rb"));
 #else

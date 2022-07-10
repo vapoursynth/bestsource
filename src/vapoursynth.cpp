@@ -149,6 +149,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         SeekPreRoll = 20;
     bool VariableFormat = !!vsapi->mapGetInt(in, "variableformat", 0, &err);
     bool ExactFrames = !!vsapi->mapGetInt(in, "exactframes", 0, &err);
+    if (err)
+        ExactFrames = true;
 
     FFmpegVideoOptions opts;
     opts.enable_drefs = !!vsapi->mapGetInt(in, "enable_drefs", 0, &err);
@@ -222,6 +224,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
         Track = -1;
     int AdjustDelay = vsapi->mapGetIntSaturated(in, "adjustdelay", 0, &err);
     bool ExactSamples = !!vsapi->mapGetInt(in, "exactsamples", 0, &err);
+    if (err)
+        ExactSamples = true;
 
     FFmpegAudioOptions opts;
     opts.enable_drefs = !!vsapi->mapGetInt(in, "enable_drefs", 0, &err);
