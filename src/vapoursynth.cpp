@@ -172,7 +172,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         D->V->SetSeekPreRoll(SeekPreRoll);
     } catch (VideoException &e) {
         delete D;
-        vsapi->mapSetError(out, (std::string("BestVideoSource: ") + e.what()).c_str());
+        vsapi->mapSetError(out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
     }
 
@@ -244,7 +244,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
     } catch (AudioException &e) {
         delete D;
-        vsapi->mapSetError(out, (std::string("BestAudioSource: ") + e.what()).c_str());
+        vsapi->mapSetError(out, (std::string("AudioSource: ") + e.what()).c_str());
         return;
     }
 
@@ -252,7 +252,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
-    vspapi->configPlugin("com.vapoursynth.bestvideosource", "bvs", "Best Video Source", VS_MAKE_VERSION(0, 8), VAPOURSYNTH_API_VERSION, 0, plugin);
+    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(0, 9), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;seekpreroll:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exactsamples:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }
