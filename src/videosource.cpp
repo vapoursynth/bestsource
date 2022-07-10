@@ -122,7 +122,7 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions &Options) {
+void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
@@ -191,7 +191,7 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
         throw VideoException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions &Options) {
+LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options) {
     try {
         Packet = av_packet_alloc();
         OpenFile(SourceFile, Track, VariableFormat, Threads, Options);
@@ -582,7 +582,7 @@ BestVideoSource::CacheBlock::~CacheBlock() {
     av_frame_free(&Frame);
 }
 
-BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegOptions *Options)
+BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions *Options)
     : Source(SourceFile), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (Options)
         FFOptions = *Options;
@@ -642,9 +642,7 @@ bool BestVideoSource::GetExactDuration() {
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 
-    SourceAttributes attr;
-    attr.tracks[VideoTrack] = VP.NumFrames;
-    SetSourceAttributes(Source, attr);
+    SetSourceAttributes(Source, VideoTrack, VP.NumFrames);
 
     HasExactNumVideoFrames = true;
     delete Decoder;
@@ -729,9 +727,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
             VP.NumFrames = Decoder->GetFrameNumber();
             VP.NumFields = Decoder->GetFieldNumber();
             if (!HasExactNumVideoFrames) {
-                SourceAttributes attr;
-                attr.tracks[VideoTrack] = VP.NumFrames;
-                SetSourceAttributes(Source, attr);
+                SetSourceAttributes(Source, VideoTrack, VP.NumFrames);
                 HasExactNumVideoFrames = true;
             }
             delete Decoder;

@@ -28,7 +28,7 @@ struct SourceAttributes {
     std::map<int, int64_t> tracks;
 };
 
-bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs); // reads json db of known files and looks for 
-bool SetSourceAttributes(const std::string &filename, const SourceAttributes &attrs);
+bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs);
+bool SetSourceAttributes(const std::string &filename, int track, int64_t samples);
 
 #endif

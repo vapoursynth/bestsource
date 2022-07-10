@@ -113,7 +113,7 @@ bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs) {
     return true;
 }
 
-bool SetSourceAttributes(const std::string &filename, const SourceAttributes &attrs) {
+bool SetSourceAttributes(const std::string &filename, int track, int64_t samples) {
     struct _stat64 info = {};
     if (!StatWrapper(filename, info))
         return false;
@@ -138,9 +138,7 @@ bool SetSourceAttributes(const std::string &filename, const SourceAttributes &at
         json_object_set_new(fobj, "tracks", tobj);
     }
 
-    for (const auto &iter : attrs.tracks) {
-        json_object_set_new(tobj, std::to_string(iter.first).c_str(), json_integer(iter.second));
-    }
+    json_object_set_new(tobj, std::to_string(track).c_str(), json_integer(samples));
 
     f = OpenCacheFile(true);
     if (!f)
