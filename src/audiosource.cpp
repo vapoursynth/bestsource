@@ -64,12 +64,12 @@ bool LWAudioDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const FFmpegAudioOptions &Options) {
+void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
-    av_dict_set_int(&Dict, "enable_drefs", Options.enable_drefs, 0);
-    av_dict_set_int(&Dict, "use_absolute_path", Options.use_absolute_path, 0);
+    for (const auto &iter : LAVFOpts)
+        av_dict_set(&Dict, iter.first.c_str(), iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
         throw AudioException(std::string("Couldn't open '") + SourceFile + "'");
@@ -119,12 +119,12 @@ void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const FFmpegAud
     // Probably guard against mid-stream format changes
     CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;
 
-    if (Options.drc_scale < 0)
+    if (DrcScale < 0)
         throw AudioException("Invalid drc_scale value");
 
     AVDictionary *CodecDict = nullptr;
     if (Codec->id == AV_CODEC_ID_AC3 || Codec->id == AV_CODEC_ID_EAC3)
-        av_dict_set(&CodecDict, "drc_scale", std::to_string(Options.drc_scale).c_str(), 0);
+        av_dict_set(&CodecDict, "drc_scale", std::to_string(DrcScale).c_str(), 0);
 
     if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0)
         throw AudioException("Could not open audio codec");
@@ -132,10 +132,10 @@ void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const FFmpegAud
     av_dict_free(&CodecDict);
 }
 
-LWAudioDecoder::LWAudioDecoder(const char *SourceFile, int Track, const FFmpegAudioOptions &Options) {
+LWAudioDecoder::LWAudioDecoder(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, Track, Options);
+        OpenFile(SourceFile, Track, LAVFOpts, DrcScale);
 
         DecodeSuccess = DecodeNextAVFrame();
         
@@ -282,10 +282,10 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const FFmpegAudioOptions *Options) : Source(SourceFile), AudioTrack(Track) {
-    if (Options)
-        FFOptions = *Options;
-    Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, FFOptions);
+BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+    if (LAVFOpts)
+        LAVFOptions = *LAVFOpts;
+    Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, DrcScale);
     AP = Decoders[0]->GetAudioProperties();
     AudioTrack = Decoders[0]->GetTrack();
     MaxSize = (100 * 1024 * 1024) / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
@@ -322,7 +322,7 @@ bool BestAudioSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWAudioDecoder(Source.c_str(), AudioTrack, FFOptions);
+        Decoders[0] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
         Index = 0;
     }
 
@@ -421,7 +421,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
         for (int i = 0; i < MaxAudioSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWAudioDecoder(Source.c_str(), AudioTrack, FFOptions);
+                Decoders[i] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
                 break;
             }
         }
@@ -435,7 +435,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWAudioDecoder(Source.c_str(), AudioTrack, FFOptions);
+        Decoders[Index] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
     }
 
     LWAudioDecoder *Decoder = Decoders[Index];

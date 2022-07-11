@@ -229,15 +229,16 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
     if (err)
         ExactSamples = true;
 
-    FFmpegAudioOptions opts;
-    opts.enable_drefs = !!vsapi->mapGetInt(in, "enable_drefs", 0, &err);
-    opts.use_absolute_path = !!vsapi->mapGetInt(in, "use_absolute_path", 0, &err);
-    opts.drc_scale = vsapi->mapGetFloat(in, "drc_scale", 0, &err);
+    std::map<std::string, std::string> Opts;
+    Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
+    Opts["enable_drefs"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
+
+    double DrcScale = vsapi->mapGetFloat(in, "drc_scale", 0, &err);
 
     BestAudioSourceData *D = new BestAudioSourceData();
 
     try {
-        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, &opts));
+        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, &Opts, DrcScale));
         if (ExactSamples)
             D->A->GetExactDuration();
         const AudioProperties &AP = D->A->GetAudioProperties();

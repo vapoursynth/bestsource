@@ -25,6 +25,7 @@
 // FIXME, export delay relative to first video track somehow
 
 #include <list>
+#include <map>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -50,15 +51,6 @@ struct AudioProperties {
     int64_t StartTime; /* in samples, equivalent to the offset used to have a zero start time */
 };
 
-/* These correspond to the FFmpeg options of the same name */
-struct FFmpegAudioOptions {
-    /* mp4/mov/3gpp demuxer options */
-    bool enable_drefs = false;
-    bool use_absolute_path = false;
-    /* ac3 decoder family options */
-    double drc_scale = 0;
-};
-
 class LWAudioDecoder {
 private:
     AudioProperties AP = {};
@@ -71,12 +63,12 @@ private:
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
 
-    void OpenFile(const char *SourceFile, int Track, const FFmpegAudioOptions &Options);
+    void OpenFile(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame();
     void Free();
 public:
-    LWAudioDecoder(const char *SourceFile, int Track, const FFmpegAudioOptions &Options); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWAudioDecoder(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     int64_t GetRelativeStartTime(int Track) const; // Offset in samples, negative number means nth video track
@@ -107,7 +99,8 @@ private:
     };
 
     static constexpr size_t MaxAudioSources = 4;
-    FFmpegAudioOptions FFOptions = {};
+    std::map<std::string, std::string> LAVFOptions;
+    double DrcScale;
     AudioProperties AP = {};
     std::string Source;
     int AudioTrack;
@@ -124,7 +117,7 @@ private:
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const char *SourceFile, int Track, int AjustDelay = -2, const FFmpegAudioOptions *Options = nullptr);
+    BestAudioSource(const char *SourceFile, int Track, int AjustDelay = -2, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     void SetMaxCacheSize(size_t bytes); /* default max size is 100MB */
