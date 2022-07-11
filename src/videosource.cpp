@@ -110,10 +110,12 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
         if (Ret == 0) {
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (!ReadPacket(Packet))
-                return false;
-            avcodec_send_packet(CodecContext, Packet);
-            av_packet_unref(Packet);
+            if (ReadPacket(Packet)) {
+                avcodec_send_packet(CodecContext, Packet);
+                av_packet_unref(Packet);
+            } else {
+                avcodec_send_packet(CodecContext, nullptr);
+            }
         } else {
             break; // Probably EOF or some unrecoverable error so stop here
         }
@@ -296,7 +298,7 @@ void LWVideoDecoder::SetVideoProperties() {
     }
 
     VP.StartTime = FormatContext->streams[TrackNumber]->start_time;
-    assert(VP.StartTime != AV_NOPTS_VALUE);
+    //assert(VP.StartTime != AV_NOPTS_VALUE); FIXME, horribly unreliable and should no be used at all
     if (VP.StartTime == AV_NOPTS_VALUE)
         VP.StartTime = 0;
 
