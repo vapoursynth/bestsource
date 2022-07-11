@@ -145,7 +145,7 @@ bool SetSourceAttributes(const std::string &filename, int track, int64_t samples
     if (!f)
         return false;
 
-    if (json_dumpf(data.get(), f.get(), JSON_INDENT(2)))
+    if (json_dumpf(data.get(), f.get(), JSON_INDENT(2) | JSON_SORT_KEYS))
         return false;
 
     return true;

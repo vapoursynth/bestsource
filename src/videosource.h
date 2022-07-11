@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <list>
+#include <map>
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -87,12 +88,6 @@ struct VideoProperties {
     int Rotation; /* A positive number in degrees */
 };
 
-/* These correspond to the FFmpeg options of the same name */
-struct FFmpegVideoOptions {
-    /* mp4/mov/3gpp demuxer options */
-    bool enable_drefs = false;
-    bool use_absolute_path = false;
-};
 
 struct LWVideoDecoder {
 private:
@@ -106,13 +101,13 @@ private:
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
 
-    void OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options);
+    void OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     void SetVideoProperties();
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame();
     void Free();
 public:
-    LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     int64_t GetRelativeStartTime(int Track) const; // Returns INT64_MIN on error
@@ -184,7 +179,7 @@ private:
     };
 
     static constexpr size_t MaxVideoSources = 4;
-    FFmpegVideoOptions FFOptions = {};
+    std::map<std::string, std::string> LAVFOptions;
     VideoProperties VP = {};
     std::string Source;
     int VideoTrack;
@@ -199,7 +194,7 @@ private:
     size_t CacheSize = 0;
     int64_t PreRoll = 20;
 public:
-    BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions *Options = nullptr);
+    BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> *LAVFOpts);
     ~BestVideoSource();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */

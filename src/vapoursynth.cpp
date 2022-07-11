@@ -154,14 +154,14 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
     if (err)
         ExactFrames = true;
 
-    FFmpegVideoOptions opts;
-    opts.enable_drefs = !!vsapi->mapGetInt(in, "enable_drefs", 0, &err);
-    opts.use_absolute_path = !!vsapi->mapGetInt(in, "use_absolute_path", 0, &err);
+    std::map<std::string, std::string> Opts;
+    Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
+    Opts["enable_drefs"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
 
     BestVideoSourceData *D = new BestVideoSourceData();
 
     try {
-        D->V.reset(new BestVideoSource(Source, Track, VariableFormat, 0, &opts));
+        D->V.reset(new BestVideoSource(Source, Track, VariableFormat, 0, &Opts));
         if (ExactFrames)
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();

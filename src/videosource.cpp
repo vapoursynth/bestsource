@@ -124,12 +124,12 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options) {
+void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
-    av_dict_set_int(&Dict, "enable_drefs", Options.enable_drefs, 0);
-    av_dict_set_int(&Dict, "use_absolute_path", Options.use_absolute_path, 0);
+    for (const auto &iter : LAVFOpts)
+        av_dict_set(&Dict, iter.first.c_str(), iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
         throw VideoException(std::string("Couldn't open '") + SourceFile + "'");
@@ -193,10 +193,10 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
         throw VideoException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions &Options) {
+LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, Track, VariableFormat, Threads, Options);
+        OpenFile(SourceFile, Track, VariableFormat, Threads, LAVFOpts);
 
         DecodeSuccess = DecodeNextAVFrame();
 
@@ -584,11 +584,11 @@ BestVideoSource::CacheBlock::~CacheBlock() {
     av_frame_free(&Frame);
 }
 
-BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const FFmpegVideoOptions *Options)
+BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> *LAVFOpts)
     : Source(SourceFile), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
-    if (Options)
-        FFOptions = *Options;
-    Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
+    if (LAVFOpts)
+        LAVFOptions = *LAVFOpts;
+    Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
     VP = Decoders[0]->GetVideoProperties();
     VideoTrack = Decoders[0]->GetTrack();
     
@@ -634,7 +634,7 @@ bool BestVideoSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
+        Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
         Index = 0;
     }
 
@@ -677,7 +677,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
+                Decoders[i] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
                 break;
             }
         }
@@ -691,7 +691,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, FFOptions);
+        Decoders[Index] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
     }
 
     LWVideoDecoder *Decoder = Decoders[Index];
