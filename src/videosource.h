@@ -21,6 +21,8 @@
 #ifndef VIDEOSOURCE_H
 #define VIDEOSOURCE_H
 
+// FIXME, continuously store timestamps on decode so duration can be output
+
 #include "BSRational.h"
 #include <cstdint>
 #include <stdexcept>

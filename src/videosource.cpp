@@ -292,7 +292,7 @@ void LWVideoDecoder::SetVideoProperties() {
     }
 
     if (DecodeFrame->pts != AV_NOPTS_VALUE)
-        VP.StartTime = ((static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) / 1000) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
+        VP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;

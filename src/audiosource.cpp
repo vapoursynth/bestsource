@@ -152,7 +152,7 @@ LWAudioDecoder::LWAudioDecoder(const char *SourceFile, int Track, const std::map
         AP.ChannelLayout = DecodeFrame->channel_layout ? DecodeFrame->channel_layout : av_get_default_channel_layout(DecodeFrame->channels);  
         AP.NumSamples = (FormatContext->duration * DecodeFrame->sample_rate) / AV_TIME_BASE - FormatContext->streams[TrackNumber]->codecpar->initial_padding;
         if (DecodeFrame->pts != AV_NOPTS_VALUE)
-            AP.StartTime = ((static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) / 1000) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
+            AP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
         if (AP.BytesPerSample <= 0)
             throw AudioException("Codec returned zero size audio");
@@ -272,7 +272,9 @@ BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDel
     AP = Decoders[0]->GetAudioProperties();
 
     if (AjustDelay >= -1)
-        SampleDelay = GetRelativeStartTime(AjustDelay) * AP.SampleRate;
+        SampleDelay = static_cast<int64_t>(GetRelativeStartTime(AjustDelay) * AP.SampleRate);
+
+    AP.NumSamples += SampleDelay;
 
     AudioTrack = Decoders[0]->GetTrack();
     MaxSize = (100 * 1024 * 1024) / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
@@ -484,6 +486,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
         if (!Decoder->HasMoreFrames()) {
             AP.NumSamples = Decoder->GetSamplePosition();
             HasExactNumAudioSamples = true;
+            SetSourceAttributes(Source, AudioTrack, AP.NumSamples);
             delete Decoder;
             Decoders[Index] = nullptr;
             Decoder = nullptr;
