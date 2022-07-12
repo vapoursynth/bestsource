@@ -30,7 +30,6 @@
 
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
-    VSVideoFormat AlphaFormat = {};
     std::unique_ptr<BestVideoSource> V;
 };
 
@@ -45,18 +44,24 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
             Src.reset(d->V->GetFrame(n));
             if (!Src)
                 throw VideoException("No frame returned for frame number " + std::to_string(n));
-            Dst = vsapi->newVideoFrame(&d->VI.format, d->VI.width, d->VI.height, nullptr, core);
+
+            VSVideoFormat VideoFormat = {};
+            vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, core);
+            VSVideoFormat AlphaFormat = {};
+            vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, core);
+
+            Dst = vsapi->newVideoFrame(&VideoFormat, Src->Width, Src->Height, nullptr, core);
             uint8_t *DstPtrs[3] = {};
             ptrdiff_t DstStride[3] = {};
 
-            for (int plane = 0; plane < d->VI.format.numPlanes; plane++) {
+            for (int plane = 0; plane < VideoFormat.numPlanes; plane++) {
                 DstPtrs[plane] = vsapi->getWritePtr(Dst, plane);
                 DstStride[plane] = vsapi->getStride(Dst, plane);
             }
 
             ptrdiff_t AlphaStride = 0;
             if (Src->HasAlpha()) {
-                AlphaDst = vsapi->newVideoFrame(&d->AlphaFormat, d->VI.width, d->VI.height, nullptr, core);
+                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, core);
                 AlphaStride = vsapi->getStride(AlphaDst, 0);
                 vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
             }
@@ -165,12 +170,13 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         if (ExactFrames)
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();
-        
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, core))
             throw VideoException("Unsupported video format from decoder (probably less than 8 bit or pallette)");
-        D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
         D->VI.width = VP.Width;
         D->VI.height = VP.Height;
+        if (VariableFormat)
+            D->VI = {};
+        D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
         D->VI.fpsNum = VP.FPS.num;
         D->VI.fpsDen = VP.FPS.den;
         vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
@@ -180,8 +186,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         vsapi->mapSetError(out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
     }
-
-    vsapi->queryVideoFormat(&D->AlphaFormat, cfGray, D->VI.format.sampleType, D->VI.format.bitsPerSample, 0, 0, core);
 
     vsapi->createVideoFilter(out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, core);
 }
