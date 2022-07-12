@@ -50,7 +50,7 @@ struct VideoFormat {
 
 struct VideoProperties {
     BSRational TimeBase;
-    int64_t StartTime;
+    double StartTime; // in seconds
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
     int64_t NumFields; // same as NumFrames but for total fields with RFF taken into consideration, currently broken
@@ -110,7 +110,6 @@ public:
     LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
-    int64_t GetRelativeStartTime(int Track) const; // Returns INT64_MIN on error
     int64_t GetFrameNumber() const;
     int64_t GetFieldNumber() const;
     const VideoProperties &GetVideoProperties() const;

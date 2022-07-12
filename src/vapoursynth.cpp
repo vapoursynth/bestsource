@@ -173,6 +173,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         D->VI.height = VP.Height;
         D->VI.fpsNum = VP.FPS.num;
         D->VI.fpsDen = VP.FPS.den;
+        vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
         D->V->SetSeekPreRoll(SeekPreRoll);
     } catch (VideoException &e) {
         delete D;
@@ -225,6 +226,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
     if (err)
         Track = -1;
     int AdjustDelay = vsapi->mapGetIntSaturated(in, "adjustdelay", 0, &err);
+    if (err)
+        AdjustDelay = -1;
     bool ExactSamples = !!vsapi->mapGetInt(in, "exactsamples", 0, &err);
     if (err)
         ExactSamples = true;

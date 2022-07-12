@@ -48,7 +48,7 @@ struct AudioProperties {
     int Channels;
     uint64_t ChannelLayout;
     int64_t NumSamples; /* estimated by decoder, may be wrong */
-    int64_t StartTime; /* in samples, equivalent to the offset used to have a zero start time */
+    double StartTime; /* in seconds */
 };
 
 class LWAudioDecoder {
@@ -71,7 +71,6 @@ public:
     LWAudioDecoder(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
-    int64_t GetRelativeStartTime(int Track) const; // Offset in samples, negative number means nth video track
     int64_t GetSamplePosition() const;
     int64_t GetSampleLength() const;
     int64_t GetFrameNumber() const;
@@ -112,16 +111,18 @@ private:
     size_t MaxSize;
     size_t CacheSize = 0;
     int64_t PreRoll = 2000000;
+    int64_t SampleDelay = 0;
 
     void ZeroFillStart(uint8_t *Data[], int64_t &Start, int64_t &Count);
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const char *SourceFile, int Track, int AjustDelay = -2, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
+    BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     void SetMaxCacheSize(size_t bytes); /* default max size is 100MB */
-    void SetSeekPreRoll(size_t samples); /* the number of samples to cache before the position being fast forwarded to, default is 200k samples */
+    void SetSeekPreRoll(int64_t samples); /* the number of samples to cache before the position being fast forwarded to, default is 200k samples */
+    double GetRelativeStartTime(int Track) const; // Offset in seconds
     bool GetExactDuration();
     const AudioProperties &GetAudioProperties() const;
     void GetAudio(uint8_t * const * const Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed

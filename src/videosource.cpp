@@ -226,12 +226,6 @@ int LWVideoDecoder::GetTrack() const {
     return TrackNumber;
 }
 
-int64_t LWVideoDecoder::GetRelativeStartTime(int Track) const {
-    if (Track < 0 || Track >= static_cast<int>(FormatContext->nb_streams))
-        return INT64_MIN;
-    return 0;
-}
-
 int64_t LWVideoDecoder::GetFrameNumber() const {
     return CurrentFrame;
 }
@@ -297,10 +291,8 @@ void LWVideoDecoder::SetVideoProperties() {
         VP.FPS.num = 30;
     }
 
-    VP.StartTime = FormatContext->streams[TrackNumber]->start_time;
-    //assert(VP.StartTime != AV_NOPTS_VALUE); FIXME, horribly unreliable and should no be used at all
-    if (VP.StartTime == AV_NOPTS_VALUE)
-        VP.StartTime = 0;
+    if (DecodeFrame->pts != AV_NOPTS_VALUE)
+        VP.StartTime = ((static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) / 1000) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;

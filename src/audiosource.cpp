@@ -19,9 +19,11 @@
 //  THE SOFTWARE.
 
 #include "audiosource.h"
+#include "videosource.h"
 #include "SrcAttribCache.h"
 
 #include <algorithm>
+#include <memory>
 
 extern "C" {
 #include <libavutil/dict.h>
@@ -149,7 +151,8 @@ LWAudioDecoder::LWAudioDecoder(const char *SourceFile, int Track, const std::map
         AP.Channels = DecodeFrame->channels;
         AP.ChannelLayout = DecodeFrame->channel_layout ? DecodeFrame->channel_layout : av_get_default_channel_layout(DecodeFrame->channels);  
         AP.NumSamples = (FormatContext->duration * DecodeFrame->sample_rate) / AV_TIME_BASE - FormatContext->streams[TrackNumber]->codecpar->initial_padding;
-        AP.StartTime = (DecodeFrame->best_effort_timestamp * FormatContext->streams[TrackNumber]->time_base.num * AP.SampleRate) / FormatContext->streams[TrackNumber]->time_base.den + FormatContext->streams[TrackNumber]->codecpar->initial_padding;
+        if (DecodeFrame->pts != AV_NOPTS_VALUE)
+            AP.StartTime = ((static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) / 1000) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
         if (AP.BytesPerSample <= 0)
             throw AudioException("Codec returned zero size audio");
@@ -173,26 +176,6 @@ LWAudioDecoder::~LWAudioDecoder() {
 
 int LWAudioDecoder::GetTrack() const {
     return TrackNumber;
-}
-
-int64_t LWAudioDecoder::GetRelativeStartTime(int Track) const {
-    if (Track < 0) {
-        for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++) {
-            if (FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                if (Track == -1) {
-                    Track = i;
-                    break;
-                } else {
-                    Track++;
-                }
-            }
-        }
-    }
-
-    if (Track < 0 || Track >= static_cast<int>(FormatContext->nb_streams))
-        throw AudioException("Invalid track index");
-
-    return 0;
 }
 
 int64_t LWAudioDecoder::GetSamplePosition() const {
@@ -287,6 +270,10 @@ BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDel
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, DrcScale);
     AP = Decoders[0]->GetAudioProperties();
+
+    if (AjustDelay >= -1)
+        SampleDelay = GetRelativeStartTime(AjustDelay) * AP.SampleRate;
+
     AudioTrack = Decoders[0]->GetTrack();
     MaxSize = (100 * 1024 * 1024) / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
 }
@@ -308,8 +295,31 @@ void BestAudioSource::SetMaxCacheSize(size_t bytes) {
     }
 }
 
-void BestAudioSource::SetSeekPreRoll(size_t samples) {
-    PreRoll = static_cast<int64_t>(samples);
+void BestAudioSource::SetSeekPreRoll(int64_t samples) {
+    PreRoll = samples;
+}
+
+double BestAudioSource::GetRelativeStartTime(int Track) const {
+    if (Track < 0) {
+        try {
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source.c_str(), Track, true, 0, LAVFOptions));
+            return AP.StartTime - Dec->GetVideoProperties().StartTime;
+        } catch (VideoException &) {
+        }
+        return 0;
+    } else {
+        try {
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source.c_str(), Track, true, 0, LAVFOptions));
+            return AP.StartTime - Dec->GetVideoProperties().StartTime;
+        } catch (VideoException &) {
+            try {
+                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, 0));
+                return AP.StartTime - Dec->GetAudioProperties().StartTime;
+            } catch (AudioException &) {
+                throw AudioException("Can't get delay relative to track");
+            }
+        }
+    }
 }
 
 bool BestAudioSource::GetExactDuration() {
@@ -384,6 +394,8 @@ bool BestAudioSource::FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &S
 }
 
 void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int64_t Count) {
+    Start += SampleDelay;
+
     if (Count <= 0)
         return;
 
