@@ -485,8 +485,10 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
 
         if (!Decoder->HasMoreFrames()) {
             AP.NumSamples = Decoder->GetSamplePosition();
-            HasExactNumAudioSamples = true;
-            SetSourceAttributes(Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+            if (!HasExactNumAudioSamples) {
+                HasExactNumAudioSamples = true;
+                SetSourceAttributes(Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+            }
             delete Decoder;
             Decoders[Index] = nullptr;
             Decoder = nullptr;
