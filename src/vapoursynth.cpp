@@ -161,7 +161,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
 
     std::map<std::string, std::string> Opts;
     Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["enable_drefs"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
+    Opts["use_absolute_path"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
 
     BestVideoSourceData *D = new BestVideoSourceData();
 
@@ -238,7 +238,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
 
     std::map<std::string, std::string> Opts;
     Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["enable_drefs"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
+    Opts["use_absolute_path"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
 
     double DrcScale = vsapi->mapGetFloat(in, "drc_scale", 0, &err);
 

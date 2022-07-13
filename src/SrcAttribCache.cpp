@@ -56,7 +56,16 @@ typedef std::unique_ptr<json_t> json_ptr_t;
 typedef std::unique_ptr<FILE> file_ptr_t;
 
 /*
-* { "<file path>": { size: int, tracks: { 0: frames/samples, 1: frames/samples, ... } }
+{
+        "<file path>": { 
+            size: int,
+            lavfopts: { "enable_drefs": "1", "use_absolute_paths": "0" },
+            variableformat: bool,
+            tracks: {
+                "0": frames/samples, "1": frames/samples, ...
+            }
+       }
+}
 */
 
 static file_ptr_t OpenCacheFile(bool write) {
@@ -81,7 +90,7 @@ static bool StatWrapper(const std::string &filename, struct _stat64 &info) {
 #endif
 }
 
-bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs) {
+bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs, std::map<std::string, std::string> &LAVFOpts, bool variable) {
     file_ptr_t f = OpenCacheFile(false);
     if (!f)
         return false;
@@ -103,18 +112,29 @@ bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs) {
     if (info.st_size != filesize)
         return false;
 
-    json_t *tdata = json_object_get(fdata, "tracks");
+    bool VariableFormat = json_boolean_value(json_object_get(fdata, "variable"));
+    std::map<std::string, std::string> opts;
 
+    json_t *lobj = json_object_get(fdata, "lavfopts");
     const char *key;
     json_t *value;
+    json_object_foreach(lobj, key, value) {
+        opts[key] = json_string_value(value);
+    }
+
+    if (VariableFormat != variable || opts != LAVFOpts)
+        return false;
+
+    json_t *tdata = json_object_get(fdata, "tracks");
+
     json_object_foreach(tdata, key, value) {
-        attrs.tracks[atoi(key)] = json_integer_value(value);
+        attrs.Tracks[atoi(key)] = json_integer_value(value);
     }
 
     return true;
 }
 
-bool SetSourceAttributes(const std::string &filename, int track, int64_t samples) {
+bool SetSourceAttributes(const std::string &filename, int track, int64_t samples, std::map<std::string, std::string> &LAVFOpts, bool variable) {
     struct _stat64 info = {};
     if (!StatWrapper(filename, info))
         return false;
@@ -132,6 +152,25 @@ bool SetSourceAttributes(const std::string &filename, int track, int64_t samples
     }
 
     json_object_set_new(fobj, "size", json_integer(info.st_size));
+
+    bool VariableFormat = json_boolean_value(json_object_get(fobj, "variable"));
+    std::map<std::string, std::string> opts;
+
+    json_t *lobj = json_object_get(fobj, "lavfopts");
+    const char *key;
+    json_t *value;
+    json_object_foreach(lobj, key, value) {
+        opts[key] = json_string_value(value);
+    }
+
+    bool ReplaceTracks = (VariableFormat != variable || opts != LAVFOpts);
+
+    json_object_set_new(fobj, "variable", json_boolean(variable));
+    lobj = json_object();
+    json_object_set_new(fobj, "lavfopts", lobj);
+
+    for (const auto &iter : LAVFOpts)
+        json_object_set_new(lobj, iter.first.c_str(), json_string(iter.second.c_str()));
 
     json_t *tobj = json_object_get(data.get(), "tracks");
     if (!tobj) {

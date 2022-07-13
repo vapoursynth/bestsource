@@ -585,9 +585,9 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
     VideoTrack = Decoders[0]->GetTrack();
     
     SourceAttributes attr = {};
-    if (GetSourceAttributes(Source, attr)) {
-        if (attr.tracks.count(VideoTrack) && attr.tracks[VideoTrack] > 0) {
-            VP.NumFrames = attr.tracks[VideoTrack];
+    if (GetSourceAttributes(Source, attr, LAVFOptions, VariableFormat)) {
+        if (attr.Tracks.count(VideoTrack) && attr.Tracks[VideoTrack] > 0) {
+            VP.NumFrames = attr.Tracks[VideoTrack];
             HasExactNumVideoFrames = true;
         }
     }
@@ -636,7 +636,7 @@ bool BestVideoSource::GetExactDuration() {
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 
-    SetSourceAttributes(Source, VideoTrack, VP.NumFrames);
+    SetSourceAttributes(Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
 
     HasExactNumVideoFrames = true;
     delete Decoder;
@@ -721,7 +721,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
             VP.NumFrames = Decoder->GetFrameNumber();
             VP.NumFields = Decoder->GetFieldNumber();
             if (!HasExactNumVideoFrames) {
-                SetSourceAttributes(Source, VideoTrack, VP.NumFrames);
+                SetSourceAttributes(Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
                 HasExactNumVideoFrames = true;
             }
             delete Decoder;
