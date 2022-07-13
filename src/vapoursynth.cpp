@@ -94,7 +94,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
         if (Src->ChromaLocation > 0)
             vsapi->mapSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, maAppend);
 
-        if (Src->ColorRange == 1) // FIXME, ugly hardcoded ffmpeg constants
+        if (Src->ColorRange == 1) // Hardcoded ffmpeg constants, nothing to see here
             vsapi->mapSetInt(Props, "_ColorRange", 1, maAppend);
         else if (Src->ColorRange == 2)
             vsapi->mapSetInt(Props, "_ColorRange", 0, maAppend);

@@ -66,29 +66,6 @@ static int IsRealPlanar(const AVPixFmtDescriptor *desc) {
     return (maxPlane + 1) == desc->nb_components;
 }
 
-// attempt to correct framerate to a common fraction if close to one
-// FIXME, unused and not exposed at the moment. Pointless?
-static void CorrectRationalFramerate(int &Num, int &Den) {
-    // Make sure fps is a normalized rational number
-    av_reduce(&Den, &Num, Den, Num, INT_MAX);
-
-    const double fps = static_cast<double>(Num) / Den;
-    const int fpsList[] = {24, 25, 30, 48, 50, 60, 100, 120};
-
-    for (size_t i = 0; i < sizeof(fpsList) / sizeof(fpsList[0]); i++) {
-        const double delta = (fpsList[i] - static_cast<double>(fpsList[i]) / 1.001) / 2.0;
-        if (fabs(fps - fpsList[i]) < delta) {
-            Num = fpsList[i];
-            Den = 1;
-            break;
-        } else if ((fpsList[i] % 25) && (fabs(fps - static_cast<double>(fpsList[i]) / 1.001) < delta)) {
-            Num = fpsList[i] * 1000;
-            Den = 1001;
-            break;
-        }
-    }
-}
-
 bool LWVideoDecoder::ReadPacket(AVPacket *Packet) {
     while (av_read_frame(FormatContext, Packet) >= 0) {
         if (Packet->stream_index == TrackNumber)
