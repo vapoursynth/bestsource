@@ -265,7 +265,9 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+    if (CachePath)
+        this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, DrcScale);
@@ -343,7 +345,7 @@ bool BestAudioSource::GetExactDuration() {
     while (Decoder->SkipNextAVFrame());
     AP.NumSamples = Decoder->GetSamplePosition();
     HasExactNumAudioSamples = true;
-    SetSourceAttributes(Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+    SetSourceAttributes(CachePath, Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
     delete Decoder;
     Decoders[Index] = nullptr;
 
@@ -487,7 +489,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
             AP.NumSamples = Decoder->GetSamplePosition();
             if (!HasExactNumAudioSamples) {
                 HasExactNumAudioSamples = true;
-                SetSourceAttributes(Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+                SetSourceAttributes(CachePath, Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
             }
             delete Decoder;
             Decoders[Index] = nullptr;

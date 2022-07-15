@@ -21,9 +21,6 @@
 #ifndef AUDIOSOURCE_H
 #define AUDIOSOURCE_H
 
-// FIXME, wrap everything its own namespace?
-// FIXME, export delay relative to first video track somehow
-
 #include <list>
 #include <map>
 #include <vector>
@@ -102,6 +99,7 @@ private:
     double DrcScale;
     AudioProperties AP = {};
     std::string Source;
+    std::string CachePath;
     int AudioTrack;
     bool HasExactNumAudioSamples = false;
     uint64_t DecoderSequenceNum = 0;
@@ -117,7 +115,7 @@ private:
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
+    BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     void SetMaxCacheSize(size_t bytes); /* default max size is 100MB */

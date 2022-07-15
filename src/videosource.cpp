@@ -553,8 +553,10 @@ BestVideoSource::CacheBlock::~CacheBlock() {
     av_frame_free(&Frame);
 }
 
-BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> *LAVFOpts)
+BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts)
     : Source(SourceFile), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    if (CachePath)
+        this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
@@ -562,7 +564,7 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
     VideoTrack = Decoders[0]->GetTrack();
     
     SourceAttributes attr = {};
-    if (GetSourceAttributes(Source, attr, LAVFOptions, VariableFormat)) {
+    if (GetSourceAttributes(this->CachePath, Source, attr, LAVFOptions, VariableFormat)) {
         if (attr.Tracks.count(VideoTrack) && attr.Tracks[VideoTrack] > 0) {
             VP.NumFrames = attr.Tracks[VideoTrack];
             HasExactNumVideoFrames = true;
@@ -613,7 +615,7 @@ bool BestVideoSource::GetExactDuration() {
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 
-    SetSourceAttributes(Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
+    SetSourceAttributes(CachePath, Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
 
     HasExactNumVideoFrames = true;
     delete Decoder;
@@ -698,7 +700,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
             VP.NumFrames = Decoder->GetFrameNumber();
             VP.NumFields = Decoder->GetFieldNumber();
             if (!HasExactNumVideoFrames) {
-                SetSourceAttributes(Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
+                SetSourceAttributes(CachePath, Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
                 HasExactNumVideoFrames = true;
             }
             delete Decoder;

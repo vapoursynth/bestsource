@@ -183,6 +183,7 @@ private:
     std::map<std::string, std::string> LAVFOptions;
     VideoProperties VP = {};
     std::string Source;
+    std::string CachePath;
     int VideoTrack;
     bool VariableFormat;
     int Threads;
@@ -195,7 +196,7 @@ private:
     size_t CacheSize = 0;
     int64_t PreRoll = 20;
 public:
-    BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> *LAVFOpts);
+    BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts);
     ~BestVideoSource();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */

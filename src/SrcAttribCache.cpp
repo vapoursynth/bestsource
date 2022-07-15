@@ -68,17 +68,23 @@ typedef std::unique_ptr<FILE> file_ptr_t;
 }
 */
 
-static file_ptr_t OpenCacheFile(bool write) {
+static file_ptr_t OpenCacheFile(const std::string &path, bool write) {
 #ifdef _WIN32
-    PWSTR app = nullptr;
-    if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &app) != S_OK)
-        return nullptr;
-    std::wstring cachePath = app;
-    CoTaskMemFree(app);
+    std::wstring cachePath;
+    if (path.empty()) {
+        PWSTR app = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &app) != S_OK)
+            return nullptr;
+        std::wstring cachePath = app;
+        CoTaskMemFree(app);
+    } else {
+        cachePath = Utf16FromUtf8(path);
+    }
     cachePath += L"\\bscache.json";
     return file_ptr_t(_wfopen(cachePath.c_str(), write ? L"wb" : L"rb"));
 #else
-    return file_ptr_t(fopen("~/bscache.json", write ? "wb" : "rb"));
+    std::string cachePath = path.empty() ? "~/bscache.json" : (path + "/bscache.json");
+    return file_ptr_t(fopen(cachePath.c_str(), write ? "wb" : "rb"));
 #endif
 }
 
@@ -90,8 +96,8 @@ static bool StatWrapper(const std::string &filename, struct _stat64 &info) {
 #endif
 }
 
-bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs, std::map<std::string, std::string> &LAVFOpts, bool variable) {
-    file_ptr_t f = OpenCacheFile(false);
+bool GetSourceAttributes(const std::string &CachePath, const std::string &filename, SourceAttributes &attrs, std::map<std::string, std::string> &LAVFOpts, bool variable) {
+    file_ptr_t f = OpenCacheFile(CachePath, false);
     if (!f)
         return false;
 
@@ -134,12 +140,12 @@ bool GetSourceAttributes(const std::string &filename, SourceAttributes &attrs, s
     return true;
 }
 
-bool SetSourceAttributes(const std::string &filename, int track, int64_t samples, std::map<std::string, std::string> &LAVFOpts, bool variable) {
+bool SetSourceAttributes(const std::string &CachePath, const std::string &filename, int track, int64_t samples, std::map<std::string, std::string> &LAVFOpts, bool variable) {
     struct _stat64 info = {};
     if (!StatWrapper(filename, info))
         return false;
 
-    file_ptr_t f = OpenCacheFile(false);
+    file_ptr_t f = OpenCacheFile(CachePath, false);
     json_ptr_t data(f ? json_loadf(f.get(), 0, nullptr) : json_object());
 
     if (!data)
@@ -180,7 +186,7 @@ bool SetSourceAttributes(const std::string &filename, int track, int64_t samples
 
     json_object_set_new(tobj, std::to_string(track).c_str(), json_integer(samples));
 
-    f = OpenCacheFile(true);
+    f = OpenCacheFile(CachePath, true);
     if (!f)
         return false;
 
