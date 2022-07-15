@@ -21,7 +21,8 @@
 #ifndef VIDEOSOURCE_H
 #define VIDEOSOURCE_H
 
-// FIXME, continuously store timestamps on decode so duration can be output
+// FIXME, continuously store timestamps on decode so duration can be output and expose stream timebase
+// FIXME, check framerate guessing code
 
 #include "BSRational.h"
 #include <cstdint>
@@ -131,11 +132,11 @@ public:
     bool HasAlpha() const;
     bool ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
 
-    int PixFmt; // Pointless since it can be gotten from the underlying frame?
     VideoFormat VF;
     int Width;
     int Height;
 
+    int64_t Pts;
     int Matrix;
     int Primaries;
     int Transfer;

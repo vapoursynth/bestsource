@@ -368,7 +368,7 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
     Frame = av_frame_clone(f);
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
-    PixFmt = Frame->format;
+    Pts = Frame->pts;
     Width = Frame->width;
     Height = Frame->height;
 
@@ -493,7 +493,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *A
     } else {
         p2p_buffer_param buf = {};
 
-        switch (PixFmt) {
+        switch (Frame->format) {
             case AV_PIX_FMT_YUYV422:
                 buf.packing = p2p_yuy2;
                 break;
