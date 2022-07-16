@@ -5,9 +5,9 @@ It can be used as either a C++ library directly or through the VapourSynth plugi
 
 ### VapourSynth plugin
 
-bs.AudioSource(string source, int track = -1, int adjustdelay = -1, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath = <user data dir>)
+bs.AudioSource(string source, int track = -1, int adjustdelay = -1, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath = \<user data dir\>)
 
-bs.VideoSource(string source, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = <user data dir>)
+bs.VideoSource(string source, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = \<user data dir\>)
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
