@@ -21,9 +21,6 @@
 #ifndef VIDEOSOURCE_H
 #define VIDEOSOURCE_H
 
-// FIXME, continuously store timestamps on decode so duration can be output and expose stream timebase
-// FIXME, check framerate guessing code
-
 #include "BSRational.h"
 #include <cstdint>
 #include <stdexcept>

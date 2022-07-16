@@ -629,7 +629,7 @@ const VideoProperties &BestVideoSource::GetVideoProperties() const {
 }
 
 BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
-    if (N < 0)
+    if (N < 0 || (HasExactNumVideoFrames && N >= VP.NumFrames))
         return nullptr;
 
     for (auto &iter : Cache) {

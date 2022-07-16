@@ -77,6 +77,10 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
             return nullptr;
         }
 
+        std::unique_ptr<BestVideoFrame> DurFrame(d->V->GetFrame(n + 1));
+        if (!DurFrame)
+            DurFrame.reset(d->V->GetFrame(n - 1));
+
         const VideoProperties &VP = d->V->GetVideoProperties();
         VSMap *Props = vsapi->getFramePropertiesRW(Dst);
         if (AlphaDst)
@@ -106,7 +110,19 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
 
-        // FIXME, missing frame duration/absolute time
+        int64_t AbsNum = VP.TimeBase.num;
+        int64_t AbsDen = VP.TimeBase.den;
+        vsh::muldivRational(&AbsNum, &AbsDen, Src->Pts, 1);
+        vsapi->mapSetFloat(Props, "_AbsoluteTime", static_cast<double>(AbsNum) / AbsDen, maAppend);
+
+        if (DurFrame) {
+            int64_t FrameDuration = abs(Src->Pts - DurFrame->Pts);
+            int64_t DurNum = VP.TimeBase.num;
+            int64_t DurDen = VP.TimeBase.den;
+            vsh::muldivRational(&DurNum, &DurDen, FrameDuration, 1);
+            vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
+            vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
+        }
 
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {
