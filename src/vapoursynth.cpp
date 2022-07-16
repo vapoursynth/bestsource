@@ -173,9 +173,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         SeekPreRoll = 20;
     bool VariableFormat = !!vsapi->mapGetInt(in, "variableformat", 0, &err);
     int Threads = vsapi->mapGetIntSaturated(in, "threads", 0, &err);
-    bool ExactFrames = !!vsapi->mapGetInt(in, "exactframes", 0, &err);
+    bool Exact = !!vsapi->mapGetInt(in, "exact", 0, &err);
     if (err)
-        ExactFrames = true;
+        Exact = true;
 
     std::map<std::string, std::string> Opts;
     Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
@@ -185,7 +185,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
 
     try {
         D->V.reset(new BestVideoSource(Source, Track, VariableFormat, Threads, CachePath, &Opts));
-        if (ExactFrames)
+        if (Exact)
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, core))
@@ -253,9 +253,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
     int AdjustDelay = vsapi->mapGetIntSaturated(in, "adjustdelay", 0, &err);
     if (err)
         AdjustDelay = -1;
-    bool ExactSamples = !!vsapi->mapGetInt(in, "exactsamples", 0, &err);
+    bool Exact = !!vsapi->mapGetInt(in, "exact", 0, &err);
     if (err)
-        ExactSamples = true;
+        Exact = true;
 
     std::map<std::string, std::string> Opts;
     Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
@@ -267,7 +267,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
 
     try {
         D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, CachePath, &Opts, DrcScale));
-        if (ExactSamples)
+        if (Exact)
             D->A->GetExactDuration();
         const AudioProperties &AP = D->A->GetAudioProperties();
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, core))
@@ -290,6 +290,6 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(0, 9), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exactframes:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exactsamples:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }
