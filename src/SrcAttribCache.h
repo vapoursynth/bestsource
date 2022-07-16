@@ -28,7 +28,7 @@ struct SourceAttributes {
     std::map<int, int64_t> Tracks;
 };
 
-bool GetSourceAttributes(const std::string &CachePath, const std::string &filename, SourceAttributes &attrs, std::map<std::string, std::string> &LAVFOpts, bool variable);
-bool SetSourceAttributes(const std::string &CachePath, const std::string &filename, int track, int64_t samples, std::map<std::string, std::string> &LAVFOpts, bool variable);
+bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts, bool Variable);
+bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, int Track, int64_t Samples, std::map<std::string, std::string> &LAVFOpts, bool Variable);
 
 #endif

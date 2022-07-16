@@ -33,35 +33,35 @@ struct BestVideoSourceData {
     std::unique_ptr<BestVideoSource> V;
 };
 
-static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    BestVideoSourceData *d = reinterpret_cast<BestVideoSourceData *>(instanceData);
+static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
+    BestVideoSourceData *D = reinterpret_cast<BestVideoSourceData *>(InstanceData);
 
-    if (activationReason == arInitial) {
+    if (ActivationReason == arInitial) {
         VSFrame *Dst = nullptr;
         VSFrame *AlphaDst = nullptr;
         std::unique_ptr<BestVideoFrame> Src;
         try {
-            Src.reset(d->V->GetFrame(n));
+            Src.reset(D->V->GetFrame(n));
             if (!Src)
                 throw VideoException("No frame returned for frame number " + std::to_string(n));
 
             VSVideoFormat VideoFormat = {};
-            vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, core);
+            vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core);
             VSVideoFormat AlphaFormat = {};
-            vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, core);
+            vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, Core);
 
-            Dst = vsapi->newVideoFrame(&VideoFormat, Src->Width, Src->Height, nullptr, core);
+            Dst = vsapi->newVideoFrame(&VideoFormat, Src->Width, Src->Height, nullptr, Core);
             uint8_t *DstPtrs[3] = {};
             ptrdiff_t DstStride[3] = {};
 
-            for (int plane = 0; plane < VideoFormat.numPlanes; plane++) {
-                DstPtrs[plane] = vsapi->getWritePtr(Dst, plane);
-                DstStride[plane] = vsapi->getStride(Dst, plane);
+            for (int Plane = 0; Plane < VideoFormat.numPlanes; Plane++) {
+                DstPtrs[Plane] = vsapi->getWritePtr(Dst, Plane);
+                DstStride[Plane] = vsapi->getStride(Dst, Plane);
             }
 
             ptrdiff_t AlphaStride = 0;
             if (Src->HasAlpha()) {
-                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, core);
+                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, Core);
                 AlphaStride = vsapi->getStride(AlphaDst, 0);
                 vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
             }
@@ -73,23 +73,23 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
         } catch (VideoException &e) {
             vsapi->freeFrame(Dst);
             vsapi->freeFrame(AlphaDst);
-            vsapi->setFilterError(e.what(), frameCtx);
+            vsapi->setFilterError(e.what(), FrameCtx);
             return nullptr;
         }
 
-        std::unique_ptr<BestVideoFrame> DurFrame(d->V->GetFrame(n + 1));
+        std::unique_ptr<BestVideoFrame> DurFrame(D->V->GetFrame(n + 1));
         if (!DurFrame)
-            DurFrame.reset(d->V->GetFrame(n - 1));
+            DurFrame.reset(D->V->GetFrame(n - 1));
 
-        const VideoProperties &VP = d->V->GetVideoProperties();
+        const VideoProperties &VP = D->V->GetVideoProperties();
         VSMap *Props = vsapi->getFramePropertiesRW(Dst);
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
         // Set AR variables
-        if (VP.SAR.num > 0 && VP.SAR.den > 0) {
-            vsapi->mapSetInt(Props, "_SARNum", VP.SAR.num, maAppend);
-            vsapi->mapSetInt(Props, "_SARDen", VP.SAR.den, maAppend);
+        if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
+            vsapi->mapSetInt(Props, "_SARNum", VP.SAR.Num, maAppend);
+            vsapi->mapSetInt(Props, "_SARDen", VP.SAR.Den, maAppend);
         }
 
         vsapi->mapSetInt(Props, "_Matrix", Src->Matrix, maAppend);
@@ -110,15 +110,15 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
 
-        int64_t AbsNum = VP.TimeBase.num;
-        int64_t AbsDen = VP.TimeBase.den;
+        int64_t AbsNum = VP.TimeBase.Num;
+        int64_t AbsDen = VP.TimeBase.Den;
         vsh::muldivRational(&AbsNum, &AbsDen, Src->Pts, 1);
         vsapi->mapSetFloat(Props, "_AbsoluteTime", static_cast<double>(AbsNum) / AbsDen, maAppend);
 
         if (DurFrame) {
             int64_t FrameDuration = abs(Src->Pts - DurFrame->Pts);
-            int64_t DurNum = VP.TimeBase.num;
-            int64_t DurDen = VP.TimeBase.den;
+            int64_t DurNum = VP.TimeBase.Num;
+            int64_t DurDen = VP.TimeBase.Den;
             vsh::muldivRational(&DurNum, &DurDen, FrameDuration, 1);
             vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
             vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
@@ -144,7 +144,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
         }
 
         if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize) {
-            vsapi->mapSetData(Props, "DolbyVisionRPU", (const char *)Src->DolbyVisionRPU, Src->DolbyVisionRPUSize, dtBinary, maAppend);
+            vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), Src->DolbyVisionRPUSize, dtBinary, maAppend);
         }
 
         vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
@@ -157,29 +157,29 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int activationReason,
     return nullptr;
 }
 
-static void VS_CC BestVideoSourceFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    delete reinterpret_cast<BestVideoSourceData *>(instanceData);
+static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VSAPI *vsapi) {
+    delete reinterpret_cast<BestVideoSourceData *>(InstanceData);
 }
 
-static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSCore *core, const VSAPI *vsapi) {
+static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
     int err;
-    const char *Source = vsapi->mapGetData(in, "source", 0, nullptr);
-    const char *CachePath = vsapi->mapGetData(in, "cachepath", 0, &err);
-    int Track = vsapi->mapGetIntSaturated(in, "track", 0, &err);
+    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
+    const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
-    int SeekPreRoll = vsapi->mapGetIntSaturated(in, "seekpreroll", 0, &err);
+    int SeekPreRoll = vsapi->mapGetIntSaturated(In, "seekpreroll", 0, &err);
     if (err)
         SeekPreRoll = 20;
-    bool VariableFormat = !!vsapi->mapGetInt(in, "variableformat", 0, &err);
-    int Threads = vsapi->mapGetIntSaturated(in, "threads", 0, &err);
-    bool Exact = !!vsapi->mapGetInt(in, "exact", 0, &err);
+    bool VariableFormat = !!vsapi->mapGetInt(In, "variableformat", 0, &err);
+    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
+    bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
     if (err)
         Exact = true;
 
     std::map<std::string, std::string> Opts;
-    Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["use_absolute_path"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
+    Opts["enable_drefs"] = vsapi->mapGetInt(In, "enable_drefs", 0, &err) ? "1" : "0";
+    Opts["use_absolute_path"] = vsapi->mapGetInt(In, "use_absolute_path", 0, &err) ? "1" : "0";
 
     BestVideoSourceData *D = new BestVideoSourceData();
 
@@ -188,7 +188,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         if (Exact)
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();
-        if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, core))
+        if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw VideoException("Unsupported video format from decoder (probably less than 8 bit or pallette)");
         D->VI.width = VP.Width;
         D->VI.height = VP.Height;
@@ -197,17 +197,17 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
         if (D->VI.numFrames <= 0)
             throw VideoException("Failed to estimate number of frames, exact mode must be used");
-        D->VI.fpsNum = VP.FPS.num;
-        D->VI.fpsDen = VP.FPS.den;
+        D->VI.fpsNum = VP.FPS.Num;
+        D->VI.fpsDen = VP.FPS.Den;
         vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
         D->V->SetSeekPreRoll(SeekPreRoll);
     } catch (VideoException &e) {
         delete D;
-        vsapi->mapSetError(out, (std::string("VideoSource: ") + e.what()).c_str());
+        vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
     }
 
-    vsapi->createVideoFilter(out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, core);
+    vsapi->createVideoFilter(Out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
 }
 
 struct BestAudioSourceData {
@@ -215,53 +215,53 @@ struct BestAudioSourceData {
     std::unique_ptr<BestAudioSource> A;
 };
 
-static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    BestAudioSourceData *d = reinterpret_cast<BestAudioSourceData *>(instanceData);
+static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
+    BestAudioSourceData *d = reinterpret_cast<BestAudioSourceData *>(InstanceData);
 
-    if (activationReason == arInitial) {
-        int64_t samplesOut = std::min<int64_t>(VS_AUDIO_FRAME_SAMPLES, d->AI.numSamples - n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES));
-        VSFrame *f = vsapi->newAudioFrame(&d->AI.format, static_cast<int>(samplesOut), nullptr, core);
+    if (ActivationReason == arInitial) {
+        int64_t SamplesOut = std::min<int64_t>(VS_AUDIO_FRAME_SAMPLES, d->AI.numSamples - n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES));
+        VSFrame *Dst = vsapi->newAudioFrame(&d->AI.format, static_cast<int>(SamplesOut), nullptr, Core);
 
-        std::vector<uint8_t *> tmp;
-        tmp.reserve(d->AI.format.numChannels);
-        for (int p = 0; p < d->AI.format.numChannels; p++)
-            tmp.push_back(vsapi->getWritePtr(f, p));
+        std::vector<uint8_t *> Tmp;
+        Tmp.reserve(d->AI.format.numChannels);
+        for (int Channel = 0; Channel < d->AI.format.numChannels; Channel++)
+            Tmp.push_back(vsapi->getWritePtr(Dst, Channel));
         try {
-            d->A->GetAudio(tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), samplesOut);
+            d->A->GetAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
         } catch (AudioException &e) {
-            vsapi->setFilterError(e.what(), frameCtx);
-            vsapi->freeFrame(f);
+            vsapi->setFilterError(e.what(), FrameCtx);
+            vsapi->freeFrame(Dst);
             return nullptr;
         }
-        return f;
+        return Dst;
     }
 
     return nullptr;
 }
 
-static void VS_CC BestAudioSourceFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    delete reinterpret_cast<BestAudioSourceData *>(instanceData);
+static void VS_CC BestAudioSourceFree(void *InstanceData, VSCore *Core, const VSAPI *vsapi) {
+    delete reinterpret_cast<BestAudioSourceData *>(InstanceData);
 }
 
-static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSCore *core, const VSAPI *vsapi) {
+static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
     int err;
-    const char *Source = vsapi->mapGetData(in, "source", 0, nullptr);
-    const char *CachePath = vsapi->mapGetData(in, "cachepath", 0, &err);
-    int Track = vsapi->mapGetIntSaturated(in, "track", 0, &err);
+    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
+    const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
-    int AdjustDelay = vsapi->mapGetIntSaturated(in, "adjustdelay", 0, &err);
+    int AdjustDelay = vsapi->mapGetIntSaturated(In, "adjustdelay", 0, &err);
     if (err)
         AdjustDelay = -1;
-    bool Exact = !!vsapi->mapGetInt(in, "exact", 0, &err);
+    bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
     if (err)
         Exact = true;
 
     std::map<std::string, std::string> Opts;
-    Opts["enable_drefs"] = vsapi->mapGetInt(in, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["use_absolute_path"] = vsapi->mapGetInt(in, "use_absolute_path", 0, &err) ? "1" : "0";
+    Opts["enable_drefs"] = vsapi->mapGetInt(In, "enable_drefs", 0, &err) ? "1" : "0";
+    Opts["use_absolute_path"] = vsapi->mapGetInt(In, "use_absolute_path", 0, &err) ? "1" : "0";
 
-    double DrcScale = vsapi->mapGetFloat(in, "drc_scale", 0, &err);
+    double DrcScale = vsapi->mapGetFloat(In, "drc_scale", 0, &err);
 
     BestAudioSourceData *D = new BestAudioSourceData();
 
@@ -270,7 +270,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
         if (Exact)
             D->A->GetExactDuration();
         const AudioProperties &AP = D->A->GetAudioProperties();
-        if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, core))
+        if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, Core))
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
@@ -281,11 +281,11 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
             throw AudioException("Too many audio samples, cut file into smaller parts");
     } catch (AudioException &e) {
         delete D;
-        vsapi->mapSetError(out, (std::string("AudioSource: ") + e.what()).c_str());
+        vsapi->mapSetError(Out, (std::string("AudioSource: ") + e.what()).c_str());
         return;
     }
 
-    vsapi->createAudioFilter(out, "AudioSource", &D->AI, BestAudioSourceGetFrame, BestAudioSourceFree, fmUnordered, nullptr, 0, D, core);
+    vsapi->createAudioFilter(Out, "AudioSource", &D->AI, BestAudioSourceGetFrame, BestAudioSourceFree, fmUnordered, nullptr, 0, D, Core);
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {

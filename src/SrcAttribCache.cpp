@@ -27,27 +27,27 @@
 #ifdef _WIN32
 #include <shlobj_core.h>
 
-static std::wstring Utf16FromUtf8(const std::string &str) {
-    int required_size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    std::wstring wbuffer;
-    wbuffer.resize(required_size - 1);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.size()), &wbuffer[0], required_size);
-    return wbuffer;
+static std::wstring Utf16FromUtf8(const std::string &Str) {
+    int RequiredSize = MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), -1, nullptr, 0);
+    std::wstring Buffer;
+    Buffer.resize(RequiredSize - 1);
+    MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), static_cast<int>(Str.size()), &Buffer[0], RequiredSize);
+    return Buffer;
 }
 #endif
 
 namespace std {
     template<>
     struct default_delete<json_t> {
-        void operator()(json_t *ptr) {
-            json_decref(ptr);
+        void operator()(json_t *Ptr) {
+            json_decref(Ptr);
         }
     };
 
     template<>
     struct default_delete<FILE> {
-        void operator()(FILE *ptr) {
-            fclose(ptr);
+        void operator()(FILE *Ptr) {
+            fclose(Ptr);
         }
     };
 }
@@ -68,129 +68,129 @@ typedef std::unique_ptr<FILE> file_ptr_t;
 }
 */
 
-static file_ptr_t OpenCacheFile(const std::string &path, bool write) {
+static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
 #ifdef _WIN32
-    std::wstring cachePath;
-    if (path.empty()) {
-        PWSTR app = nullptr;
-        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &app) != S_OK)
+    std::wstring CachePath;
+    if (Path.empty()) {
+        PWSTR App = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &App) != S_OK)
             return nullptr;
-        std::wstring cachePath = app;
-        CoTaskMemFree(app);
+        CachePath = App;
+        CoTaskMemFree(App);
     } else {
-        cachePath = Utf16FromUtf8(path);
+        CachePath = Utf16FromUtf8(Path);
     }
-    cachePath += L"\\bscache.json";
-    return file_ptr_t(_wfopen(cachePath.c_str(), write ? L"wb" : L"rb"));
+    CachePath += L"\\bscache.json";
+    return file_ptr_t(_wfopen(CachePath.c_str(), Write ? L"wb" : L"rb"));
 #else
-    std::string cachePath = path.empty() ? "~/bscache.json" : (path + "/bscache.json");
-    return file_ptr_t(fopen(cachePath.c_str(), write ? "wb" : "rb"));
+    std::string CachePath = Path.empty() ? "~/bscache.json" : (Path + "/bscache.json");
+    return file_ptr_t(fopen(CachePath.c_str(), Write ? "wb" : "rb"));
 #endif
 }
 
-static bool StatWrapper(const std::string &filename, struct _stat64 &info) {
+static bool StatWrapper(const std::string &Filename, struct _stat64 &Info) {
 #ifdef _WIN32
-    return !_wstat64(Utf16FromUtf8(filename).c_str(), &info);
+    return !_wstat64(Utf16FromUtf8(Filename).c_str(), &Info);
 #else
-    return !_stat64(filename.c_str(), &info);
+    return !_stat64(Filename.c_str(), &Info);
 #endif
 }
 
-bool GetSourceAttributes(const std::string &CachePath, const std::string &filename, SourceAttributes &attrs, std::map<std::string, std::string> &LAVFOpts, bool variable) {
-    file_ptr_t f = OpenCacheFile(CachePath, false);
-    if (!f)
+bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
+    file_ptr_t File = OpenCacheFile(CachePath, false);
+    if (!File)
         return false;
 
-    json_ptr_t data(json_loadf(f.get(), 0, nullptr));
-    if (!data)
+    json_ptr_t Data(json_loadf(File.get(), 0, nullptr));
+    if (!Data)
         return false;
 
-    json_t *fdata = json_object_get(data.get(), filename.c_str());
-    if (!fdata)
+    json_t *FileData = json_object_get(Data.get(), Filename.c_str());
+    if (!FileData)
         return false;
 
-    json_int_t filesize = json_integer_value(json_object_get(fdata, "size"));
+    json_int_t FileSize = json_integer_value(json_object_get(FileData, "size"));
 
-    struct _stat64 info = {};
-    if (!StatWrapper(filename, info))
+    struct _stat64 Info = {};
+    if (!StatWrapper(Filename, Info))
         return false;
 
-    if (info.st_size != filesize)
+    if (Info.st_size != FileSize)
         return false;
 
-    bool VariableFormat = json_boolean_value(json_object_get(fdata, "variable"));
-    std::map<std::string, std::string> opts;
+    bool VariableFormat = json_boolean_value(json_object_get(FileData, "variable"));
+    std::map<std::string, std::string> Opts;
 
-    json_t *lobj = json_object_get(fdata, "lavfopts");
-    const char *key;
-    json_t *value;
-    json_object_foreach(lobj, key, value) {
-        opts[key] = json_string_value(value);
+    json_t *LAVFData = json_object_get(FileData, "lavfopts");
+    const char *Key;
+    json_t *Value;
+    json_object_foreach(LAVFData, Key, Value) {
+        Opts[Key] = json_string_value(Value);
     }
 
-    if (VariableFormat != variable || opts != LAVFOpts)
+    if (VariableFormat != Variable || Opts != LAVFOpts)
         return false;
 
-    json_t *tdata = json_object_get(fdata, "tracks");
+    json_t *TrackData = json_object_get(FileData, "tracks");
 
-    json_object_foreach(tdata, key, value) {
-        attrs.Tracks[atoi(key)] = json_integer_value(value);
+    json_object_foreach(TrackData, Key, Value) {
+        Attrs.Tracks[atoi(Key)] = json_integer_value(Value);
     }
 
     return true;
 }
 
-bool SetSourceAttributes(const std::string &CachePath, const std::string &filename, int track, int64_t samples, std::map<std::string, std::string> &LAVFOpts, bool variable) {
-    struct _stat64 info = {};
-    if (!StatWrapper(filename, info))
+bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, int Track, int64_t Samples, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
+    struct _stat64 Info = {};
+    if (!StatWrapper(Filename, Info))
         return false;
 
-    file_ptr_t f = OpenCacheFile(CachePath, false);
-    json_ptr_t data(f ? json_loadf(f.get(), 0, nullptr) : json_object());
+    file_ptr_t File = OpenCacheFile(CachePath, false);
+    json_ptr_t Data(File ? json_loadf(File.get(), 0, nullptr) : json_object());
 
-    if (!data)
+    if (!Data)
         return false;
 
-    json_t *fobj = json_object_get(data.get(), filename.c_str());
-    if (!fobj) {
-        fobj = json_object();
-        json_object_set_new(data.get(), filename.c_str(), fobj);
+    json_t *FileData = json_object_get(Data.get(), Filename.c_str());
+    if (!FileData) {
+        FileData = json_object();
+        json_object_set_new(Data.get(), Filename.c_str(), FileData);
     }
 
-    json_object_set_new(fobj, "size", json_integer(info.st_size));
+    json_object_set_new(FileData, "size", json_integer(Info.st_size));
 
-    bool VariableFormat = json_boolean_value(json_object_get(fobj, "variable"));
-    std::map<std::string, std::string> opts;
+    bool VariableFormat = json_boolean_value(json_object_get(FileData, "variable"));
+    std::map<std::string, std::string> Opts;
 
-    json_t *lobj = json_object_get(fobj, "lavfopts");
-    const char *key;
-    json_t *value;
-    json_object_foreach(lobj, key, value) {
-        opts[key] = json_string_value(value);
+    json_t *LAVFData = json_object_get(FileData, "lavfopts");
+    const char *Key;
+    json_t *Value;
+    json_object_foreach(LAVFData, Key, Value) {
+        Opts[Key] = json_string_value(Value);
     }
 
-    bool ReplaceTracks = (VariableFormat != variable || opts != LAVFOpts);
+    bool ReplaceTracks = (VariableFormat != Variable || Opts != LAVFOpts);
 
-    json_object_set_new(fobj, "variable", json_boolean(variable));
-    lobj = json_object();
-    json_object_set_new(fobj, "lavfopts", lobj);
+    json_object_set_new(FileData, "variable", json_boolean(Variable));
+    LAVFData = json_object();
+    json_object_set_new(FileData, "lavfopts", LAVFData);
 
-    for (const auto &iter : LAVFOpts)
-        json_object_set_new(lobj, iter.first.c_str(), json_string(iter.second.c_str()));
+    for (const auto &Iter : LAVFOpts)
+        json_object_set_new(LAVFData, Iter.first.c_str(), json_string(Iter.second.c_str()));
 
-    json_t *tobj = json_object_get(data.get(), "tracks");
-    if (!tobj) {
-        tobj = json_object();
-        json_object_set_new(fobj, "tracks", tobj);
+    json_t *TrackData = json_object_get(Data.get(), "tracks");
+    if (!TrackData) {
+        TrackData = json_object();
+        json_object_set_new(FileData, "tracks", TrackData);
     }
 
-    json_object_set_new(tobj, std::to_string(track).c_str(), json_integer(samples));
+    json_object_set_new(TrackData, std::to_string(Track).c_str(), json_integer(Samples));
 
-    f = OpenCacheFile(CachePath, true);
-    if (!f)
+    File = OpenCacheFile(CachePath, true);
+    if (!File)
         return false;
 
-    if (json_dumpf(data.get(), f.get(), JSON_INDENT(2) | JSON_SORT_KEYS))
+    if (json_dumpf(Data.get(), File.get(), JSON_INDENT(2) | JSON_SORT_KEYS))
         return false;
 
     return true;

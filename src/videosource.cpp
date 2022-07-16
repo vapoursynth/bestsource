@@ -38,32 +38,32 @@ extern "C" {
 
 #define VERSION_CHECK(LIB, cmp, major, minor, micro) ((LIB) cmp (AV_VERSION_INT(major, minor, micro)))
 
-static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *desc) {
-    return !!(desc->flags & AV_PIX_FMT_FLAG_FLOAT);
+static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
+    return !!(Desc->flags & AV_PIX_FMT_FLAG_FLOAT);
 }
 
-static bool HasAlpha(const AVPixFmtDescriptor *desc) {
-    return !!(desc->flags & AV_PIX_FMT_FLAG_ALPHA);
+static bool HasAlpha(const AVPixFmtDescriptor *Desc) {
+    return !!(Desc->flags & AV_PIX_FMT_FLAG_ALPHA);
 }
 
-static int GetColorFamily(const AVPixFmtDescriptor *desc) {
-    if (desc->nb_components <= 2)
+static int GetColorFamily(const AVPixFmtDescriptor *Desc) {
+    if (Desc->nb_components <= 2)
         return 1;
-    else if (desc->flags & AV_PIX_FMT_FLAG_RGB)
+    else if (Desc->flags & AV_PIX_FMT_FLAG_RGB)
         return 2;
     else
         return 3;
 }
 
-static int GetBitDepth(const AVPixFmtDescriptor *desc) {
-    return desc->comp[0].depth;
+static int GetBitDepth(const AVPixFmtDescriptor *Desc) {
+    return Desc->comp[0].depth;
 }
 
-static int IsRealPlanar(const AVPixFmtDescriptor *desc) {
-    int maxPlane = 0;
-    for (int i = 0; i < desc->nb_components; i++)
-        maxPlane = std::max(maxPlane, desc->comp[i].plane);
-    return (maxPlane + 1) == desc->nb_components;
+static int IsRealPlanar(const AVPixFmtDescriptor *Desc) {
+    int MaxPlane = 0;
+    for (int i = 0; i < Desc->nb_components; i++)
+        MaxPlane = std::max(MaxPlane, Desc->comp[i].plane);
+    return (MaxPlane + 1) == Desc->nb_components;
 }
 
 bool LWVideoDecoder::ReadPacket(AVPacket *Packet) {
@@ -105,8 +105,8 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
-    for (const auto &iter : LAVFOpts)
-        av_dict_set(&Dict, iter.first.c_str(), iter.second.c_str(), 0);
+    for (const auto &Iter : LAVFOpts)
+        av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
         throw VideoException(std::string("Couldn't open '") + SourceFile + "'");
@@ -154,7 +154,7 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
         throw VideoException("Could not copy video codec parameters");
 
     if (Threads < 1)
-        Threads = std::min(std::thread::hardware_concurrency(), 16u);
+        Threads = std::min(static_cast<int>(std::thread::hardware_concurrency()), 16);
     CodecContext->thread_count = Threads;
 
     if (!VariableFormat) {
@@ -252,8 +252,8 @@ void LWVideoDecoder::SetVideoProperties() {
 
     VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
     if (VP.NumFrames <= 0 && VP.Duration > 0) {
-        if (VP.FPS.num)
-            VP.NumFrames = (VP.Duration * VP.FPS.num) / VP.FPS.den;
+        if (VP.FPS.Num)
+            VP.NumFrames = (VP.Duration * VP.FPS.Num) / VP.FPS.Den;
     }
 
     if (VP.NumFrames <= 0)
@@ -263,9 +263,9 @@ void LWVideoDecoder::SetVideoProperties() {
         VP.NumFields = VP.NumFrames * 2;
 
     // sanity check framerate
-    if (VP.FPS.den <= 0 || VP.FPS.num <= 0) {
-        VP.FPS.den = 1;
-        VP.FPS.num = 30;
+    if (VP.FPS.Den <= 0 || VP.FPS.Num <= 0) {
+        VP.FPS.Den = 1;
+        VP.FPS.Num = 30;
     }
 
     if (DecodeFrame->pts != AV_NOPTS_VALUE)
@@ -275,7 +275,7 @@ void LWVideoDecoder::SetVideoProperties() {
     VP.SAR = CodecContext->sample_aspect_ratio;
 
     // Set the SAR from the container if the codec SAR is invalid
-    if (VP.SAR.num <= 0 || VP.SAR.den <= 0)
+    if (VP.SAR.Num <= 0 || VP.SAR.Den <= 0)
         VP.SAR = FormatContext->streams[TrackNumber]->sample_aspect_ratio;
 
     // Set stereoscopic 3d type
@@ -303,12 +303,12 @@ void LWVideoDecoder::SetVideoProperties() {
                 VP.MasteringDisplayMaxLuminance = MasteringDisplay->max_luminance;
             }
 
-            VP.HasMasteringDisplayPrimaries = !!VP.MasteringDisplayPrimaries[0][0].num && !!VP.MasteringDisplayPrimaries[0][1].num &&
-                !!VP.MasteringDisplayPrimaries[1][0].num && !!VP.MasteringDisplayPrimaries[1][1].num &&
-                !!VP.MasteringDisplayPrimaries[2][0].num && !!VP.MasteringDisplayPrimaries[2][1].num &&
-                !!VP.MasteringDisplayWhitePoint[0].num && !!VP.MasteringDisplayWhitePoint[1].num;
+            VP.HasMasteringDisplayPrimaries = !!VP.MasteringDisplayPrimaries[0][0].Num && !!VP.MasteringDisplayPrimaries[0][1].Num &&
+                !!VP.MasteringDisplayPrimaries[1][0].Num && !!VP.MasteringDisplayPrimaries[1][1].Num &&
+                !!VP.MasteringDisplayPrimaries[2][0].Num && !!VP.MasteringDisplayPrimaries[2][1].Num &&
+                !!VP.MasteringDisplayWhitePoint[0].Num && !!VP.MasteringDisplayWhitePoint[1].Num;
             /* MasteringDisplayMinLuminance can be 0 */
-            VP.HasMasteringDisplayLuminance = !!VP.MasteringDisplayMaxLuminance.num;
+            VP.HasMasteringDisplayLuminance = !!VP.MasteringDisplayMaxLuminance.Num;
         } else if (FormatContext->streams[TrackNumber]->side_data[i].type == AV_PKT_DATA_CONTENT_LIGHT_LEVEL) {
             const AVContentLightMetadata *ContentLightLevel = (const AVContentLightMetadata *)FormatContext->streams[TrackNumber]->side_data[i].data;
 
@@ -402,13 +402,13 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
             MasteringDisplayMaxLuminance = MasteringDisplay->max_luminance;
         }
 
-        HasMasteringDisplayPrimaries = !!MasteringDisplayPrimaries[0][0].num && !!MasteringDisplayPrimaries[0][1].num &&
-            !!MasteringDisplayPrimaries[1][0].num && !!MasteringDisplayPrimaries[1][1].num &&
-            !!MasteringDisplayPrimaries[2][0].num && !!MasteringDisplayPrimaries[2][1].num &&
-            !!MasteringDisplayWhitePoint[0].num && !!MasteringDisplayWhitePoint[1].num;
+        HasMasteringDisplayPrimaries = !!MasteringDisplayPrimaries[0][0].Num && !!MasteringDisplayPrimaries[0][1].Num &&
+            !!MasteringDisplayPrimaries[1][0].Num && !!MasteringDisplayPrimaries[1][1].Num &&
+            !!MasteringDisplayPrimaries[2][0].Num && !!MasteringDisplayPrimaries[2][1].Num &&
+            !!MasteringDisplayWhitePoint[0].Num && !!MasteringDisplayWhitePoint[1].Num;
 
         /* MasteringDisplayMinLuminance can be 0 */
-        HasMasteringDisplayLuminance = !!MasteringDisplayMaxLuminance.num;
+        HasMasteringDisplayLuminance = !!MasteringDisplayMaxLuminance.Num;
     }
 
     const AVFrameSideData *ContentLightSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
@@ -442,101 +442,101 @@ bool BestVideoFrame::HasAlpha() const {
     return ::HasAlpha(Desc);
 };
 
-bool BestVideoFrame::ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
+bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     if (IsRealPlanar(Desc)) {
 
-        size_t bytesPerSample = 0;
+        size_t BytesPerSample = 0;
 
         if (VF.Bits <= 8)
-            bytesPerSample = 1;
+            BytesPerSample = 1;
         if (VF.Bits > 8 && VF.Bits <= 16)
-            bytesPerSample = 2;
+            BytesPerSample = 2;
         else if (VF.Bits > 16 && VF.Bits <= 32)
-            bytesPerSample = 4;
+            BytesPerSample = 4;
         else if (VF.Bits > 32 && VF.Bits <= 64)
-            bytesPerSample = 8;
+            BytesPerSample = 8;
 
-        if (!bytesPerSample)
+        if (!BytesPerSample)
             return false;
 
-        int numBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
-        for (int plane = 0; plane < numBasePlanes; plane++) {
-            int planew = Frame->width;
-            int planeh = Frame->height;
-            if (plane > 0) {
-                planew >>= Desc->log2_chroma_w;
-                planeh >>= Desc->log2_chroma_h;
+        int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
+        for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
+            int PlaneW = Frame->width;
+            int PlaneH = Frame->height;
+            if (Plane > 0) {
+                PlaneW >>= Desc->log2_chroma_w;
+                PlaneH >>= Desc->log2_chroma_h;
             }
-            const uint8_t *src = Frame->data[plane];
-            uint8_t *dst = Dst[plane];
-            for (int h = 0; h < planeh; h++) {
-                memcpy(dst, src, bytesPerSample * planew);
-                src += Frame->linesize[plane];
-                dst += Stride[plane];
+            const uint8_t *Src = Frame->data[Plane];
+            uint8_t *Dst = Dsts[Plane];
+            for (int h = 0; h < PlaneH; h++) {
+                memcpy(Dst, Src, BytesPerSample * PlaneW);
+                Src += Frame->linesize[Plane];
+                Dst += Stride[Plane];
             }
         }
 
         if (::HasAlpha(Desc) && AlphaDst) {
-            const uint8_t *src = Frame->data[3];
-            uint8_t *dst = AlphaDst;
+            const uint8_t *Src = Frame->data[3];
+            uint8_t *Dst = AlphaDst;
             for (int h = 0; h < Frame->height; h++) {
-                memcpy(dst, src, bytesPerSample * Frame->width);
-                src += Frame->linesize[3];
-                dst += AlphaStride;
+                memcpy(Dst, Src, BytesPerSample * Frame->width);
+                Src += Frame->linesize[3];
+                Dst += AlphaStride;
             }
         }
 
         return true;
     } else {
-        p2p_buffer_param buf = {};
+        p2p_buffer_param Buf = {};
 
         switch (Frame->format) {
             case AV_PIX_FMT_YUYV422:
-                buf.packing = p2p_yuy2;
+                Buf.packing = p2p_yuy2;
                 break;
             case AV_PIX_FMT_RGB24:
-                buf.packing = p2p_rgb24;
+                Buf.packing = p2p_rgb24;
                 break;
             case AV_PIX_FMT_UYVY422:
-                buf.packing = p2p_uyvy;
+                Buf.packing = p2p_uyvy;
                 break;
             case AV_PIX_FMT_NV12:
-                buf.packing = p2p_nv12;
+                Buf.packing = p2p_nv12;
                 break;
             case AV_PIX_FMT_ARGB:
-                buf.packing = p2p_argb32;
+                Buf.packing = p2p_argb32;
                 break;
             case AV_PIX_FMT_RGBA:
-                buf.packing = p2p_rgba32;
+                Buf.packing = p2p_rgba32;
                 break;
             case AV_PIX_FMT_RGB48:
-                buf.packing = p2p_rgb48;
+                Buf.packing = p2p_rgb48;
                 break;
             case AV_PIX_FMT_RGBA64:
-                buf.packing = p2p_rgba64;
+                Buf.packing = p2p_rgba64;
                 break;
             default:
                 return false;
         }
 
-        for (int plane = 0; plane < Desc->nb_components; plane++) {
-            buf.src[plane] = Frame->data[plane];
-            buf.src_stride[plane] = Frame->linesize[plane];
+        for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
+            Buf.src[Plane] = Frame->data[Plane];
+            Buf.src_stride[Plane] = Frame->linesize[Plane];
         }
 
         for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
-            buf.dst[plane] = Dst[plane];
-            buf.dst_stride[plane] = Stride[plane];
+            Buf.dst[plane] = Dsts[plane];
+            Buf.dst_stride[plane] = Stride[plane];
             if (::HasAlpha(Desc) && AlphaDst) {
-                buf.dst[3] = AlphaDst;
-                buf.dst_stride[3] = AlphaStride;
+                Buf.dst[3] = AlphaDst;
+                Buf.dst_stride[3] = AlphaStride;
             }
         }
 
-        p2p_unpack_frame(&buf, 0);
+        p2p_unpack_frame(&Buf, 0);
     }
 
     return false;
@@ -563,10 +563,10 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
     VP = Decoders[0]->GetVideoProperties();
     VideoTrack = Decoders[0]->GetTrack();
     
-    SourceAttributes attr = {};
-    if (GetSourceAttributes(this->CachePath, Source, attr, LAVFOptions, VariableFormat)) {
-        if (attr.Tracks.count(VideoTrack) && attr.Tracks[VideoTrack] > 0) {
-            VP.NumFrames = attr.Tracks[VideoTrack];
+    SourceAttributes Attr = {};
+    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions, VariableFormat)) {
+        if (Attr.Tracks.count(VideoTrack) && Attr.Tracks[VideoTrack] > 0) {
+            VP.NumFrames = Attr.Tracks[VideoTrack];
             HasExactNumVideoFrames = true;
         }
     }
@@ -575,8 +575,8 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
 }
 
 BestVideoSource::~BestVideoSource() {
-    for (auto iter : Decoders)
-        delete iter;
+    for (auto Iter : Decoders)
+        delete Iter;
 }
 
 int BestVideoSource::GetTrack() const {
@@ -632,9 +632,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
     if (N < 0 || (HasExactNumVideoFrames && N >= VP.NumFrames))
         return nullptr;
 
-    for (auto &iter : Cache) {
-        if (iter.FrameNumber == N)
-            return new BestVideoFrame(iter.Frame);
+    for (auto &Iter : Cache) {
+        if (Iter.FrameNumber == N)
+            return new BestVideoFrame(Iter.Frame);
     }
 
     int Index = -1;
@@ -675,9 +675,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         if (FrameNumber >= N - PreRoll) {
             AVFrame *Frame = Decoder->GetNextAVFrame();
 
-            for (auto iter = Cache.begin(); iter != Cache.end(); ++iter) {
-                if (iter->FrameNumber == FrameNumber) {
-                    Cache.erase(iter);
+            for (auto Iter = Cache.begin(); Iter != Cache.end(); ++Iter) {
+                if (Iter->FrameNumber == FrameNumber) {
+                    Cache.erase(Iter);
                     break;
                 }
             }

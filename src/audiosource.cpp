@@ -70,8 +70,8 @@ void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const std::map<
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
-    for (const auto &iter : LAVFOpts)
-        av_dict_set(&Dict, iter.first.c_str(), iter.second.c_str(), 0);
+    for (const auto &Iter : LAVFOpts)
+        av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
         throw AudioException(std::string("Couldn't open '") + SourceFile + "'");
@@ -272,19 +272,28 @@ BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDel
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, DrcScale);
     AP = Decoders[0]->GetAudioProperties();
+    AudioTrack = Decoders[0]->GetTrack();
+
+    SourceAttributes Attr = {};
+    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions, false)) {
+        if (Attr.Tracks.count(AudioTrack) && Attr.Tracks[AudioTrack] > 0) {
+            AP.NumSamples = Attr.Tracks[AudioTrack];
+            HasExactNumAudioSamples = true;
+        }
+    }
 
     if (AjustDelay >= -1)
         SampleDelay = static_cast<int64_t>(GetRelativeStartTime(AjustDelay) * AP.SampleRate);
 
     AP.NumSamples += SampleDelay;
 
-    AudioTrack = Decoders[0]->GetTrack();
+
     MaxSize = (100 * 1024 * 1024) / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
 }
 
 BestAudioSource::~BestAudioSource() {
-    for (auto iter : Decoders)
-        delete iter;
+    for (auto Iter : Decoders)
+        delete Iter;
 }
 
 int BestAudioSource::GetTrack() const {
@@ -299,8 +308,8 @@ void BestAudioSource::SetMaxCacheSize(size_t bytes) {
     }
 }
 
-void BestAudioSource::SetSeekPreRoll(int64_t samples) {
-    PreRoll = samples;
+void BestAudioSource::SetSeekPreRoll(int64_t Samples) {
+    PreRoll = Samples;
 }
 
 double BestAudioSource::GetRelativeStartTime(int Track) const {
@@ -419,8 +428,8 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
     bool FilledIn = false;
     do {
         FilledIn = false;
-        for (auto &iter : Cache)
-            FilledIn = FilledIn || FillInBlock(iter, DataV.data(), Start, Count);
+        for (auto &Iter : Cache)
+            FilledIn = FilledIn || FillInBlock(Iter, DataV.data(), Start, Count);
     } while (FilledIn);
 
     if (Count == 0)
@@ -464,9 +473,9 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
             int64_t FrameNumber = Decoder->GetFrameNumber();
             AVFrame *Frame = Decoder->GetNextAVFrame();
             
-            for (auto iter = Cache.begin(); iter != Cache.end(); ++iter) {
-                if (iter->FrameNumber == FrameNumber) {
-                    Cache.erase(iter);
+            for (auto Iter = Cache.begin(); Iter != Cache.end(); ++Iter) {
+                if (Iter->FrameNumber == FrameNumber) {
+                    Cache.erase(Iter);
                     break;
                 }
             }

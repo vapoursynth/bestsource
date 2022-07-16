@@ -24,8 +24,8 @@
 struct AVRational;
 
 struct BSRational {
-    int num;
-    int den;
+    int Num;
+    int Den;
     BSRational() = default;
     BSRational(const AVRational &r);
     double ToDouble() const;

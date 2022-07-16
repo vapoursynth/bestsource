@@ -26,10 +26,10 @@ extern "C" {
 }
 
 BSRational::BSRational(const AVRational &r) {
-    num = r.num;
-    den = r.den;
+    Num = r.num;
+    Den = r.den;
 }
 
 double BSRational::ToDouble() const {
-    return num / (double)den;
+    return Num / (double)Den;
 }

@@ -127,7 +127,7 @@ public:
     ~BestVideoFrame();
     const AVFrame *GetAVFrame() const;
     bool HasAlpha() const;
-    bool ExportAsPlanar(uint8_t **Dst, ptrdiff_t *Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
+    bool ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
 
     VideoFormat VF;
     int Width;
