@@ -195,6 +195,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *in, VSMap *out, void *, VSC
         if (VariableFormat)
             D->VI = {};
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
+        if (D->VI.numFrames <= 0)
+            throw VideoException("Failed to estimate number of frames, exact mode must be used");
         D->VI.fpsNum = VP.FPS.num;
         D->VI.fpsDen = VP.FPS.den;
         vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
@@ -272,9 +274,11 @@ static void VS_CC CreateBestAudioSource(const VSMap *in, VSMap *out, void *, VSC
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
+        if (D->AI.numSamples <= 0)
+            throw VideoException("Failed to estimate number of samples, exact mode must be used");
         D->AI.numFrames = static_cast<int>((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES);
         if ((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES > std::numeric_limits<int>::max())
-            throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
+            throw AudioException("Too many audio samples, cut file into smaller parts");
     } catch (AudioException &e) {
         delete D;
         vsapi->mapSetError(out, (std::string("AudioSource: ") + e.what()).c_str());

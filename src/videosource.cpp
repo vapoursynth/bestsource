@@ -251,7 +251,7 @@ void LWVideoDecoder::SetVideoProperties() {
     VP.TimeBase = FormatContext->streams[TrackNumber]->time_base;
 
     VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
-    if (!VP.NumFrames) {
+    if (VP.NumFrames <= 0 && VP.Duration > 0) {
         if (VP.FPS.num)
             VP.NumFrames = (VP.Duration * VP.FPS.num) / VP.FPS.den;
     }
