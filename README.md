@@ -27,4 +27,4 @@ bs.VideoSource(string source, int track = -1, bint variableformat = False, int t
 
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
-*cachepath*: The path where the file bscache.json will be stored. Defaults to `%LOCALAPPDATA%\bscache.json` or `~/bscache.json` depending on the OS.
+*cachepath*: The path where the file bscache.json will be stored. Defaults to `%LOCALAPPDATA%\bsindex.json` or `~/bsindex.json` depending on the OS.

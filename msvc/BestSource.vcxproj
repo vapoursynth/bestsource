@@ -36,6 +36,7 @@
     <ClInclude Include="..\src\audiosource.h" />
     <ClInclude Include="..\src\BSRational.h" />
     <ClInclude Include="..\src\SrcAttribCache.h" />
+    <ClInclude Include="..\src\version.h" />
     <ClInclude Include="..\src\videosource.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

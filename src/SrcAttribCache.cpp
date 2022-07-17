@@ -19,10 +19,17 @@
 //  THE SOFTWARE.
 
 #include "SrcAttribCache.h"
+#include "version.h"
 
 #include <memory>
 #include <sys/stat.h>
 #include <jansson.h>
+
+extern "C" {
+#include <libavutil/avutil.h>
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+}
 
 #ifdef _WIN32
 #include <shlobj_core.h>
@@ -57,14 +64,27 @@ typedef std::unique_ptr<FILE> file_ptr_t;
 
 /*
 {
+    bsversion: {
+        bestsource: int,
+        avutil: int,
+        avformat: int,
+        avcodec: int
+    },
+    files: {
         "<file path>": { 
             size: int,
-            lavfopts: { "enable_drefs": "1", "use_absolute_paths": "0" },
-            variableformat: bool,
+            lavfopts: {
+                "enable_drefs": "1",
+                "use_absolute_paths": "0"
+            },
+            variable: bool,
             tracks: {
-                "0": frames/samples, "1": frames/samples, ...
+                "0": frames/samples,
+                "1": frames/samples,
+                ...
             }
        }
+    }
 }
 */
 
@@ -80,10 +100,10 @@ static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
     } else {
         CachePath = Utf16FromUtf8(Path);
     }
-    CachePath += L"\\bscache.json";
+    CachePath += L"\\bsindex.json";
     return file_ptr_t(_wfopen(CachePath.c_str(), Write ? L"wb" : L"rb"));
 #else
-    std::string CachePath = Path.empty() ? "~/bscache.json" : (Path + "/bscache.json");
+    std::string CachePath = Path.empty() ? "~/bsindex.json" : (Path + "/bsindex.json");
     return file_ptr_t(fopen(CachePath.c_str(), Write ? "wb" : "rb"));
 #endif
 }
@@ -96,6 +116,21 @@ static bool StatWrapper(const std::string &Filename, struct _stat64 &Info) {
 #endif
 }
 
+static bool CheckBSVersion(const json_ptr_t &Root) {
+    json_t *VersionData = json_object_get(Root.get(), "bsversion");
+    if (!VersionData)
+        return false;
+    if (json_integer_value(json_object_get(VersionData, "bestsource")) != (((BEST_SOURCE_VERSION_MAJOR) << 16) | BEST_SOURCE_VERSION_MINOR))
+        return false;
+    if (json_integer_value(json_object_get(VersionData, "avutil")) != avutil_version())
+        return false;
+    if (json_integer_value(json_object_get(VersionData, "avformat")) != avformat_version())
+        return false;
+    if (json_integer_value(json_object_get(VersionData, "avcodec")) != avcodec_version())
+        return false;
+    return true;
+}
+
 bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
     file_ptr_t File = OpenCacheFile(CachePath, false);
     if (!File)
@@ -105,7 +140,14 @@ bool GetSourceAttributes(const std::string &CachePath, const std::string &Filena
     if (!Data)
         return false;
 
-    json_t *FileData = json_object_get(Data.get(), Filename.c_str());
+    if (!CheckBSVersion(Data))
+        return false;
+
+    json_t *FilesData = json_object_get(Data.get(), "files");
+    if (!FilesData)
+        return false;
+
+    json_t *FileData = json_object_get(FilesData, Filename.c_str());
     if (!FileData)
         return false;
 
@@ -148,13 +190,30 @@ bool SetSourceAttributes(const std::string &CachePath, const std::string &Filena
     file_ptr_t File = OpenCacheFile(CachePath, false);
     json_ptr_t Data(File ? json_loadf(File.get(), 0, nullptr) : json_object());
 
-    if (!Data)
-        return false;
+    if (!Data || !CheckBSVersion(Data))
+        Data.reset(json_object());
 
-    json_t *FileData = json_object_get(Data.get(), Filename.c_str());
+    json_t *VersionData = json_object_get(Data.get(), "bsversion");
+    if (!VersionData) {
+        VersionData = json_object();
+        json_object_set_new(Data.get(), "bsversion", VersionData);
+    }
+
+    json_object_set_new(VersionData, "bestsource", json_integer(((BEST_SOURCE_VERSION_MAJOR) << 16) | BEST_SOURCE_VERSION_MINOR));
+    json_object_set_new(VersionData, "avutil", json_integer(avutil_version()));
+    json_object_set_new(VersionData, "avformat", json_integer(avformat_version()));
+    json_object_set_new(VersionData, "avcodec", json_integer(avcodec_version()));
+
+    json_t *FilesData = json_object_get(Data.get(), "files");
+    if (!FilesData) {
+        FilesData = json_object();
+        json_object_set_new(Data.get(), "files", FilesData);
+    }
+
+    json_t *FileData = json_object_get(FilesData, Filename.c_str());
     if (!FileData) {
         FileData = json_object();
-        json_object_set_new(Data.get(), Filename.c_str(), FileData);
+        json_object_set_new(FilesData, Filename.c_str(), FileData);
     }
 
     json_object_set_new(FileData, "size", json_integer(Info.st_size));
@@ -178,7 +237,7 @@ bool SetSourceAttributes(const std::string &CachePath, const std::string &Filena
     for (const auto &Iter : LAVFOpts)
         json_object_set_new(LAVFData, Iter.first.c_str(), json_string(Iter.second.c_str()));
 
-    json_t *TrackData = json_object_get(Data.get(), "tracks");
+    json_t *TrackData = json_object_get(FileData, "tracks");
     if (!TrackData) {
         TrackData = json_object();
         json_object_set_new(FileData, "tracks", TrackData);

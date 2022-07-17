@@ -20,6 +20,7 @@
 
 #include "videosource.h"
 #include "audiosource.h"
+#include "version.h"
 #include <VapourSynth4.h>
 #include <VSHelper4.h>
 #include <vector>
@@ -289,7 +290,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
-    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(0, 9), VAPOURSYNTH_API_VERSION, 0, plugin);
+    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }
