@@ -41,7 +41,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         VSFrame *AlphaDst = nullptr;
         std::unique_ptr<BestVideoFrame> Src;
         try {
-            Src.reset(D->V->GetFrame(n));
+            Src.reset(D->V->GetFrameExtendLast(n));
             if (!Src)
                 throw VideoException("No frame returned for frame number " + std::to_string(n));
 

@@ -713,3 +713,10 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         return new BestVideoFrame(RetFrame);
     return nullptr;
 }
+
+BestVideoFrame *BestVideoSource::GetFrameExtendLast(int64_t N) {
+    BestVideoFrame *Res = GetFrame(N);
+    if (!Res && HasExactNumVideoFrames && N >= VP.NumFrames)
+        Res = GetFrame(VP.NumFrames - 1);
+    return Res;
+}

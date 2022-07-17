@@ -202,6 +202,7 @@ public:
     bool GetExactDuration();
     const VideoProperties &GetVideoProperties() const;
     BestVideoFrame *GetFrame(int64_t N);
+    BestVideoFrame *GetFrameExtendLast(int64_t N);
 };
 
 #endif
