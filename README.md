@@ -19,7 +19,7 @@ bs.VideoSource(string source, int track = -1, bint variableformat = False, int t
 
 *seekpreroll*: Number of frames before the requested frame to cache when seeking.
 
-*exact*: Decode the full track to get an exact frame/sample count. Will throw an error if set to false and the frame or sample count can't be guessed at all.
+*exact*: Decode the full track to get an exact frame/sample count. Will throw an error if set to false and the frame or sample count can't be guessed at all. If too many frames/samples is guessed the end is passed with the last available frame/silence to fill up the missing data.
 
 *enable_drefs*: Option passed to the FFmpeg mov demuxer.
 
