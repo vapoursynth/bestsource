@@ -407,7 +407,7 @@ bool BestAudioSource::FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &S
 }
 
 void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int64_t Count) {
-    Start += SampleDelay;
+    Start -= SampleDelay;
 
     if (Count <= 0)
         return;
