@@ -22,6 +22,7 @@
 #include "version.h"
 
 #include <memory>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <jansson.h>
 
@@ -34,6 +35,8 @@ extern "C" {
 #ifdef _WIN32
 #include <shlobj_core.h>
 
+#define STAT_STRUCT_TYPE _stat64
+
 static std::wstring Utf16FromUtf8(const std::string &Str) {
     int RequiredSize = MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), -1, nullptr, 0);
     std::wstring Buffer;
@@ -41,6 +44,10 @@ static std::wstring Utf16FromUtf8(const std::string &Str) {
     MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), static_cast<int>(Str.size()), &Buffer[0], RequiredSize);
     return Buffer;
 }
+#else
+
+#define STAT_STRUCT_TYPE stat
+
 #endif
 
 namespace std {
@@ -108,11 +115,11 @@ static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
 #endif
 }
 
-static bool StatWrapper(const std::string &Filename, struct _stat64 &Info) {
+static bool StatWrapper(const std::string &Filename, struct STAT_STRUCT_TYPE &Info) {
 #ifdef _WIN32
     return !_wstat64(Utf16FromUtf8(Filename).c_str(), &Info);
 #else
-    return !_stat64(Filename.c_str(), &Info);
+    return !stat(Filename.c_str(), &Info);
 #endif
 }
 
@@ -153,7 +160,7 @@ bool GetSourceAttributes(const std::string &CachePath, const std::string &Filena
 
     json_int_t FileSize = json_integer_value(json_object_get(FileData, "size"));
 
-    struct _stat64 Info = {};
+    struct STAT_STRUCT_TYPE Info = {};
     if (!StatWrapper(Filename, Info))
         return false;
 
@@ -183,7 +190,7 @@ bool GetSourceAttributes(const std::string &CachePath, const std::string &Filena
 }
 
 bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, int Track, int64_t Samples, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
-    struct _stat64 Info = {};
+    struct STAT_STRUCT_TYPE Info = {};
     if (!StatWrapper(Filename, Info))
         return false;
 
