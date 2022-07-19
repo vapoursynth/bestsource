@@ -104,13 +104,13 @@ static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
             return nullptr;
         CachePath = App;
         CoTaskMemFree(App);
+        CachePath += L"\\bsindex.json";
     } else {
         CachePath = Utf16FromUtf8(Path);
     }
-    CachePath += L"\\bsindex.json";
     return file_ptr_t(_wfopen(CachePath.c_str(), Write ? L"wb" : L"rb"));
 #else
-    std::string CachePath = Path.empty() ? "~/bsindex.json" : (Path + "/bsindex.json");
+    std::string CachePath = Path.empty() ? "~/bsindex.json" : Path;
     return file_ptr_t(fopen(CachePath.c_str(), Write ? "wb" : "rb"));
 #endif
 }
