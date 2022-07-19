@@ -75,7 +75,7 @@ bool LWVideoDecoder::ReadPacket(AVPacket *Packet) {
     return false;
 }
 
-bool LWVideoDecoder::DecodeNextAVFrame() {
+bool LWVideoDecoder::DecodeNextAVFrame(bool SkipOutput) {
     if (!DecodeFrame) {
         DecodeFrame = av_frame_alloc();
         if (!DecodeFrame)
@@ -86,7 +86,9 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
         int Ret = avcodec_receive_frame(CodecContext, HWMode ? HWFrame : DecodeFrame);
         if (Ret == 0) {
             if (HWMode) {
-                av_hwframe_transfer_data(DecodeFrame, HWFrame, 0);
+                if (!SkipOutput)
+                    av_hwframe_transfer_data(DecodeFrame, HWFrame, 0);
+                // Still need to return repeat_pict and possibly other props
                 av_frame_copy_props(DecodeFrame, HWFrame);
             }
             return true;
@@ -267,11 +269,15 @@ AVFrame *LWVideoDecoder::GetNextAVFrame() {
     return nullptr;
 }
 
-bool LWVideoDecoder::SkipNextAVFrame() {
-    if (DecodeSuccess) {
-        CurrentFrame++;
-        CurrentField += 2 + DecodeFrame->repeat_pict;
-        DecodeSuccess = DecodeNextAVFrame();
+bool LWVideoDecoder::SkipAVFrames(int64_t Count) {
+    while (Count-- > 0) {
+        if (DecodeSuccess) {
+            CurrentFrame++;
+            CurrentField += 2 + DecodeFrame->repeat_pict;
+            DecodeSuccess = DecodeNextAVFrame(Count > 0);
+        } else {
+            break;
+        }
     }
     return DecodeSuccess;
 }
@@ -656,7 +662,7 @@ bool BestVideoSource::GetExactDuration() {
 
     LWVideoDecoder *Decoder = Decoders[Index];
 
-    while (Decoder->SkipNextAVFrame());
+    while (Decoder->SkipAVFrames(INT64_MAX));
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 
@@ -738,7 +744,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
             if (FrameNumber == N)
                 RetFrame = Frame;
         } else if (FrameNumber < N) {
-            Decoder->SkipNextAVFrame();
+            Decoder->SkipAVFrames(N - PreRoll - FrameNumber);
         }
 
         if (!Decoder->HasMoreFrames()) {

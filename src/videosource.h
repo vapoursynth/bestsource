@@ -108,7 +108,7 @@ private:
     void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     void SetVideoProperties();
     bool ReadPacket(AVPacket *Packet);
-    bool DecodeNextAVFrame();
+    bool DecodeNextAVFrame(bool SkipOutput = false);
     void Free();
 public:
     LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
@@ -118,7 +118,7 @@ public:
     int64_t GetFieldNumber() const;
     const VideoProperties &GetVideoProperties() const;
     AVFrame *GetNextAVFrame();
-    bool SkipNextAVFrame();
+    bool SkipAVFrames(int64_t Count);
     bool HasMoreFrames() const;
 };
 
