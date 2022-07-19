@@ -66,15 +66,15 @@ bool LWAudioDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
     for (const auto &Iter : LAVFOpts)
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
-    if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
-        throw AudioException(std::string("Couldn't open '") + SourceFile + "'");
+    if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
+        throw AudioException("Couldn't open '" + SourceFile + "'");
 
     av_dict_free(&Dict);
 
@@ -134,7 +134,7 @@ void LWAudioDecoder::OpenFile(const char *SourceFile, int Track, const std::map<
     av_dict_free(&CodecDict);
 }
 
-LWAudioDecoder::LWAudioDecoder(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     try {
         Packet = av_packet_alloc();
         OpenFile(SourceFile, Track, LAVFOpts, DrcScale);
@@ -265,12 +265,12 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
     if (CachePath)
         this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
-    Decoders[0] = new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, DrcScale);
+    Decoders[0] = new LWAudioDecoder(Source, Track, LAVFOptions, DrcScale);
     AP = Decoders[0]->GetAudioProperties();
     AudioTrack = Decoders[0]->GetTrack();
 
@@ -315,18 +315,18 @@ void BestAudioSource::SetSeekPreRoll(int64_t Samples) {
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source.c_str(), Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
         }
         return 0;
     } else {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source.c_str(), Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
             try {
-                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source.c_str(), Track, LAVFOptions, 0));
+                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, Track, LAVFOptions, 0));
                 return AP.StartTime - Dec->GetAudioProperties().StartTime;
             } catch (AudioException &) {
                 throw AudioException("Can't get delay relative to track");
@@ -345,7 +345,7 @@ bool BestAudioSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
+        Decoders[0] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
         Index = 0;
     }
 
@@ -446,7 +446,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
         for (int i = 0; i < MaxAudioSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
+                Decoders[i] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
                 break;
             }
         }
@@ -460,7 +460,7 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWAudioDecoder(Source.c_str(), AudioTrack, LAVFOptions, DrcScale);
+        Decoders[Index] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
     }
 
     LWAudioDecoder *Decoder = Decoders[Index];

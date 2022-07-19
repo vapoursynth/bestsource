@@ -101,15 +101,15 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
     for (const auto &Iter : LAVFOpts)
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
-    if (avformat_open_input(&FormatContext, SourceFile, nullptr, &Dict) != 0)
-        throw VideoException(std::string("Couldn't open '") + SourceFile + "'");
+    if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
+        throw VideoException("Couldn't open '" + SourceFile + "'");
 
     av_dict_free(&Dict);
 
@@ -170,7 +170,7 @@ void LWVideoDecoder::OpenFile(const char *SourceFile, int Track, bool VariableFo
         throw VideoException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const char *SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
         OpenFile(SourceFile, Track, VariableFormat, Threads, LAVFOpts);
@@ -492,6 +492,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         return true;
     } else {
         p2p_buffer_param Buf = {};
+        Buf.height = Frame->height;
+        Buf.width = Frame->width;
 
         switch (Frame->format) {
             case AV_PIX_FMT_YUYV422:
@@ -505,6 +507,9 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                 break;
             case AV_PIX_FMT_NV12:
                 Buf.packing = p2p_nv12;
+                break;
+            case AV_PIX_FMT_P010:
+                Buf.packing = p2p_p010;
                 break;
             case AV_PIX_FMT_ARGB:
                 Buf.packing = p2p_argb32;
@@ -537,6 +542,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
 
         p2p_unpack_frame(&Buf, 0);
+        return true;
     }
 
     return false;
@@ -559,7 +565,7 @@ BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool Variabl
         this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
-    Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
+    Decoders[0] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
     VP = Decoders[0]->GetVideoProperties();
     VideoTrack = Decoders[0]->GetTrack();
     
@@ -605,7 +611,7 @@ bool BestVideoSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[0] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
         Index = 0;
     }
 
@@ -648,7 +654,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
+                Decoders[i] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
                 break;
             }
         }
@@ -662,7 +668,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source.c_str(), VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[Index] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
     }
 
     LWVideoDecoder *Decoder = Decoders[Index];

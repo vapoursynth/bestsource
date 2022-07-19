@@ -60,12 +60,12 @@ private:
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
 
-    void OpenFile(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
+    void OpenFile(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame();
     void Free();
 public:
-    LWAudioDecoder(const char *SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWAudioDecoder(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     int64_t GetSamplePosition() const;
@@ -115,11 +115,11 @@ private:
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const char *SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
+    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
-    void SetMaxCacheSize(size_t bytes); /* default max size is 100MB */
-    void SetSeekPreRoll(int64_t samples); /* the number of samples to cache before the position being fast forwarded to, default is 200k samples */
+    void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */
+    void SetSeekPreRoll(int64_t Samples); /* the number of samples to cache before the position being fast forwarded to, default is 200k samples */
     double GetRelativeStartTime(int Track) const; // Offset in seconds
     bool GetExactDuration();
     const AudioProperties &GetAudioProperties() const;
