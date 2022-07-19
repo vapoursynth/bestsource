@@ -83,8 +83,12 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
     }
 
     while (true) {
-        int Ret = avcodec_receive_frame(CodecContext, DecodeFrame);
+        int Ret = avcodec_receive_frame(CodecContext, HWMode ? HWFrame : DecodeFrame);
         if (Ret == 0) {
+            if (HWMode) {
+                av_hwframe_transfer_data(DecodeFrame, HWFrame, 0);
+                av_frame_copy_props(DecodeFrame, HWFrame);
+            }
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
             if (ReadPacket(Packet)) {
@@ -101,8 +105,17 @@ bool LWVideoDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
+
+    AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
+    if (!HWDeviceName.empty()) {
+        Type = av_hwdevice_find_type_by_name(HWDeviceName.c_str());
+        if (Type == AV_HWDEVICE_TYPE_NONE)
+            throw VideoException("Unknown HW device: " + HWDeviceName);
+    }
+
+    HWMode = (Type != AV_HWDEVICE_TYPE_NONE);
 
     AVDictionary *Dict = nullptr;
     for (const auto &Iter : LAVFOpts)
@@ -146,6 +159,20 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
     if (Codec == nullptr)
         throw VideoException("Video codec not found");
 
+    AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
+    if (HWMode) {
+        for (int i = 0;; i++) {
+            const AVCodecHWConfig *Config = avcodec_get_hw_config(Codec, i);
+            if (!Config)
+                throw VideoException("Decoder " + std::string(Codec->name) + " does not support device type " + av_hwdevice_get_type_name(Type));
+            if (Config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
+                Config->device_type == Type) {
+                hw_pix_fmt = Config->pix_fmt;
+                break;
+            }
+        }
+    }
+
     CodecContext = avcodec_alloc_context3(Codec);
     if (CodecContext == nullptr)
         throw VideoException("Could not allocate video decoding context");
@@ -166,14 +193,25 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
     if (CodecContext->codec_id == AV_CODEC_ID_H264 && CodecContext->has_b_frames)
         CodecContext->has_b_frames = 15; // the maximum possible value for h264
 
+    if (HWMode) {
+        CodecContext->pix_fmt = hw_pix_fmt;
+        if (av_hwdevice_ctx_create(&HWDeviceContext, Type, nullptr, nullptr, 0) < 0)
+            throw VideoException("Failed to create specified HW device");
+        CodecContext->hw_device_ctx = av_buffer_ref(HWDeviceContext);
+
+        HWFrame = av_frame_alloc();
+        if (!HWFrame)
+                throw VideoException("Couldn't allocate frame");
+    }
+
     if (avcodec_open2(CodecContext, Codec, nullptr) < 0)
         throw VideoException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, Track, VariableFormat, Threads, LAVFOpts);
+        OpenFile(SourceFile, HWDeviceName, Track, VariableFormat, Threads, LAVFOpts);
 
         DecodeSuccess = DecodeNextAVFrame();
 
@@ -191,8 +229,10 @@ LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, int Track, bool Va
 void LWVideoDecoder::Free() {
     av_packet_free(&Packet);
     av_frame_free(&DecodeFrame);
+    av_frame_free(&HWFrame);
     avcodec_free_context(&CodecContext);
     avformat_close_input(&FormatContext);
+    av_buffer_unref(&HWDeviceContext);
 }
 
 LWVideoDecoder::~LWVideoDecoder() {
@@ -244,7 +284,7 @@ void LWVideoDecoder::SetVideoProperties() {
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
     VP.PixFmt = CodecContext->pix_fmt;
-    VP.VF.Set(av_pix_fmt_desc_get(CodecContext->pix_fmt));
+    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(DecodeFrame->format)));
   
     VP.FPS = CodecContext->framerate;
     VP.Duration = FormatContext->streams[TrackNumber]->duration;
@@ -559,13 +599,12 @@ BestVideoSource::CacheBlock::~CacheBlock() {
     av_frame_free(&Frame);
 }
 
-BestVideoSource::BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts)
-    : Source(SourceFile), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
-    if (CachePath)
-        this->CachePath = CachePath;
+BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts)
+    : Source(SourceFile), HWDevice(HWDeviceName), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
-    Decoders[0] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
+    Decoders[0] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
     VP = Decoders[0]->GetVideoProperties();
     VideoTrack = Decoders[0]->GetTrack();
     
@@ -611,7 +650,7 @@ bool BestVideoSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[0] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
         Index = 0;
     }
 
@@ -654,7 +693,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
+                Decoders[i] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
                 break;
             }
         }
@@ -668,7 +707,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source, VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[Index] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
     }
 
     LWVideoDecoder *Decoder = Decoders[Index];

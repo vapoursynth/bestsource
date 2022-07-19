@@ -166,6 +166,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     int err;
     const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
@@ -185,7 +186,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     BestVideoSourceData *D = new BestVideoSourceData();
 
     try {
-        D->V.reset(new BestVideoSource(Source, Track, VariableFormat, Threads, CachePath, &Opts));
+        D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
         if (Exact)
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();
@@ -267,7 +268,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BestAudioSourceData *D = new BestAudioSourceData();
 
     try {
-        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, CachePath, &Opts, DrcScale));
+        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, CachePath ? CachePath : "", &Opts, DrcScale));
         if (Exact)
             D->A->GetExactDuration();
         const AudioProperties &AP = D->A->GetAudioProperties();
@@ -291,6 +292,6 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;hwdevice:data:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }

@@ -115,7 +115,7 @@ private:
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
+    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */

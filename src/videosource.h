@@ -29,6 +29,7 @@
 
 struct AVFormatContext;
 struct AVCodecContext;
+struct AVBufferRef;
 struct AVFrame;
 struct AVPacket;
 struct AVPixFmtDescriptor;
@@ -94,20 +95,23 @@ private:
     VideoProperties VP = {};
     AVFormatContext *FormatContext = nullptr;
     AVCodecContext *CodecContext = nullptr;
+    AVBufferRef *HWDeviceContext = nullptr;
     AVFrame *DecodeFrame = nullptr;
+    AVFrame *HWFrame = nullptr;
     int64_t CurrentFrame = 0;
     int64_t CurrentField = 0;
     int TrackNumber = -1;
+    bool HWMode = false;
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
 
-    void OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
+    void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     void SetVideoProperties();
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame();
     void Free();
 public:
-    LWVideoDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     int64_t GetFrameNumber() const;
@@ -182,6 +186,7 @@ private:
     VideoProperties VP = {};
     std::string Source;
     std::string CachePath;
+    std::string HWDevice;
     int VideoTrack;
     bool VariableFormat;
     int Threads;
@@ -194,7 +199,7 @@ private:
     size_t CacheSize = 0;
     int64_t PreRoll = 20;
 public:
-    BestVideoSource(const char *SourceFile, int Track, bool VariableFormat, int Threads, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts);
+    BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts);
     ~BestVideoSource();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */

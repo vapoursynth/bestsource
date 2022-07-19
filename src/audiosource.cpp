@@ -265,9 +265,8 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const char *CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
-    if (CachePath)
-        this->CachePath = CachePath;
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+    this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source, Track, LAVFOptions, DrcScale);
@@ -315,14 +314,14 @@ void BestAudioSource::SetSeekPreRoll(int64_t Samples) {
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
         }
         return 0;
     } else {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
             try {

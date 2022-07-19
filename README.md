@@ -28,3 +28,5 @@ bs.VideoSource(string source, int track = -1, bint variableformat = False, int t
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
 *cachepath*: The full path to the cache file. Defaults to `%LOCALAPPDATA%\bsindex.json` or `~/bsindex.json` depending on the OS.
+
+*hwdevice*: The interface to use for hardware decoding. Depends on OS and hardware. On windows `d3d11va` and `cuda` are probably the ones most likely to work. 
