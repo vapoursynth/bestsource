@@ -1,4 +1,4 @@
-//  Copyright (c) 2020-2022 Fredrik Mellbin
+//  Copyright (c) 2022 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -299,8 +299,8 @@ int BestAudioSource::GetTrack() const {
     return AudioTrack;
 }
 
-void BestAudioSource::SetMaxCacheSize(size_t bytes) {
-    MaxSize = bytes / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
+void BestAudioSource::SetMaxCacheSize(size_t Bytes) {
+    MaxSize = Bytes / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
     while (CacheSize > MaxSize) {
         CacheSize -= Cache.back().Length;
         Cache.pop_back();

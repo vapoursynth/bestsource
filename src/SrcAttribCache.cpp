@@ -19,7 +19,7 @@
 //  THE SOFTWARE.
 
 // FIXME, indexing progress update
-// FIXME, expose cache size setting
+// FIXME, warn on cache write failure
 
 #include "SrcAttribCache.h"
 #include "version.h"
