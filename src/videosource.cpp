@@ -615,9 +615,9 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     VideoTrack = Decoders[0]->GetTrack();
     
     SourceAttributes Attr = {};
-    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions, VariableFormat)) {
-        if (Attr.Tracks.count(VideoTrack) && Attr.Tracks[VideoTrack] > 0) {
-            VP.NumFrames = Attr.Tracks[VideoTrack];
+    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions)) {
+        if (Attr.Tracks.count(VideoTrack) && Attr.Tracks[VideoTrack].Samples > 0 && Attr.Tracks[VideoTrack].Variable == VariableFormat && Attr.Tracks[VideoTrack].HWDevice == HWDevice) {
+            VP.NumFrames = Attr.Tracks[VideoTrack].Samples;
             HasExactNumVideoFrames = true;
         }
     }
@@ -666,7 +666,9 @@ bool BestVideoSource::GetExactDuration() {
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 
-    SetSourceAttributes(CachePath, Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
+    SourceAttributes Attrs;
+    Attrs.Tracks[VideoTrack] = { VP.NumFrames, VariableFormat, HWDevice };
+    SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
 
     HasExactNumVideoFrames = true;
     delete Decoder;
@@ -751,7 +753,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
             VP.NumFrames = Decoder->GetFrameNumber();
             VP.NumFields = Decoder->GetFieldNumber();
             if (!HasExactNumVideoFrames) {
-                SetSourceAttributes(CachePath, Source, VideoTrack, VP.NumFrames, LAVFOptions, VariableFormat);
+                SourceAttributes Attrs;
+                Attrs.Tracks[VideoTrack] = { VP.NumFrames, VariableFormat, HWDevice };
+                SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
                 HasExactNumVideoFrames = true;
             }
             delete Decoder;

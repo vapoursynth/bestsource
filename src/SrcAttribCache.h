@@ -25,10 +25,15 @@
 #include <map>
 
 struct SourceAttributes {
-    std::map<int, int64_t> Tracks;
+    struct TrackAttributes {
+        int64_t Samples;
+        bool Variable;
+        std::string HWDevice;
+    };
+    std::map<int, TrackAttributes> Tracks;
 };
 
-bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts, bool Variable);
-bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, int Track, int64_t Samples, std::map<std::string, std::string> &LAVFOpts, bool Variable);
+bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts);
+bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, const SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts);
 
 #endif

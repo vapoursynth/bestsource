@@ -18,6 +18,9 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
+// FIXME, indexing progress update
+// FIXME, expose cache size setting
+
 #include "SrcAttribCache.h"
 #include "version.h"
 
@@ -84,10 +87,17 @@ typedef std::unique_ptr<FILE> file_ptr_t;
                 "enable_drefs": "1",
                 "use_absolute_paths": "0"
             },
-            variable: bool,
             tracks: {
-                "0": frames/samples,
-                "1": frames/samples,
+                "0": {
+                        hwdevice: string,
+                        variable: bool,
+                        samples: int,
+                },
+                "1": {
+                        hwdevice: string,
+                        variable: bool,
+                        samples: int,
+                },
                 ...
             }
        }
@@ -138,7 +148,7 @@ static bool CheckBSVersion(const json_ptr_t &Root) {
     return true;
 }
 
-bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
+bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts) {
     file_ptr_t File = OpenCacheFile(CachePath, false);
     if (!File)
         return false;
@@ -167,9 +177,7 @@ bool GetSourceAttributes(const std::string &CachePath, const std::string &Filena
     if (Info.st_size != FileSize)
         return false;
 
-    bool VariableFormat = json_boolean_value(json_object_get(FileData, "variable"));
     std::map<std::string, std::string> Opts;
-
     json_t *LAVFData = json_object_get(FileData, "lavfopts");
     const char *Key;
     json_t *Value;
@@ -177,19 +185,23 @@ bool GetSourceAttributes(const std::string &CachePath, const std::string &Filena
         Opts[Key] = json_string_value(Value);
     }
 
-    if (VariableFormat != Variable || Opts != LAVFOpts)
+    if (Opts != LAVFOpts)
         return false;
 
-    json_t *TrackData = json_object_get(FileData, "tracks");
+    json_t *TracksData = json_object_get(FileData, "tracks");
 
-    json_object_foreach(TrackData, Key, Value) {
-        Attrs.Tracks[atoi(Key)] = json_integer_value(Value);
+    json_object_foreach(TracksData, Key, Value) {
+        bool VariableFormat = json_boolean_value(json_object_get(Value, "variable"));
+        int64_t Samples = json_integer_value(json_object_get(Value, "samples"));
+        const char *HWDevice = json_string_value(json_object_get(Value, "hwdevice"));
+        if (Samples > 0)
+            Attrs.Tracks[atoi(Key)] = { Samples, VariableFormat, HWDevice ? HWDevice : "" };
     }
 
     return true;
 }
 
-bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, int Track, int64_t Samples, std::map<std::string, std::string> &LAVFOpts, bool Variable) {
+bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, const SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts) {
     struct STAT_STRUCT_TYPE Info = {};
     if (!StatWrapper(Filename, Info))
         return false;
@@ -225,9 +237,7 @@ bool SetSourceAttributes(const std::string &CachePath, const std::string &Filena
 
     json_object_set_new(FileData, "size", json_integer(Info.st_size));
 
-    bool VariableFormat = json_boolean_value(json_object_get(FileData, "variable"));
     std::map<std::string, std::string> Opts;
-
     json_t *LAVFData = json_object_get(FileData, "lavfopts");
     const char *Key;
     json_t *Value;
@@ -235,22 +245,26 @@ bool SetSourceAttributes(const std::string &CachePath, const std::string &Filena
         Opts[Key] = json_string_value(Value);
     }
 
-    bool ReplaceTracks = (VariableFormat != Variable || Opts != LAVFOpts);
+    bool ReplaceTracks = (Opts != LAVFOpts);
 
-    json_object_set_new(FileData, "variable", json_boolean(Variable));
     LAVFData = json_object();
     json_object_set_new(FileData, "lavfopts", LAVFData);
-
     for (const auto &Iter : LAVFOpts)
         json_object_set_new(LAVFData, Iter.first.c_str(), json_string(Iter.second.c_str()));
 
-    json_t *TrackData = json_object_get(FileData, "tracks");
-    if (!TrackData) {
-        TrackData = json_object();
-        json_object_set_new(FileData, "tracks", TrackData);
+    json_t *TracksData = (ReplaceTracks ? nullptr : json_object_get(FileData, "tracks"));
+    if (!TracksData) {
+        TracksData = json_object();
+        json_object_set_new(FileData, "tracks", TracksData);
     }
 
-    json_object_set_new(TrackData, std::to_string(Track).c_str(), json_integer(Samples));
+    for (auto &Iter : Attrs.Tracks) {
+        json_t *TrackData = json_object();
+        json_object_set_new(TrackData, "samples", json_integer(Iter.second.Samples));
+        json_object_set_new(TrackData, "variable", json_boolean(Iter.second.Variable));
+        json_object_set_new(TrackData, "hwdevice", json_string(Iter.second.HWDevice.c_str()));
+        json_object_set_new(TracksData, std::to_string(Iter.first).c_str(), TrackData);
+    }
 
     File = OpenCacheFile(CachePath, true);
     if (!File)

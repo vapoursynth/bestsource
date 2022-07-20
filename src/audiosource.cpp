@@ -274,9 +274,9 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
     AudioTrack = Decoders[0]->GetTrack();
 
     SourceAttributes Attr = {};
-    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions, false)) {
-        if (Attr.Tracks.count(AudioTrack) && Attr.Tracks[AudioTrack] > 0) {
-            AP.NumSamples = Attr.Tracks[AudioTrack];
+    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions)) {
+        if (Attr.Tracks.count(AudioTrack) && Attr.Tracks[AudioTrack].Samples > 0) {
+            AP.NumSamples = Attr.Tracks[AudioTrack].Samples;
             HasExactNumAudioSamples = true;
         }
     }
@@ -353,7 +353,9 @@ bool BestAudioSource::GetExactDuration() {
     while (Decoder->SkipNextAVFrame());
     AP.NumSamples = Decoder->GetSamplePosition();
     HasExactNumAudioSamples = true;
-    SetSourceAttributes(CachePath, Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+    SourceAttributes Attrs;
+    Attrs.Tracks[AudioTrack] = { AP.NumSamples };
+    SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
     delete Decoder;
     Decoders[Index] = nullptr;
 
@@ -497,7 +499,9 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
             AP.NumSamples = Decoder->GetSamplePosition();
             if (!HasExactNumAudioSamples) {
                 HasExactNumAudioSamples = true;
-                SetSourceAttributes(CachePath, Source, AudioTrack, AP.NumSamples, LAVFOptions, false);
+                SourceAttributes Attrs;
+                Attrs.Tracks[AudioTrack] = { AP.NumSamples };
+                SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
             }
             delete Decoder;
             Decoders[Index] = nullptr;
