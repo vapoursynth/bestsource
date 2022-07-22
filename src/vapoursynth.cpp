@@ -180,8 +180,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         Exact = true;
 
     std::map<std::string, std::string> Opts;
-    Opts["enable_drefs"] = vsapi->mapGetInt(In, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["use_absolute_path"] = vsapi->mapGetInt(In, "use_absolute_path", 0, &err) ? "1" : "0";
+    if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
+        Opts["enable_drefs"] = "1";
+    if (vsapi->mapGetInt(In, "use_absolute_path", 0, &err))
+        Opts["use_absolute_path"] = "1";
 
     BestVideoSourceData *D = new BestVideoSourceData();
 
@@ -264,8 +266,10 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         Exact = true;
 
     std::map<std::string, std::string> Opts;
-    Opts["enable_drefs"] = vsapi->mapGetInt(In, "enable_drefs", 0, &err) ? "1" : "0";
-    Opts["use_absolute_path"] = vsapi->mapGetInt(In, "use_absolute_path", 0, &err) ? "1" : "0";
+    if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
+        Opts["enable_drefs"] = "1";
+    if (vsapi->mapGetInt(In, "use_absolute_path", 0, &err))
+        Opts["use_absolute_path"] = "1";
 
     double DrcScale = vsapi->mapGetFloat(In, "drc_scale", 0, &err);
 
