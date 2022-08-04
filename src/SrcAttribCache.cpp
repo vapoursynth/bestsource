@@ -49,6 +49,8 @@ static std::wstring Utf16FromUtf8(const std::string &Str) {
 }
 #else
 
+#include <stdlib.h>
+
 #define STAT_STRUCT_TYPE stat
 
 #endif
@@ -120,7 +122,10 @@ static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
     }
     return file_ptr_t(_wfopen(CachePath.c_str(), Write ? L"wb" : L"rb"));
 #else
-    std::string CachePath = Path.empty() ? "~/bsindex.json" : Path;
+    const char *homeDir = getenv("HOME");
+    std::string CachePath = Path;
+    if (CachePath.empty() && homeDir)
+        CachePath = std::string(homeDir) + "/bsindex.json";
     return file_ptr_t(fopen(CachePath.c_str(), Write ? "wb" : "rb"));
 #endif
 }
