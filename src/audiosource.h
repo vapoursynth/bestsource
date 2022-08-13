@@ -123,7 +123,8 @@ public:
     double GetRelativeStartTime(int Track) const; // Offset in seconds
     bool GetExactDuration();
     const AudioProperties &GetAudioProperties() const;
-    void GetAudio(uint8_t * const * const Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed
+    void GetPlanarAudio(uint8_t * const * const Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed
+    void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed
 };
 
 #endif

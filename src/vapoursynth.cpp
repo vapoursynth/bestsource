@@ -235,7 +235,7 @@ static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason,
         for (int Channel = 0; Channel < d->AI.format.numChannels; Channel++)
             Tmp.push_back(vsapi->getWritePtr(Dst, Channel));
         try {
-            d->A->GetAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
+            d->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
         } catch (AudioException &e) {
             vsapi->setFilterError(e.what(), FrameCtx);
             vsapi->freeFrame(Dst);

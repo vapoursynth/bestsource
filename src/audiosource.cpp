@@ -234,6 +234,17 @@ static void UnpackChannels(const uint8_t *Src, uint8_t *Dst, size_t Length, size
     }
 }
 
+template<typename T>
+void PackChannels(const uint8_t *const *const Src, uint8_t *Dst, size_t Length, size_t Channels) {
+    const T *const *const S = reinterpret_cast<const T *const *>(Src);
+    T *D = reinterpret_cast<T *>(Dst);
+    for (size_t i = 0; i < Length; i++) {
+        for (size_t c = 0; c < Channels; c++)
+            D[c] = S[c][i];
+        D += Channels;
+    }
+}
+
 BestAudioSource::CacheBlock::CacheBlock(int64_t FrameNumber, int64_t Start, AVFrame *Frame) : FrameNumber(FrameNumber), Start(Start), Length(Frame->nb_samples) {
     if (av_sample_fmt_is_planar(static_cast<AVSampleFormat>(Frame->format))) {
         InternalFrame = Frame;
@@ -407,7 +418,7 @@ bool BestAudioSource::FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &S
     return false;
 }
 
-void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int64_t Count) {
+void BestAudioSource::GetPlanarAudio(uint8_t * const * const Data, int64_t Start, int64_t Count) {
     Start -= SampleDelay;
 
     if (Count <= 0)
@@ -514,4 +525,24 @@ void BestAudioSource::GetAudio(uint8_t * const * const Data, int64_t Start, int6
 
     if (Count != 0)
         throw AudioException("Code error, failed to provide all samples");
+}
+
+void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count) {
+    if (Count <= 0)
+        return;
+    size_t ChannelSize = Count * AP.BytesPerSample;
+    uint8_t *Tmp = new uint8_t[ChannelSize * AP.Channels];
+    std::vector<uint8_t *> DataV;
+    DataV.reserve(AP.Channels);
+    for (int i = 0; i < AP.Channels; i++)
+        DataV.push_back(Tmp + i * ChannelSize);
+    GetPlanarAudio(DataV.data(), Start, Count);
+    if (AP.BytesPerSample == 1)
+        PackChannels<uint8_t>(DataV.data(), Data, Count, AP.Channels);
+    else if (AP.BytesPerSample == 2)
+        PackChannels<uint16_t>(DataV.data(), Data, Count, AP.Channels);
+    else if (AP.BytesPerSample == 4)
+        PackChannels<uint32_t>(DataV.data(), Data, Count, AP.Channels);
+    else if (AP.BytesPerSample == 8)
+        PackChannels<uint64_t>(DataV.data(), Data, Count, AP.Channels);
 }
