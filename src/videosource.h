@@ -167,7 +167,7 @@ public:
 
     /* DolbyVisionRPU */
     uint8_t *DolbyVisionRPU = nullptr;
-    int DolbyVisionRPUSize = 0;
+    size_t DolbyVisionRPUSize = 0;
 };
 
 class BestVideoSource {

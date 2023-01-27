@@ -145,7 +145,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         }
 
         if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize) {
-            vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), Src->DolbyVisionRPUSize, dtBinary, maAppend);
+            vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), dtBinary, maAppend);
         }
 
         vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
