@@ -5,7 +5,7 @@ It can be used as either a C++ library directly or through the VapourSynth plugi
 
 ### VapourSynth plugin
 
-bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])
+bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])
 
 bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice])
 

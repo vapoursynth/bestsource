@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <thread>
 
 extern "C" {
 #include <libavutil/dict.h>
@@ -66,7 +67,7 @@ bool LWAudioDecoder::DecodeNextAVFrame() {
     return false;
 }
 
-void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
@@ -118,6 +119,10 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, const st
     if (avcodec_parameters_to_context(CodecContext, FormatContext->streams[TrackNumber]->codecpar) < 0)
         throw AudioException("Could not copy audio codec parameters");
 
+    if (Threads < 1)
+        Threads = static_cast<int>(std::thread::hardware_concurrency());
+    CodecContext->thread_count = Threads;
+
     // Probably guard against mid-stream format changes
     CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;
 
@@ -134,10 +139,10 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, const st
     av_dict_free(&CodecDict);
 }
 
-LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, Track, LAVFOpts, DrcScale);
+        OpenFile(SourceFile, Track, Threads, LAVFOpts, DrcScale);
 
         DecodeSuccess = DecodeNextAVFrame();
         
@@ -276,11 +281,11 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), DrcScale(DrcScale) {
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), Threads(Threads), DrcScale(DrcScale) {
     this->CachePath = CachePath;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
-    Decoders[0] = new LWAudioDecoder(Source, Track, LAVFOptions, DrcScale);
+    Decoders[0] = new LWAudioDecoder(Source, Track, Threads, LAVFOptions, DrcScale);
     AP = Decoders[0]->GetAudioProperties();
     AudioTrack = Decoders[0]->GetTrack();
 
@@ -336,7 +341,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
             try {
-                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, Track, LAVFOptions, 0));
+                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, Track, Threads, LAVFOptions, 0));
                 return AP.StartTime - Dec->GetAudioProperties().StartTime;
             } catch (AudioException &) {
                 throw AudioException("Can't get delay relative to track");
@@ -355,7 +360,7 @@ bool BestAudioSource::GetExactDuration() {
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
+        Decoders[0] = new LWAudioDecoder(Source, AudioTrack, Threads, LAVFOptions, DrcScale);
         Index = 0;
     }
 
@@ -458,7 +463,7 @@ void BestAudioSource::GetPlanarAudio(uint8_t * const * const Data, int64_t Start
         for (int i = 0; i < MaxAudioSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
+                Decoders[i] = new LWAudioDecoder(Source, AudioTrack, Threads, LAVFOptions, DrcScale);
                 break;
             }
         }
@@ -472,7 +477,7 @@ void BestAudioSource::GetPlanarAudio(uint8_t * const * const Data, int64_t Start
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWAudioDecoder(Source, AudioTrack, LAVFOptions, DrcScale);
+        Decoders[Index] = new LWAudioDecoder(Source, AudioTrack, Threads, LAVFOptions, DrcScale);
     }
 
     LWAudioDecoder *Decoder = Decoders[Index];

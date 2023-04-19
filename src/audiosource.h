@@ -60,12 +60,12 @@ private:
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
 
-    void OpenFile(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
+    void OpenFile(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame();
     void Free();
 public:
-    LWAudioDecoder(const std::string &SourceFile, int Track, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWAudioDecoder(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     int64_t GetSamplePosition() const;
@@ -101,6 +101,7 @@ private:
     std::string Source;
     std::string CachePath;
     int AudioTrack;
+    int Threads;
     bool HasExactNumAudioSamples = false;
     uint64_t DecoderSequenceNum = 0;
     uint64_t DecoderLastUse[MaxAudioSources] = {};
@@ -115,7 +116,7 @@ private:
     void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInBlock(CacheBlock &Block, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
-    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
+    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts = nullptr, double DrcScale = 0);
     ~BestAudioSource();
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */

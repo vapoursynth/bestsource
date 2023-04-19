@@ -261,6 +261,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     int AdjustDelay = vsapi->mapGetIntSaturated(In, "adjustdelay", 0, &err);
     if (err)
         AdjustDelay = -1;
+    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
     if (err)
         Exact = true;
@@ -276,7 +277,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BestAudioSourceData *D = new BestAudioSourceData();
 
     try {
-        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, CachePath ? CachePath : "", &Opts, DrcScale));
+        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
         if (Exact)
             D->A->GetExactDuration();
         const AudioProperties &AP = D->A->GetAudioProperties();
@@ -305,5 +306,5 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;hwdevice:data:opt;cachesize:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }
