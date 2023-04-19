@@ -183,7 +183,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         throw VideoException("Could not copy video codec parameters");
 
     if (Threads < 1)
-        Threads = std::min(static_cast<int>(std::thread::hardware_concurrency()), 16);
+        Threads = static_cast<int>(std::thread::hardware_concurrency());
     CodecContext->thread_count = Threads;
 
     if (!VariableFormat) {
