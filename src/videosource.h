@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <list>
+#include <string>
 #include <map>
 
 struct AVFormatContext;
