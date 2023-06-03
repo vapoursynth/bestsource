@@ -154,7 +154,17 @@ LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, int Thr
         AP.BitsPerSample = CodecContext->bits_per_raw_sample ? (CodecContext->bits_per_raw_sample) : (AP.BytesPerSample * 8); // assume all bits are relevant if not specified
         AP.SampleRate = DecodeFrame->sample_rate;
         AP.Channels = DecodeFrame->ch_layout.nb_channels;
-        AP.ChannelLayout = DecodeFrame->channel_layout ? DecodeFrame->channel_layout : av_get_default_channel_layout(DecodeFrame->channels);  
+
+        if (DecodeFrame->ch_layout.order == AV_CHANNEL_ORDER_NATIVE) {
+            AP.ChannelLayout = DecodeFrame->ch_layout.u.mask;
+        } else if (DecodeFrame->ch_layout.order == AV_CHANNEL_ORDER_UNSPEC) {
+            AVChannelLayout ch = {};
+            av_channel_layout_default(&ch, DecodeFrame->ch_layout.nb_channels);
+            AP.ChannelLayout = ch.u.mask;
+        } else {
+            throw AudioException("Ambisonics and custom channel orders not supported");
+        }
+
         AP.NumSamples = (FormatContext->duration * DecodeFrame->sample_rate) / AV_TIME_BASE - FormatContext->streams[TrackNumber]->codecpar->initial_padding;
         if (DecodeFrame->pts != AV_NOPTS_VALUE)
             AP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
