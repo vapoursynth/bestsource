@@ -46,8 +46,10 @@ jansson_dep = dependency('jansson', version: '>= 2.7', required: true)
 deps = [
     vapoursynth_dep,
     jansson_dep,
-    dependency('libavcodec', version: '>=58.18.0'),
-    dependency('libavformat', version: '>=58.12.0'),
+    dependency('libavcodec', version: '>=59.37.0'),
+    dependency('libavformat', version: '>=59.27.0'),
+    dependency('libavutil', version: '>=57.28.0'),
+    dependency('libswscale', version: '>=6.7.0')
 ]
 
 shared_module('bestsource', sources,
