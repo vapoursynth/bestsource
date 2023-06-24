@@ -193,7 +193,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V->GetExactDuration();
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
-            throw VideoException("Unsupported video format from decoder (probably less than 8 bit or pallette)");
+            throw VideoException("Unsupported video format from decoder (probably less than 8 bit or palette)");
         D->VI.width = VP.Width;
         D->VI.height = VP.Height;
         if (VariableFormat)
