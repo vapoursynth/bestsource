@@ -36,7 +36,7 @@ extern "C" {
 }
 
 #ifdef _WIN32
-#include <shlobj_core.h>
+#include <shlobj.h>
 
 #define STAT_STRUCT_TYPE _stat64
 
