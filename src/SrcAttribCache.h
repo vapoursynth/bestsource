@@ -23,6 +23,7 @@
 
 #include <string>
 #include <map>
+#include <cstdint>
 
 struct SourceAttributes {
     struct TrackAttributes {

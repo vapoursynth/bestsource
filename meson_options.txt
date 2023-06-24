@@ -1,0 +1,5 @@
+option('link_static',
+    type: 'boolean',
+    value: false,
+    description: 'Use static linking'
+)
