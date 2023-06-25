@@ -1,0 +1,24 @@
+name: macOS
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Homebrew packages
+      run: |
+        brew update
+        brew install ffmpeg jansson meson vapoursynth
+
+    - name: Download libp2p
+      run: |
+        git clone https://github.com/sekrit-twc/libp2p.git --depth 1
+
+    - name: Build
+      run: |
+        meson setup build
+        ninja -C build
