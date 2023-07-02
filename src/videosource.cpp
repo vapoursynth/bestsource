@@ -157,7 +157,12 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         if (i != TrackNumber)
             FormatContext->streams[i]->discard = AVDISCARD_ALL;
 
-    const AVCodec *Codec = avcodec_find_decoder(FormatContext->streams[TrackNumber]->codecpar->codec_id);
+    const AVCodec *Codec = nullptr;
+    if (HWMode && FormatContext->streams[TrackNumber]->codecpar->codec_id == AV_CODEC_ID_AV1)
+        Codec = avcodec_find_decoder_by_name("av1");
+    else
+        Codec = avcodec_find_decoder(FormatContext->streams[TrackNumber]->codecpar->codec_id);
+
     if (Codec == nullptr)
         throw VideoException("Video codec not found");
 
