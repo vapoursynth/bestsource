@@ -182,8 +182,15 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     if (avcodec_parameters_to_context(CodecContext, FormatContext->streams[TrackNumber]->codecpar) < 0)
         throw VideoException("Could not copy video codec parameters");
 
-    if (Threads < 1)
-        Threads = static_cast<int>(std::thread::hardware_concurrency());
+    if (Threads < 1) {
+        int HardwareConcurrency = std::thread::hardware_concurrency();
+        if (Type != AV_HWDEVICE_TYPE_CUDA)
+            Threads = HardwareConcurrency;
+        else if (CodecContext->codec_id == AV_CODEC_ID_H264)
+            Threads = 1;
+        else
+            Threads = std::min(HardwareConcurrency, 2);
+    }
     CodecContext->thread_count = Threads;
 
     if (!VariableFormat) {
