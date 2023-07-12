@@ -309,6 +309,10 @@ void LWVideoDecoder::SetVideoProperties() {
     VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(DecodeFrame->format)));
   
     VP.FPS = CodecContext->framerate;
+    // Set the framerate from the container if the codec framerate is invalid
+    if (VP.FPS.Num <= 0 || VP.FPS.Den <= 0)
+        VP.FPS = FormatContext->streams[TrackNumber]->r_frame_rate;
+
     VP.Duration = FormatContext->streams[TrackNumber]->duration;
     VP.TimeBase = FormatContext->streams[TrackNumber]->time_base;
 
