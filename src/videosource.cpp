@@ -662,8 +662,8 @@ void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
     }
 }
 
-void BestVideoSource::SetSeekPreRoll(size_t Frames) {
-    PreRoll = static_cast<int64_t>(Frames);
+void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
+    PreRoll = std::max<int64_t>(Frames, 0);
 }
 
 bool BestVideoSource::GetExactDuration() {
