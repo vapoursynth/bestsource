@@ -169,6 +169,10 @@ public:
     /* DolbyVisionRPU */
     uint8_t *DolbyVisionRPU = nullptr;
     size_t DolbyVisionRPUSize = 0;
+
+    /* HDR10Plus */
+    uint8_t *HDR10Plus = nullptr;
+    size_t HDR10PlusSize = 0;
 };
 
 class BestVideoSource {

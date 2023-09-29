@@ -148,6 +148,10 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), dtBinary, maAppend);
         }
 
+        if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
+            vsapi->mapSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), Src->HDR10PlusSize, dtBinary, maReplace);
+        }
+
         vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
         vsapi->mapSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, maAppend);
         vsapi->mapSetInt(Props, "Rotation", VP.Rotation, maAppend);
