@@ -8,6 +8,10 @@ that ensures sample/frame accurate access to audio and video by always linearly 
 
 It can be used as either a C++ library directly or through the VapourSynth plugin that's included.
 
+### Compiling
+
+Requires FFmpeg, Jansson and libp2p to compile.
+
 ### VapourSynth plugin
 
 bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])
