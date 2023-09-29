@@ -486,17 +486,26 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
 
     HasContentLightLevel = !!ContentLightLevelMax || !!ContentLightLevelAverage;
 
-#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 57, 9, 100)
     const AVFrameSideData *DolbyVisionRPUSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
     if (DolbyVisionRPUSideData) {
         DolbyVisionRPU = DolbyVisionRPUSideData->data;
         DolbyVisionRPUSize = DolbyVisionRPUSideData->size;
+    }
+
+#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 58, 5, 100)
+    AVFrameSideData *HDR10PlusSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
+    if (HDR10PlusSideData) {
+        int ret = av_dynamic_hdr_plus_to_t35(reinterpret_cast<const AVDynamicHDRPlus *>(HDR10PlusSideData->data), &HDR10Plus, &HDR10PlusSize);
+        if (ret < 0) {
+            // report error here "HDR10+ dynamic metadata could not be serialized."
+        }
     }
 #endif
 }
 
 BestVideoFrame::~BestVideoFrame() {
     av_frame_free(&Frame);
+    av_freep(&HDR10Plus);
 }
 
 const AVFrame *BestVideoFrame::GetAVFrame() const {
