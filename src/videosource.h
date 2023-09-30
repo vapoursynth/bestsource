@@ -27,6 +27,7 @@
 #include <list>
 #include <string>
 #include <map>
+#include <functional>
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -114,6 +115,8 @@ private:
 public:
     LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
+    int64_t GetSourceSize() const;
+    int64_t GetSourcePostion() const;
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     int64_t GetFrameNumber() const;
     int64_t GetFieldNumber() const;
@@ -209,7 +212,7 @@ public:
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to, default is 10 frames */
-    bool GetExactDuration();
+    bool GetExactDuration(const std::function<void(int64_t Current, int64_t Total)> &Progress = nullptr);
     const VideoProperties &GetVideoProperties() const;
     BestVideoFrame *GetFrame(int64_t N);
     BestVideoFrame *GetFrameExtendLast(int64_t N);

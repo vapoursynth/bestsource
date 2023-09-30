@@ -121,7 +121,7 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, int Thre
 
     if (Threads < 1)
         Threads = static_cast<int>(std::thread::hardware_concurrency());
-    CodecContext->thread_count = Threads;
+    CodecContext->thread_count = std::min(Threads, 16);
 
     // Probably guard against mid-stream format changes
     CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;

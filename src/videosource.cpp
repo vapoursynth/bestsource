@@ -26,6 +26,9 @@
 
 #include "../libp2p/p2p_api.h"
 
+#define VERSION_CHECK(LIB, cmp, major, minor, micro) ((LIB) cmp (AV_VERSION_INT(major, minor, micro)))
+
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -34,9 +37,10 @@ extern "C" {
 #include <libavutil/stereo3d.h>
 #include <libavutil/display.h>
 #include <libavutil/mastering_display_metadata.h>
+#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 58, 5, 100)
+#include <libavutil/hdr_dynamic_metadata.h>
+#endif
 }
-
-#define VERSION_CHECK(LIB, cmp, major, minor, micro) ((LIB) cmp (AV_VERSION_INT(major, minor, micro)))
 
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
     return !!(Desc->flags & AV_PIX_FMT_FLAG_FLOAT);
@@ -190,7 +194,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     if (Threads < 1) {
         int HardwareConcurrency = std::thread::hardware_concurrency();
         if (Type != AV_HWDEVICE_TYPE_CUDA)
-            Threads = HardwareConcurrency;
+            Threads = std::min(HardwareConcurrency, 16);
         else if (CodecContext->codec_id == AV_CODEC_ID_H264)
             Threads = 1;
         else
@@ -255,6 +259,14 @@ void LWVideoDecoder::Free() {
 
 LWVideoDecoder::~LWVideoDecoder() {
     Free();
+}
+
+int64_t LWVideoDecoder::GetSourceSize() const {
+    return avio_size(FormatContext->pb);
+}
+
+int64_t LWVideoDecoder::GetSourcePostion() const {
+    return avio_tell(FormatContext->pb);
 }
 
 int LWVideoDecoder::GetTrack() const {
@@ -675,7 +687,7 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
     PreRoll = std::max<int64_t>(Frames, 0);
 }
 
-bool BestVideoSource::GetExactDuration() {
+bool BestVideoSource::GetExactDuration(const std::function<void(int64_t Current, int64_t Total)> &Progress) {
     if (HasExactNumVideoFrames)
         return true;
     int Index = -1;
@@ -691,7 +703,16 @@ bool BestVideoSource::GetExactDuration() {
 
     LWVideoDecoder *Decoder = Decoders[Index];
 
-    while (Decoder->SkipAVFrames(INT64_MAX));
+    int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
+
+    while (Decoder->SkipAVFrames(Progress ? 1 : INT64_MAX)) {
+        if (Progress)
+            Progress(Decoder->GetSourcePostion(), FileSize);
+    };
+
+    if (Progress)
+        Progress(INT64_MAX, INT64_MAX);
+
     VP.NumFrames = Decoder->GetFrameNumber();
     VP.NumFields = Decoder->GetFieldNumber();
 

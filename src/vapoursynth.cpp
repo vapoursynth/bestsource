@@ -28,6 +28,7 @@
 #include <memory>
 #include <limits>
 #include <string>
+#include <chrono>
 
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
@@ -149,7 +150,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         }
 
         if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
-            vsapi->mapSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), Src->HDR10PlusSize, dtBinary, maReplace);
+            vsapi->mapSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), static_cast<int>(Src->HDR10PlusSize), dtBinary, maReplace);
         }
 
         vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
@@ -193,8 +194,22 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
     try {
         D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
-        if (Exact)
-            D->V->GetExactDuration();
+        if (Exact) {
+            auto NextUpdate = std::chrono::high_resolution_clock::now();
+            D->V->GetExactDuration([vsapi, Core, Track = std::to_string(D->V->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+                    if (NextUpdate < std::chrono::high_resolution_clock::now()) {
+                        if (Cur == INT64_MAX && Cur == Total) {
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
+                        } else if (Total > 0) {
+                            int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
+                        } else {
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                        }
+                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
+                    }
+                });
+        }
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw VideoException("Unsupported video format from decoder (probably less than 8 bit or palette)");
