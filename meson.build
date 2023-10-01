@@ -1,7 +1,7 @@
 project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++14'],
     license: 'MIT',
-    meson_version: '>=0.51.0',
+    meson_version: '>=0.53.0',
     version: '0.9'
 )
 
@@ -9,10 +9,10 @@ link_static = get_option('link_static')
 
 sources = [
     'src/audiosource.cpp',
-    'src/videosource.cpp',
-    'src/SrcAttribCache.cpp',
     'src/BSRational.cpp',
-    'src/vapoursynth.cpp'
+    'src/SrcAttribCache.cpp',
+    'src/vapoursynth.cpp',
+    'src/videosource.cpp'
 ]
 
 libs = []
@@ -53,11 +53,20 @@ deps = [
     dependency('libswscale', version: '>=6.7.0', static: link_static)
 ]
 
+is_gnu_linker = meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
+link_args = []
+
+if host_machine.system() == 'windows' and is_gnu_linker and link_static
+    link_args += ['-static']
+elif is_gnu_linker
+    link_args += ['-Wl,-Bsymbolic']
+endif
+
 shared_module('bestsource', sources,
     dependencies: deps,
     gnu_symbol_visibility: 'hidden',
     install: true,
     install_dir: vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth',
-    link_args: link_static ? '-static' : '',
+    link_args: link_args,
     link_with: libs
 )
