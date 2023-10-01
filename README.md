@@ -14,9 +14,9 @@ Requires FFmpeg, Jansson and libp2p to compile.
 
 ### VapourSynth plugin
 
-bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])
+bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])
 
-bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice])
+bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, bint showprogress = True])
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
@@ -41,3 +41,5 @@ bs.VideoSource(string source[, int track = -1, bint variableformat = False, int 
 *cachesize*: Maximum internal cache size in MB.
 
 *hwdevice*: The interface to use for hardware decoding. Depends on OS and hardware. On windows `d3d11va` and `cuda` are probably the ones most likely to work. Defaults to CPU decoding. Will throw errors for formats where hardware decoding isn't possible.
+
+*showprogress*: Print indexing progress as VapourSynth information level log messages when *exact* frame/sample count is determined.

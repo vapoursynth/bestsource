@@ -183,6 +183,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
     if (err)
         Exact = true;
+    bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
+    if (err)
+        ShowProgress = true;
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -195,8 +198,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     try {
         D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
         if (Exact) {
-            auto NextUpdate = std::chrono::high_resolution_clock::now();
-            D->V->GetExactDuration([vsapi, Core, Track = std::to_string(D->V->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+            if (ShowProgress) {
+                auto NextUpdate = std::chrono::high_resolution_clock::now();
+                D->V->GetExactDuration([vsapi, Core, Track = std::to_string(D->V->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Cur == INT64_MAX && Cur == Total) {
                             vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
@@ -208,7 +212,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                         }
                         NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
-                });
+                    });
+            } else {
+                D->V->GetExactDuration();
+            }
         }
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
@@ -284,6 +291,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
     if (err)
         Exact = true;
+    bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
+    if (err)
+        ShowProgress = true;
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -298,20 +308,24 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     try {
         D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
         if (Exact) {
-            auto NextUpdate = std::chrono::high_resolution_clock::now();
-            D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
-                if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                    if (Cur == INT64_MAX && Cur == Total) {
-                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
-                    } else if (Total > 0) {
-                        int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
-                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
-                    } else {
-                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+            if (ShowProgress) {
+                auto NextUpdate = std::chrono::high_resolution_clock::now();
+                D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+                    if (NextUpdate < std::chrono::high_resolution_clock::now()) {
+                        if (Cur == INT64_MAX && Cur == Total) {
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
+                        } else if (Total > 0) {
+                            int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
+                        } else {
+                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                        }
+                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
-                    NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                }
-                });
+                    });
+            } else {
+                D->A->GetExactDuration();
+            }
         }
         const AudioProperties &AP = D->A->GetAudioProperties();
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, Core))
@@ -338,6 +352,6 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;hwdevice:data:opt;cachesize:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;hwdevice:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
 }
