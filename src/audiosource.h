@@ -27,6 +27,7 @@
 #include <string>
 #include <cstdint>
 #include <stdexcept>
+#include <functional>
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -67,6 +68,8 @@ private:
 public:
     LWAudioDecoder(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
+    int64_t GetSourceSize() const;
+    int64_t GetSourcePostion() const;
     int GetTrack() const; // Useful when opening nth audio track to get the actual number
     int64_t GetSamplePosition() const;
     int64_t GetSampleLength() const;
@@ -122,7 +125,7 @@ public:
     void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */
     void SetSeekPreRoll(int64_t Samples); /* the number of samples to cache before the position being fast forwarded to, default is 200k samples */
     double GetRelativeStartTime(int Track) const; // Offset in seconds
-    bool GetExactDuration();
+    bool GetExactDuration(const std::function<void(int64_t Current, int64_t Total)> &Progress = nullptr);
     const AudioProperties &GetAudioProperties() const;
     void GetPlanarAudio(uint8_t * const * const Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed
     void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count); // Audio outside the existing range is zeroed

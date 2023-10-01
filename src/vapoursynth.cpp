@@ -297,8 +297,22 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 
     try {
         D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
-        if (Exact)
-            D->A->GetExactDuration();
+        if (Exact) {
+            auto NextUpdate = std::chrono::high_resolution_clock::now();
+            D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+                if (NextUpdate < std::chrono::high_resolution_clock::now()) {
+                    if (Cur == INT64_MAX && Cur == Total) {
+                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
+                    } else if (Total > 0) {
+                        int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
+                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
+                    } else {
+                        vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                    }
+                    NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
+                }
+                });
+        }
         const AudioProperties &AP = D->A->GetAudioProperties();
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, Core))
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");

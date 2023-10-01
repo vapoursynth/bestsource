@@ -189,6 +189,14 @@ LWAudioDecoder::~LWAudioDecoder() {
     Free();
 }
 
+int64_t LWAudioDecoder::GetSourceSize() const {
+    return avio_size(FormatContext->pb);
+}
+
+int64_t LWAudioDecoder::GetSourcePostion() const {
+    return avio_tell(FormatContext->pb);
+}
+
 int LWAudioDecoder::GetTrack() const {
     return TrackNumber;
 }
@@ -360,7 +368,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
     }
 }
 
-bool BestAudioSource::GetExactDuration() {
+bool BestAudioSource::GetExactDuration(const std::function<void(int64_t Current, int64_t Total)> &Progress) {
     if (HasExactNumAudioSamples)
         return true;
     int Index = -1;
@@ -376,7 +384,16 @@ bool BestAudioSource::GetExactDuration() {
 
     LWAudioDecoder *Decoder = Decoders[Index];
 
-    while (Decoder->SkipNextAVFrame());
+    int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
+
+    while (Decoder->SkipNextAVFrame()) {
+        if (Progress)
+            Progress(Decoder->GetSourcePostion(), FileSize);
+    }
+
+    if (Progress)
+        Progress(INT64_MAX, INT64_MAX);
+
     AP.NumSamples = Decoder->GetSamplePosition();
     HasExactNumAudioSamples = true;
     SourceAttributes Attrs;
