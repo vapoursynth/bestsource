@@ -43,3 +43,9 @@ bs.VideoSource(string source[, int track = -1, bint variableformat = False, int 
 *hwdevice*: The interface to use for hardware decoding. Depends on OS and hardware. On windows `d3d11va` and `cuda` are probably the ones most likely to work. Defaults to CPU decoding. Will throw errors for formats where hardware decoding isn't possible.
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages when *exact* frame/sample count is determined.
+
+bs.SetLogLevel(int level)
+
+bs.GetLogLevel()
+
+Sets the log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Both functions return the current/newly set level. Mostly useful for debugging purposes.

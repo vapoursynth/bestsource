@@ -23,6 +23,7 @@
     <ClCompile Include="..\libp2p\v210.cpp" />
     <ClCompile Include="..\src\audiosource.cpp" />
     <ClCompile Include="..\src\BSRational.cpp" />
+    <ClCompile Include="..\src\BSShared.cpp" />
     <ClCompile Include="..\src\SrcAttribCache.cpp" />
     <ClCompile Include="..\src\vapoursynth.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
@@ -35,6 +36,7 @@
   <ItemGroup>
     <ClInclude Include="..\src\audiosource.h" />
     <ClInclude Include="..\src\BSRational.h" />
+    <ClInclude Include="..\src\BSShared.h" />
     <ClInclude Include="..\src\SrcAttribCache.h" />
     <ClInclude Include="..\src\version.h" />
     <ClInclude Include="..\src\videosource.h" />

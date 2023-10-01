@@ -18,10 +18,10 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
-#ifndef VERSION_H
-#define VERSION_H
+#ifndef BSSHARED_H
+#define BSSHARED_H
 
-#define BEST_SOURCE_VERSION_MAJOR 0
-#define BEST_SOURCE_VERSION_MINOR 10
+int SetFFmpegLogLevel(int Level);
+int GetFFmpegLogLevel();
 
 #endif

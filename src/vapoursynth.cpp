@@ -20,6 +20,7 @@
 
 #include "videosource.h"
 #include "audiosource.h"
+#include "BSShared.h"
 #include "version.h"
 #include <VapourSynth4.h>
 #include <VSHelper4.h>
@@ -29,6 +30,20 @@
 #include <limits>
 #include <string>
 #include <chrono>
+#include <mutex>
+
+static std::once_flag BSInitOnce;
+
+static void BSInit() {
+    // Slightly ugly to avoid header inclusions
+    std::call_once(BSInitOnce, []() {
+#ifndef NDEBUG
+        SetFFmpegLogLevel(32); // quiet
+#else
+        SetFFmpegLogLevel(-8); // info
+#endif
+        });
+}
 
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
@@ -168,6 +183,8 @@ static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VS
 }
 
 static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
+    BSInit();
+
     int err;
     const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
@@ -278,6 +295,8 @@ static void VS_CC BestAudioSourceFree(void *InstanceData, VSCore *Core, const VS
 }
 
 static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
+    BSInit();
+
     int err;
     const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
@@ -350,8 +369,20 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     vsapi->createAudioFilter(Out, "AudioSource", &D->AI, BestAudioSourceGetFrame, BestAudioSourceFree, fmUnordered, nullptr, 0, D, Core);
 }
 
+static void VS_CC GetLogLevel(const VSMap *, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
+    BSInit();
+    vsapi->mapSetInt(out, "level", GetFFmpegLogLevel(), maReplace);
+}
+
+static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
+    BSInit();
+    vsapi->mapSetInt(out, "level", SetFFmpegLogLevel(vsapi->mapGetIntSaturated(in, "level", 0, nullptr)), maReplace);
+}
+
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;hwdevice:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("GetLogLevel", "", "level:int;", GetLogLevel, nullptr, plugin);
+    vspapi->registerFunction("SetLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
 }

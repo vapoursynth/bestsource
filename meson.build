@@ -10,6 +10,7 @@ link_static = get_option('link_static')
 sources = [
     'src/audiosource.cpp',
     'src/BSRational.cpp',
+    'src/BSShared.cpp',
     'src/SrcAttribCache.cpp',
     'src/vapoursynth.cpp',
     'src/videosource.cpp'

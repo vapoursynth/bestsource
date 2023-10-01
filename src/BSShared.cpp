@@ -18,10 +18,18 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
-#ifndef VERSION_H
-#define VERSION_H
 
-#define BEST_SOURCE_VERSION_MAJOR 0
-#define BEST_SOURCE_VERSION_MINOR 10
+#include "BSShared.h"
 
-#endif
+extern "C" {
+#include <libavutil/log.h>
+}
+
+int SetFFmpegLogLevel(int Level) {
+    av_log_set_level(Level);
+    return GetFFmpegLogLevel();
+}
+
+int GetFFmpegLogLevel() {
+    return av_log_get_level();
+}
