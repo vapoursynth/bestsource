@@ -2,7 +2,10 @@ project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++14'],
     license: 'MIT',
     meson_version: '>=0.53.0',
-    version: '0.9'
+    version: '.'.join([
+        run_command('grep', 'BEST_SOURCE_VERSION_MAJOR', 'src/version.h', check: true).stdout().strip().split()[2],
+        run_command('grep', 'BEST_SOURCE_VERSION_MINOR', 'src/version.h', check: true).stdout().strip().split()[2]
+    ])
 )
 
 link_static = get_option('link_static')
