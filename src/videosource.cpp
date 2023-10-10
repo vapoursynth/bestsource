@@ -557,11 +557,12 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                 PlaneW >>= Desc->log2_chroma_w;
                 PlaneH >>= Desc->log2_chroma_h;
             }
-            const uint8_t *Src = Frame->data[Plane];
+            int SrcPlane = Desc->comp[Plane].plane;
+            const uint8_t *Src = Frame->data[SrcPlane];
             uint8_t *Dst = Dsts[Plane];
             for (int h = 0; h < PlaneH; h++) {
                 memcpy(Dst, Src, BytesPerSample * PlaneW);
-                Src += Frame->linesize[Plane];
+                Src += Frame->linesize[SrcPlane];
                 Dst += Stride[Plane];
             }
         }
@@ -599,10 +600,18 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                 Buf.packing = p2p_p010;
                 break;
             case AV_PIX_FMT_ARGB:
+            case AV_PIX_FMT_0RGB:
                 Buf.packing = p2p_argb32;
                 break;
             case AV_PIX_FMT_RGBA:
+            case AV_PIX_FMT_RGB0:
                 Buf.packing = p2p_rgba32;
+                break;
+            case AV_PIX_FMT_0BGR:
+                Buf.packing = p2p_rgba32_le;
+                break;
+            case AV_PIX_FMT_BGR0:
+                Buf.packing = p2p_argb32_le;
                 break;
             case AV_PIX_FMT_RGB48:
                 Buf.packing = p2p_rgb48;
