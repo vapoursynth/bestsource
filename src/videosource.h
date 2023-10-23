@@ -106,6 +106,7 @@ private:
     bool HWMode = false;
     bool DecodeSuccess = false;
     AVPacket *Packet = nullptr;
+    bool ResendPacket = false;
 
     void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     void SetVideoProperties();

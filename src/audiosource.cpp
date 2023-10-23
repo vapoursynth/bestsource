@@ -55,10 +55,14 @@ bool LWAudioDecoder::DecodeNextAVFrame() {
         if (Ret == 0) {
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (!ReadPacket(Packet))
-                return false;
-            avcodec_send_packet(CodecContext, Packet);
-            av_packet_unref(Packet);
+            if (ResendPacket || ReadPacket(Packet)) {
+                int SendRet = avcodec_send_packet(CodecContext, Packet);
+                ResendPacket = (SendRet == AVERROR(EAGAIN));
+                if (!ResendPacket)
+                    av_packet_unref(Packet);
+            } else {
+                avcodec_send_packet(CodecContext, nullptr);
+            }
         } else {
             break; // Probably EOF or some unrecoverable error so stop here
         }

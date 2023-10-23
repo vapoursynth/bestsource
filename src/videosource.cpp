@@ -97,9 +97,11 @@ bool LWVideoDecoder::DecodeNextAVFrame(bool SkipOutput) {
             }
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (ReadPacket(Packet)) {
-                avcodec_send_packet(CodecContext, Packet);
-                av_packet_unref(Packet);
+            if (ResendPacket || ReadPacket(Packet)) {
+                int SendRet = avcodec_send_packet(CodecContext, Packet);
+                ResendPacket = (SendRet == AVERROR(EAGAIN));
+                if (!ResendPacket)
+                    av_packet_unref(Packet);
             } else {
                 avcodec_send_packet(CodecContext, nullptr);
             }
@@ -359,13 +361,13 @@ void LWVideoDecoder::SetVideoProperties() {
     // Set stereoscopic 3d type
     VP.Stereo3DType = AV_STEREO3D_2D;
 
-    for (int i = 0; i < FormatContext->streams[TrackNumber]->nb_side_data; i++) {
-        if (FormatContext->streams[TrackNumber]->side_data[i].type == AV_PKT_DATA_STEREO3D) {
-            const AVStereo3D *StereoSideData = (const AVStereo3D *)FormatContext->streams[TrackNumber]->side_data[i].data;
+    for (int i = 0; i < FormatContext->streams[TrackNumber]->codecpar->nb_coded_side_data; i++) {
+        if (FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].type == AV_PKT_DATA_STEREO3D) {
+            const AVStereo3D *StereoSideData = (const AVStereo3D *)FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].data;
             VP.Stereo3DType = StereoSideData->type;
             VP.Stereo3DFlags = StereoSideData->flags;
-        } else if (FormatContext->streams[TrackNumber]->side_data[i].type == AV_PKT_DATA_MASTERING_DISPLAY_METADATA) {
-            const AVMasteringDisplayMetadata *MasteringDisplay = (const AVMasteringDisplayMetadata *)FormatContext->streams[TrackNumber]->side_data[i].data;
+        } else if (FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].type == AV_PKT_DATA_MASTERING_DISPLAY_METADATA) {
+            const AVMasteringDisplayMetadata *MasteringDisplay = (const AVMasteringDisplayMetadata *)FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].data;
             if (MasteringDisplay->has_primaries) {
                 VP.HasMasteringDisplayPrimaries = !!MasteringDisplay->has_primaries;
                 for (int i = 0; i < 3; i++) {
@@ -387,8 +389,8 @@ void LWVideoDecoder::SetVideoProperties() {
                 !!VP.MasteringDisplayWhitePoint[0].Num && !!VP.MasteringDisplayWhitePoint[1].Num;
             /* MasteringDisplayMinLuminance can be 0 */
             VP.HasMasteringDisplayLuminance = !!VP.MasteringDisplayMaxLuminance.Num;
-        } else if (FormatContext->streams[TrackNumber]->side_data[i].type == AV_PKT_DATA_CONTENT_LIGHT_LEVEL) {
-            const AVContentLightMetadata *ContentLightLevel = (const AVContentLightMetadata *)FormatContext->streams[TrackNumber]->side_data[i].data;
+        } else if (FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].type == AV_PKT_DATA_CONTENT_LIGHT_LEVEL) {
+            const AVContentLightMetadata *ContentLightLevel = (const AVContentLightMetadata *)FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].data;
 
             VP.ContentLightLevelMax = ContentLightLevel->MaxCLL;
             VP.ContentLightLevelAverage = ContentLightLevel->MaxFALL;
@@ -400,8 +402,10 @@ void LWVideoDecoder::SetVideoProperties() {
 
     /////////////////////////
     // Set rotation
-    int32_t *RotationMatrix = reinterpret_cast<int32_t *>(av_stream_get_side_data(FormatContext->streams[TrackNumber], AV_PKT_DATA_DISPLAYMATRIX, nullptr));
-    if (RotationMatrix) {
+    const int32_t *ConstRotationMatrix = reinterpret_cast<const int32_t *>(av_packet_side_data_get(FormatContext->streams[TrackNumber]->codecpar->coded_side_data, FormatContext->streams[TrackNumber]->codecpar->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX));
+    if (ConstRotationMatrix) {
+        int32_t RotationMatrix[9];
+        memcpy(RotationMatrix, ConstRotationMatrix, sizeof(RotationMatrix));
         int64_t det = (int64_t)RotationMatrix[0] * RotationMatrix[4] - (int64_t)RotationMatrix[1] * RotationMatrix[3];
         if (det < 0) {
             /* Always assume an horizontal flip for simplicity, it can be changed later if rotation is 180. */
@@ -450,11 +454,11 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
     Width = Frame->width;
     Height = Frame->height;
 
-    KeyFrame = !!Frame->key_frame;
+    KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
     PictType = av_get_picture_type_char(Frame->pict_type);
     RepeatPict = Frame->repeat_pict;
-    InterlacedFrame = !!Frame->interlaced_frame;
-    TopFieldFirst = !!Frame->top_field_first;
+    InterlacedFrame = !!(Frame->flags & AV_FRAME_FLAG_INTERLACED);
+    TopFieldFirst = !!(Frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
     Matrix = Frame->colorspace;
     Primaries = Frame->color_primaries;
     Transfer = Frame->color_trc;
