@@ -15,7 +15,10 @@ jobs:
 
     - name: Install Homebrew packages
       run: |
-        brew update
+        export HOMEBREW_NO_INSTALL_CLEANUP=1
+        export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+        # Skip brew update for now, see https://github.com/actions/setup-python/issues/577
+        # brew update
         brew install ffmpeg jansson llvm meson vapoursynth
 
     - name: Set environment variables for Clang/LLVM
