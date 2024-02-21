@@ -8,6 +8,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
 
     - uses: actions/setup-python@v4
       with:
@@ -26,10 +28,6 @@ jobs:
         echo "CC=/usr/local/opt/llvm/bin/clang" >> $GITHUB_ENV
         echo "CXX=/usr/local/opt/llvm/bin/clang++" >> $GITHUB_ENV
         echo "PATH=/usr/local/opt/llvm/bin:$PATH" >> $GITHUB_ENV
-
-    - name: Download libp2p
-      run: |
-        git clone https://github.com/sekrit-twc/libp2p.git --depth 1
 
     - name: Build
       run: |
