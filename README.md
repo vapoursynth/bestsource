@@ -1,22 +1,38 @@
+# BestSource
+
 [![Windows](https://github.com/vapoursynth/bestsource/actions/workflows/windows.yml/badge.svg)](https://github.com/vapoursynth/bestsource/actions/workflows/windows.yml)
 [![Linux](https://github.com/vapoursynth/bestsource/actions/workflows/linux.yml/badge.svg)](https://github.com/vapoursynth/bestsource/actions/workflows/linux.yml)
 [![macOS](https://github.com/vapoursynth/bestsource/actions/workflows/macos.yml/badge.svg)](https://github.com/vapoursynth/bestsource/actions/workflows/macos.yml)
 [![codespell](https://github.com/vapoursynth/bestsource/actions/workflows/codespell.yml/badge.svg)](https://github.com/vapoursynth/bestsource/actions/workflows/codespell.yml)
 
 **BestSource** (abbreviated as **BS**) is a cross-platform wrapper library around [FFmpeg](http://ffmpeg.org)
-that ensures sample/frame accurate access to audio and video by always linearly decoding the input files. With a few tricks this can guarantee accurate "seeking" and can be surprisingly... not slow. 
+that ensures sample/frame accurate access to audio and video by always linearly decoding the input files. With a few tricks this can guarantee accurate "seeking" and can be surprisingly... not slow.
 
 It can be used as either a C++ library directly or through the VapourSynth plugin that's included.
 
-### Compiling
+## Dependencies
 
-Requires FFmpeg, Jansson and libp2p to compile.
+- FFmpeg 5.1 or later. Only `libavcodec`, `libavformat`, `libavutil` and `libswscale` libraries are required.
+- Jansson
+- libp2p (already included as submodule)
 
-### VapourSynth plugin
+### Linux and macOS Compilation
 
-bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])
+Requires `pkg-config`, `meson` and `ninja-build`.
 
-bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, bint showprogress = True])
+```
+git clone https://github.com/vapoursynth/bestsource.git --depth 1 --recurse-submodules --shallow-submodules
+cd bestsource
+meson setup build
+ninja -C build
+ninja -C build install
+```
+
+## VapourSynth plugin
+
+`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
+
+`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, bint showprogress = True])`
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
@@ -40,12 +56,12 @@ bs.VideoSource(string source[, int track = -1, bint variableformat = False, int 
 
 *cachesize*: Maximum internal cache size in MB.
 
-*hwdevice*: The interface to use for hardware decoding. Depends on OS and hardware. On windows `d3d11va` and `cuda` are probably the ones most likely to work. Defaults to CPU decoding. Will throw errors for formats where hardware decoding isn't possible.
+*hwdevice*: The interface to use for hardware decoding. Depends on OS and hardware. On windows `d3d11va` and `cuda` are probably the ones most likely to work. `vulkan` decoding for H264, HEVC and AV1 is available since FFmpeg 6.1. Defaults to CPU decoding. Will throw errors for formats where hardware decoding isn't possible.
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages when *exact* frame/sample count is determined.
 
-bs.SetLogLevel(int level)
+`bs.SetLogLevel(int level)`
 
-bs.GetLogLevel()
+`bs.GetLogLevel()`
 
 Sets the log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Both functions return the current/newly set level. Mostly useful for debugging purposes.
