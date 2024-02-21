@@ -12,6 +12,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
 
     - uses: msys2/setup-msys2@v2
       with:
@@ -48,10 +50,6 @@ jobs:
         make install -j2
         popd
         rm -rf ffmpeg
-
-    - name: Download libp2p
-      run: |
-        git clone https://github.com/sekrit-twc/libp2p.git --depth 1
 
     - name: Build
       run: |

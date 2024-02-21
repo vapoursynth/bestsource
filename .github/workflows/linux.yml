@@ -12,6 +12,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
 
     - uses: actions/setup-python@v4
       with:
@@ -58,10 +60,6 @@ jobs:
         sudo make install -j$(nproc)
         popd
         rm -rf ffmpeg
-
-    - name: Download libp2p
-      run: |
-        git clone https://github.com/sekrit-twc/libp2p.git --depth 1
 
     - name: Build
       run: |
