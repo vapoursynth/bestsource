@@ -33,8 +33,8 @@ jobs:
         pushd vapoursynth
         ./autogen.sh
         ./configure --prefix=/usr
-        make -j2
-        sudo make install -j2
+        make -j$(nproc)
+        sudo make install -j$(nproc)
         pip install .
         popd
         rm -rf vapoursynth
@@ -44,8 +44,8 @@ jobs:
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
         ./configure --prefix=/usr --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-postproc --disable-avfilter --disable-encoders --disable-muxers --disable-debug
-        make -j2
-        sudo make install -j2
+        make -j$(nproc)
+        sudo make install -j$(nproc)
         popd
         rm -rf ffmpeg
 
