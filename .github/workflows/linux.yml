@@ -7,8 +7,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      CC: gcc-12
-      CXX: g++-12
+      CC: gcc-13
+      CXX: g++-13
 
     steps:
     - uses: actions/checkout@v3
@@ -20,22 +20,32 @@ jobs:
     - name: Install Ubuntu packages
       run: |
         sudo apt update
-        sudo apt -y install libjansson-dev libzimg-dev nasm ninja-build
+        sudo apt -y install libjansson-dev nasm ninja-build
 
     - name: Install Python packages
       run: |
         python -m pip install -U pip
-        pip install -U cython meson setuptools wheel
+        pip install -U meson
+
+    - name: Install zimg
+      run: |
+        git clone https://bitbucket.org/the-sekrit-twc/zimg.git --depth 1 --recurse-submodules --shallow-submodules
+        pushd zimg
+        ./autogen.sh
+        ./configure --prefix=/usr --disable-simd
+        make -j$(nproc)
+        sudo make install -j$(nproc)
+        popd
+        rm -rf zimg
 
     - name: Install VapourSynth
       run: |
         git clone https://github.com/vapoursynth/vapoursynth.git --depth 1
         pushd vapoursynth
         ./autogen.sh
-        ./configure --prefix=/usr
-        make -j2
-        sudo make install -j2
-        pip install .
+        ./configure --prefix=/usr --disable-x86-asm --disable-vsscript --disable-vspipe --disable-python-module
+        make -j$(nproc)
+        sudo make install -j$(nproc)
         popd
         rm -rf vapoursynth
 
@@ -44,8 +54,8 @@ jobs:
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
         ./configure --prefix=/usr --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-postproc --disable-avfilter --disable-encoders --disable-muxers --disable-debug
-        make -j2
-        sudo make install -j2
+        make -j$(nproc)
+        sudo make install -j$(nproc)
         popd
         rm -rf ffmpeg
 
