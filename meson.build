@@ -51,10 +51,10 @@ vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(
 deps = [
     vapoursynth_dep,
     dependency('jansson', version: '>=2.12', static: link_static),
-    dependency('libavcodec', version: '>=59.37.0', static: link_static),
-    dependency('libavformat', version: '>=59.27.0', static: link_static),
-    dependency('libavutil', version: '>=57.28.0', static: link_static),
-    dependency('libswscale', version: '>=6.7.0', static: link_static)
+    dependency('libavcodec', version: '>=60.31.0', static: link_static),
+    dependency('libavformat', version: '>=60.16.0', static: link_static),
+    dependency('libavutil', version: '>=58.29.0', static: link_static),
+    dependency('libswscale', version: '>=7.5.0', static: link_static)
 ]
 
 is_gnu_linker = meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
