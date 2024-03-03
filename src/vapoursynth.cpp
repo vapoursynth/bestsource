@@ -255,7 +255,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     }
 
     int64_t CacheSize = vsapi->mapGetInt(In, "cachesize", 0, &err);
-    if (!err && CacheSize > 0)
+    if (!err && CacheSize >= 0)
         D->V->SetMaxCacheSize(CacheSize * 1024 * 1024);
 
     vsapi->createVideoFilter(Out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);

@@ -784,7 +784,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
     LWVideoDecoder *Decoder = Decoders[Index];
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
-    AVFrame *RetFrame = nullptr;
+    BestVideoFrame *RetFrame = nullptr;
 
     while (Decoder && Decoder->GetFrameNumber() <= N && Decoder->HasMoreFrames()) {
         int64_t FrameNumber = Decoder->GetFrameNumber();
@@ -798,6 +798,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 }
             }
 
+            if (FrameNumber == N)
+                RetFrame = new BestVideoFrame(Frame);
+
             Cache.emplace_front(FrameNumber, Frame);
             CacheSize += Cache.front().Size;
 
@@ -805,9 +808,6 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 CacheSize -= Cache.back().Size;
                 Cache.pop_back();
             }
-
-            if (FrameNumber == N)
-                RetFrame = Frame;
         } else if (FrameNumber < N) {
             Decoder->SkipAVFrames(N - PreRoll - FrameNumber);
         }
@@ -827,9 +827,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         }
     }
 
-    if (RetFrame)
-        return new BestVideoFrame(RetFrame);
-    return nullptr;
+    return RetFrame;
 }
 
 BestVideoFrame *BestVideoSource::GetFrameExtendLast(int64_t N) {
