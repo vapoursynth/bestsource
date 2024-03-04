@@ -26,9 +26,6 @@
 
 #include "../libp2p/p2p_api.h"
 
-#define VERSION_CHECK(LIB, cmp, major, minor, micro) ((LIB) cmp (AV_VERSION_INT(major, minor, micro)))
-
-
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -37,9 +34,7 @@ extern "C" {
 #include <libavutil/stereo3d.h>
 #include <libavutil/display.h>
 #include <libavutil/mastering_display_metadata.h>
-#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 58, 5, 100)
 #include <libavutil/hdr_dynamic_metadata.h>
-#endif
 }
 
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
@@ -113,7 +108,7 @@ bool LWVideoDecoder::DecodeNextAVFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
@@ -214,7 +209,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         CodecContext->has_b_frames = 15; // the maximum possible value for h264
 
         if (HWMode)
-            CodecContext->extra_hw_frames = 7;
+            CodecContext->extra_hw_frames = ExtraHWFrames;
     }
 
     if (HWMode) {
@@ -232,10 +227,10 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         throw VideoException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, HWDeviceName, Track, VariableFormat, Threads, LAVFOpts);
+        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, VariableFormat, Threads, LAVFOpts);
 
         DecodeSuccess = DecodeNextAVFrame();
 
@@ -508,7 +503,6 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
         DolbyVisionRPUSize = DolbyVisionRPUSideData->size;
     }
 
-#if VERSION_CHECK(LIBAVUTIL_VERSION_INT, >=, 58, 5, 100)
     AVFrameSideData *HDR10PlusSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
     if (HDR10PlusSideData) {
         int ret = av_dynamic_hdr_plus_to_t35(reinterpret_cast<const AVDynamicHDRPlus *>(HDR10PlusSideData->data), &HDR10Plus, &HDR10PlusSize);
@@ -516,7 +510,6 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
             // report error here "HDR10+ dynamic metadata could not be serialized."
         }
     }
-#endif
 }
 
 BestVideoFrame::~BestVideoFrame() {
@@ -659,17 +652,16 @@ BestVideoSource::CacheBlock::~CacheBlock() {
     av_frame_free(&Frame);
 }
 
-BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts)
-    : Source(SourceFile), HWDevice(HWDeviceName), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
-    this->CachePath = CachePath;
+BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts)
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads), CachePath(CachePath) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
-    Decoders[0] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
+    Decoders[0] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
     VP = Decoders[0]->GetVideoProperties();
     VideoTrack = Decoders[0]->GetTrack();
     
     SourceAttributes Attr = {};
-    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions)) {
+    if (GetSourceAttributes(CachePath, Source, Attr, LAVFOptions)) {
         if (Attr.Tracks.count(VideoTrack) && Attr.Tracks[VideoTrack].Samples > 0 && Attr.Tracks[VideoTrack].Variable == VariableFormat && Attr.Tracks[VideoTrack].HWDevice == HWDevice) {
             VP.NumFrames = Attr.Tracks[VideoTrack].Samples;
             HasExactNumVideoFrames = true;
@@ -710,7 +702,7 @@ bool BestVideoSource::GetExactDuration(const std::function<void(int64_t Current,
     }
 
     if (Index < 0) {
-        Decoders[0] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[0] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
         Index = 0;
     }
 
@@ -764,7 +756,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
+                Decoders[i] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
                 break;
             }
         }
@@ -778,7 +770,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N) {
                 Index = i;
         }
         delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source, HWDevice, VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[Index] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
     }
 
     LWVideoDecoder *Decoder = Decoders[Index];

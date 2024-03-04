@@ -352,14 +352,14 @@ void BestAudioSource::SetSeekPreRoll(int64_t Samples) {
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
         }
         return 0;
     } else {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
             return AP.StartTime - Dec->GetVideoProperties().StartTime;
         } catch (VideoException &) {
             try {

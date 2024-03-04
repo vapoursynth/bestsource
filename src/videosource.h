@@ -108,13 +108,13 @@ private:
     AVPacket *Packet = nullptr;
     bool ResendPacket = false;
 
-    void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
+    void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     void SetVideoProperties();
     bool ReadPacket(AVPacket *Packet);
     bool DecodeNextAVFrame(bool SkipOutput = false);
     void Free();
 public:
-    LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     int64_t GetSourceSize() const;
     int64_t GetSourcePostion() const;
@@ -196,6 +196,7 @@ private:
     std::string Source;
     std::string CachePath;
     std::string HWDevice;
+    int ExtraHWFrames;
     int VideoTrack;
     bool VariableFormat;
     int Threads;
@@ -208,7 +209,7 @@ private:
     size_t CacheSize = 0;
     int64_t PreRoll = 20;
 public:
-    BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts);
+    BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts);
     ~BestVideoSource();
     int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
