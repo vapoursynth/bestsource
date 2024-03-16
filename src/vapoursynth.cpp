@@ -58,9 +58,9 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         VSFrame *AlphaDst = nullptr;
         std::unique_ptr<BestVideoFrame> Src;
         try {
-            Src.reset(D->V->GetFrameExtendLast(n));
+            Src.reset(D->V->GetFrame(std::min(n, D->VI.numFrames - 1)));
             if (!Src)
-                throw VideoException("No frame returned for frame number " + std::to_string(n));
+                throw VideoException("No frame returned for frame number " + std::to_string(n) + ", unrecoverable internal error");
 
             VSVideoFormat VideoFormat = {};
             vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core);
@@ -90,7 +90,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         } catch (VideoException &e) {
             vsapi->freeFrame(Dst);
             vsapi->freeFrame(AlphaDst);
-            vsapi->setFilterError(e.what(), FrameCtx);
+            vsapi->setFilterError(("VideoSource: " + std::string(e.what())).c_str(), FrameCtx);
             return nullptr;
         }
 
@@ -185,6 +185,8 @@ static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VS
 static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
     BSInit();
 
+    // fixme, SeekPreRoll and ExtraHWFrames needs bounds checking
+
     int err;
     const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
@@ -196,10 +198,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         SeekPreRoll = 20;
     bool VariableFormat = !!vsapi->mapGetInt(In, "variableformat", 0, &err);
-    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
-    bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
-    if (err)
-        Exact = true;
+    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);;
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
     if (err)
         ShowProgress = true;
@@ -215,27 +214,27 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     BestVideoSourceData *D = new BestVideoSourceData();
 
     try {
-        D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
-        if (Exact) {
-            if (ShowProgress) {
-                auto NextUpdate = std::chrono::high_resolution_clock::now();
-                D->V->GetExactDuration([vsapi, Core, Track = std::to_string(D->V->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+        if (ShowProgress) {
+            auto NextUpdate = std::chrono::high_resolution_clock::now();
+            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts, 
+                [vsapi, Core, &NextUpdate](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Cur == INT64_MAX && Cur == Total) {
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
                         } else if (Total > 0) {
                             int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
                         } else {
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
                         }
                         NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
-                    });
-            } else {
-                D->V->GetExactDuration();
-            }
+                    }));
+            
+        } else {
+            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
         }
+
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw VideoException("Unsupported video format from decoder (probably less than 8 bit or palette)");
@@ -282,7 +281,7 @@ static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason,
         try {
             d->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
         } catch (AudioException &e) {
-            vsapi->setFilterError(e.what(), FrameCtx);
+            vsapi->setFilterError(("AudioSource: " + std::string(e.what())).c_str(), FrameCtx);
             vsapi->freeFrame(Dst);
             return nullptr;
         }
@@ -334,12 +333,12 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
                 D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Cur == INT64_MAX && Cur == Total) {
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " indexing complete").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " indexing complete").c_str(), Core);
                         } else if (Total > 0) {
                             int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
                         } else {
-                            vsapi->logMessage(mtInformation, ("BestSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
                         }
                         NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
@@ -383,7 +382,7 @@ static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, con
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("GetLogLevel", "", "level:int;", GetLogLevel, nullptr, plugin);
     vspapi->registerFunction("SetLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);

@@ -32,7 +32,7 @@ ninja -C build install
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
 
-`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, bint showprogress = True])`
+`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, bint showprogress = True])`
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
@@ -52,7 +52,7 @@ ninja -C build install
 
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
-*cachepath*: The full path to the cache file. Defaults to `%LOCALAPPDATA%\bsindex.json` or `~/bsindex.json` depending on the OS.
+*cachepath*: The full path to of the cache file. Defaults to `source.<track>.bsindex`. Current ignored for AudioSource.
 
 *cachesize*: Maximum internal cache size in MB.
 
@@ -60,7 +60,7 @@ ninja -C build install
 
 *extrahwframes*: The number of additional frames to allocate when *hwdevice* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
 
-*showprogress*: Print indexing progress as VapourSynth information level log messages when *exact* frame/sample count is determined.
+*showprogress*: Print indexing progress as VapourSynth information level log messages.
 
 `bs.SetLogLevel(int level)`
 

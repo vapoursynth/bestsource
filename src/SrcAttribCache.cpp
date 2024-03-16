@@ -36,7 +36,7 @@ extern "C" {
 }
 
 #ifdef _WIN32
-#include <shlobj.h>
+#include <windows.h>
 
 #define STAT_STRUCT_TYPE _stat64
 
@@ -57,13 +57,6 @@ static std::wstring Utf16FromUtf8(const std::string &Str) {
 
 namespace std {
     template<>
-    struct default_delete<json_t> {
-        void operator()(json_t *Ptr) {
-            json_decref(Ptr);
-        }
-    };
-
-    template<>
     struct default_delete<FILE> {
         void operator()(FILE *Ptr) {
             fclose(Ptr);
@@ -71,212 +64,137 @@ namespace std {
     };
 }
 
-typedef std::unique_ptr<json_t> json_ptr_t;
 typedef std::unique_ptr<FILE> file_ptr_t;
 
-/*
-{
-    bsversion: {
-        bestsource: int,
-        avutil: int,
-        avformat: int,
-        avcodec: int
-    },
-    files: {
-        "<file path>": { 
-            size: int,
-            lavfopts: {
-                "enable_drefs": "1",
-                "use_absolute_paths": "0"
-            },
-            tracks: {
-                "0": {
-                        hwdevice: string,
-                        variable: bool,
-                        samples: int,
-                },
-                "1": {
-                        hwdevice: string,
-                        variable: bool,
-                        samples: int,
-                },
-                ...
-            }
-       }
-    }
-}
-*/
-
-static file_ptr_t OpenCacheFile(const std::string &Path, bool Write) {
+static file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
+    std::string FullPath = CachePath + "." + std::to_string(Track) + ".bsindex";
 #ifdef _WIN32
-    std::wstring CachePath;
-    if (Path.empty()) {
-        PWSTR App = nullptr;
-        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &App) != S_OK)
-            return nullptr;
-        CachePath = App;
-        CoTaskMemFree(App);
-        CachePath += L"\\bsindex.json";
-    } else {
-        CachePath = Utf16FromUtf8(Path);
-    }
-    return file_ptr_t(_wfopen(CachePath.c_str(), Write ? L"wb" : L"rb"));
+    file_ptr_t F(_wfopen(Utf16FromUtf8(FullPath).c_str(), Write ? L"wb" : L"rb"));
 #else
-    const char *homeDir = getenv("HOME");
-    std::string CachePath = Path;
-    if (CachePath.empty() && homeDir)
-        CachePath = std::string(homeDir) + "/bsindex.json";
-    return file_ptr_t(fopen(CachePath.c_str(), Write ? "wb" : "rb"));
+    file_ptr_t F(fopen(FullPath.c_str(), Write ? "wb" : "rb"));
 #endif
+    return F;
 }
 
+static void WriteInt(file_ptr_t &F, int Value) {
+    fwrite(&Value, 1, sizeof(Value), F.get());
+}
+
+static void WriteInt64(file_ptr_t &F, int64_t Value) {
+    fwrite(&Value, 1, sizeof(Value), F.get());
+}
+
+static void WriteString(file_ptr_t &F, const std::string &Value) {
+    WriteInt(F, Value.size());
+    fwrite(Value.c_str(), 1, Value.size(), F.get());
+}
+
+static void WriteBSHeader(file_ptr_t &F) {
+    fwrite("BS2I", 1, 4, F.get());
+    WriteInt(F, (BEST_SOURCE_VERSION_MAJOR << 16) | BEST_SOURCE_VERSION_MINOR);
+    WriteInt(F, avutil_version());
+    WriteInt(F, avformat_version());
+    WriteInt(F, avcodec_version());
+}
+
+bool WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTrackIndex &Index) {
+    file_ptr_t F = OpenCacheFile(CachePath, Track, true);
+    if (!F)
+        return false;
+    WriteBSHeader(F);
+    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    WriteInt(F, Track);
+    WriteInt(F, Index.Variable);
+    WriteString(F, Index.HWDevice);
+    WriteInt(F, Index.LAVFOptions.size());
+    for (const auto &Iter : Index.LAVFOptions) {
+        WriteString(F, Iter.first);
+        WriteString(F, Iter.second);
+    }
+    WriteInt64(F, Index.Frames.size());
+    for (const auto &Iter : Index.Frames) {
+        fwrite(Iter.Hash, 1, sizeof(Iter.Hash), F.get());
+        WriteInt64(F, Iter.PTS);
+        WriteInt(F, Iter.RepeatPict);
+        WriteInt(F, Iter.KeyFrame | (Iter.TFF << 1));
+    }
+
+    return true;
+}
+
+static int ReadInt(file_ptr_t &F) {
+    int Value;
+    fread(&Value, 1, sizeof(Value), F.get());
+    return Value;
+}
+
+static int64_t ReadInt64(file_ptr_t &F) {
+    int64_t Value;
+    fread(&Value, 1, sizeof(Value), F.get());
+    return Value;
+}
+
+static std::string ReadString(file_ptr_t &F) {
+    int Size = ReadInt(F);
+    std::string S;
+    S.resize(Size);
+    fread(&S[0], 1, Size, F.get());
+    return S;
+}
+
+static bool ReadCompareInt(file_ptr_t &F, int Value) {
+    int Value2 = ReadInt(F);
+    return (Value == Value2);
+}
+
+static bool ReadBSHeader(file_ptr_t &F) {
+    char Magic[4] = {};
+    fread(Magic, 1, sizeof(Magic), F.get());
+    return !memcmp("BS2I", Magic, sizeof(Magic)) &&
+    ReadCompareInt(F, (BEST_SOURCE_VERSION_MAJOR << 16) | BEST_SOURCE_VERSION_MINOR) &&
+    ReadCompareInt(F, avutil_version()) &&
+    ReadCompareInt(F, avformat_version()) &&
+    ReadCompareInt(F, avcodec_version());
+}
+
+bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackIndex &Index) {
+    file_ptr_t F = OpenCacheFile(CachePath, Track, false);
+    if (!F)
+        return false;
+    if (!ReadBSHeader(F))
+        return false;
+    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    if (!ReadCompareInt(F, Track))
+        return false;
+    Index.Variable = !!ReadInt(F);
+    Index.HWDevice = ReadString(F);
+    int LAVFOptCount = ReadInt(F);
+    for (int i = 0; i < LAVFOptCount; i++) {
+        std::string Key = ReadString(F);
+        Index.LAVFOptions[Key] = ReadString(F);
+    }
+    int64_t NumFrames = ReadInt64(F);
+    Index.Frames.reserve(NumFrames);
+
+    for (int i = 0; i < NumFrames; i++) {
+        VideoTrackIndex::FrameInfo FI = {};
+        fread(FI.Hash, 1, sizeof(FI.Hash), F.get());
+        FI.PTS = ReadInt64(F);
+        FI.RepeatPict = ReadInt(F);
+        int Flags = ReadInt(F);
+        FI.KeyFrame = !!(Flags & 1);
+        FI.TFF = !!(Flags & 2);
+        Index.Frames.push_back(FI);
+    }
+
+    return true;
+}
+
+// FIXME, unused
 static bool StatWrapper(const std::string &Filename, struct STAT_STRUCT_TYPE &Info) {
 #ifdef _WIN32
     return !_wstat64(Utf16FromUtf8(Filename).c_str(), &Info);
 #else
     return !stat(Filename.c_str(), &Info);
 #endif
-}
-
-static bool CheckBSVersion(const json_ptr_t &Root) {
-    json_t *VersionData = json_object_get(Root.get(), "bsversion");
-    if (!VersionData)
-        return false;
-    if (json_integer_value(json_object_get(VersionData, "bestsource")) != (((BEST_SOURCE_VERSION_MAJOR) << 16) | BEST_SOURCE_VERSION_MINOR))
-        return false;
-    if (json_integer_value(json_object_get(VersionData, "avutil")) != avutil_version())
-        return false;
-    if (json_integer_value(json_object_get(VersionData, "avformat")) != avformat_version())
-        return false;
-    if (json_integer_value(json_object_get(VersionData, "avcodec")) != avcodec_version())
-        return false;
-    return true;
-}
-
-bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts) {
-    file_ptr_t File = OpenCacheFile(CachePath, false);
-    if (!File)
-        return false;
-
-    json_ptr_t Data(json_loadf(File.get(), 0, nullptr));
-    if (!Data)
-        return false;
-
-    if (!CheckBSVersion(Data))
-        return false;
-
-    json_t *FilesData = json_object_get(Data.get(), "files");
-    if (!FilesData)
-        return false;
-
-    json_t *FileData = json_object_get(FilesData, Filename.c_str());
-    if (!FileData)
-        return false;
-
-    json_int_t FileSize = json_integer_value(json_object_get(FileData, "size"));
-
-    struct STAT_STRUCT_TYPE Info = {};
-    if (!StatWrapper(Filename, Info))
-        return false;
-
-    if (Info.st_size != FileSize)
-        return false;
-
-    std::map<std::string, std::string> Opts;
-    json_t *LAVFData = json_object_get(FileData, "lavfopts");
-    const char *Key;
-    json_t *Value;
-    json_object_foreach(LAVFData, Key, Value) {
-        Opts[Key] = json_string_value(Value);
-    }
-
-    if (Opts != LAVFOpts)
-        return false;
-
-    json_t *TracksData = json_object_get(FileData, "tracks");
-
-    json_object_foreach(TracksData, Key, Value) {
-        bool VariableFormat = json_boolean_value(json_object_get(Value, "variable"));
-        int64_t Samples = json_integer_value(json_object_get(Value, "samples"));
-        const char *HWDevice = json_string_value(json_object_get(Value, "hwdevice"));
-        if (Samples > 0)
-            Attrs.Tracks[atoi(Key)] = { Samples, VariableFormat, HWDevice ? HWDevice : "" };
-    }
-
-    return true;
-}
-
-bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, const SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts) {
-    struct STAT_STRUCT_TYPE Info = {};
-    if (!StatWrapper(Filename, Info))
-        return false;
-
-    file_ptr_t File = OpenCacheFile(CachePath, false);
-    json_ptr_t Data(File ? json_loadf(File.get(), 0, nullptr) : json_object());
-
-    if (!Data || !CheckBSVersion(Data))
-        Data.reset(json_object());
-
-    json_t *VersionData = json_object_get(Data.get(), "bsversion");
-    if (!VersionData) {
-        VersionData = json_object();
-        json_object_set_new(Data.get(), "bsversion", VersionData);
-    }
-
-    json_object_set_new(VersionData, "bestsource", json_integer(((BEST_SOURCE_VERSION_MAJOR) << 16) | BEST_SOURCE_VERSION_MINOR));
-    json_object_set_new(VersionData, "avutil", json_integer(avutil_version()));
-    json_object_set_new(VersionData, "avformat", json_integer(avformat_version()));
-    json_object_set_new(VersionData, "avcodec", json_integer(avcodec_version()));
-
-    json_t *FilesData = json_object_get(Data.get(), "files");
-    if (!FilesData) {
-        FilesData = json_object();
-        json_object_set_new(Data.get(), "files", FilesData);
-    }
-
-    json_t *FileData = json_object_get(FilesData, Filename.c_str());
-    if (!FileData) {
-        FileData = json_object();
-        json_object_set_new(FilesData, Filename.c_str(), FileData);
-    }
-
-    json_object_set_new(FileData, "size", json_integer(Info.st_size));
-
-    std::map<std::string, std::string> Opts;
-    json_t *LAVFData = json_object_get(FileData, "lavfopts");
-    const char *Key;
-    json_t *Value;
-    json_object_foreach(LAVFData, Key, Value) {
-        Opts[Key] = json_string_value(Value);
-    }
-
-    bool ReplaceTracks = (Opts != LAVFOpts);
-
-    LAVFData = json_object();
-    json_object_set_new(FileData, "lavfopts", LAVFData);
-    for (const auto &Iter : LAVFOpts)
-        json_object_set_new(LAVFData, Iter.first.c_str(), json_string(Iter.second.c_str()));
-
-    json_t *TracksData = (ReplaceTracks ? nullptr : json_object_get(FileData, "tracks"));
-    if (!TracksData) {
-        TracksData = json_object();
-        json_object_set_new(FileData, "tracks", TracksData);
-    }
-
-    for (auto &Iter : Attrs.Tracks) {
-        json_t *TrackData = json_object();
-        json_object_set_new(TrackData, "samples", json_integer(Iter.second.Samples));
-        json_object_set_new(TrackData, "variable", json_boolean(Iter.second.Variable));
-        json_object_set_new(TrackData, "hwdevice", json_string(Iter.second.HWDevice.c_str()));
-        json_object_set_new(TracksData, std::to_string(Iter.first).c_str(), TrackData);
-    }
-
-    File = OpenCacheFile(CachePath, true);
-    if (!File)
-        return false;
-
-    if (json_dumpf(Data.get(), File.get(), JSON_INDENT(2) | JSON_SORT_KEYS))
-        return false;
-
-    return true;
 }

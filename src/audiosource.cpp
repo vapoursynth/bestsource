@@ -311,14 +311,6 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
     AP = Decoders[0]->GetAudioProperties();
     AudioTrack = Decoders[0]->GetTrack();
 
-    SourceAttributes Attr = {};
-    if (GetSourceAttributes(this->CachePath, Source, Attr, LAVFOptions)) {
-        if (Attr.Tracks.count(AudioTrack) && Attr.Tracks[AudioTrack].Samples > 0) {
-            AP.NumSamples = Attr.Tracks[AudioTrack].Samples;
-            HasExactNumAudioSamples = true;
-        }
-    }
-
     if (AjustDelay >= -1)
         SampleDelay = static_cast<int64_t>(GetRelativeStartTime(AjustDelay) * AP.SampleRate);
 
@@ -353,14 +345,20 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
             std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
-            return AP.StartTime - Dec->GetVideoProperties().StartTime;
+            VideoProperties VP;
+            Dec->SkipFrames(1);
+            Dec->GetVideoProperties(VP);
+            return AP.StartTime - VP.StartTime;
         } catch (VideoException &) {
         }
         return 0;
     } else {
         try {
             std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
-            return AP.StartTime - Dec->GetVideoProperties().StartTime;
+            VideoProperties VP;
+            Dec->SkipFrames(1);
+            Dec->GetVideoProperties(VP);
+            return AP.StartTime - VP.StartTime;
         } catch (VideoException &) {
             try {
                 std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, Track, Threads, LAVFOptions, 0));
@@ -400,9 +398,6 @@ bool BestAudioSource::GetExactDuration(const std::function<void(int64_t Current,
 
     AP.NumSamples = Decoder->GetSamplePosition();
     HasExactNumAudioSamples = true;
-    SourceAttributes Attrs;
-    Attrs.Tracks[AudioTrack] = { AP.NumSamples };
-    SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
     delete Decoder;
     Decoders[Index] = nullptr;
 
@@ -544,12 +539,7 @@ void BestAudioSource::GetPlanarAudio(uint8_t * const * const Data, int64_t Start
 
         if (!Decoder->HasMoreFrames()) {
             AP.NumSamples = Decoder->GetSamplePosition();
-            if (!HasExactNumAudioSamples) {
-                HasExactNumAudioSamples = true;
-                SourceAttributes Attrs;
-                Attrs.Tracks[AudioTrack] = { AP.NumSamples };
-                SetSourceAttributes(CachePath, Source, Attrs, LAVFOptions);
-            }
+            HasExactNumAudioSamples = true;
             delete Decoder;
             Decoders[Index] = nullptr;
             Decoder = nullptr;

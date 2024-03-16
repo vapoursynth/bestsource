@@ -23,18 +23,25 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include <cstdint>
 
-struct SourceAttributes {
-    struct TrackAttributes {
-        int64_t Samples;
-        bool Variable;
-        std::string HWDevice;
+struct VideoTrackIndex {
+    struct FrameInfo {
+        int64_t PTS;
+        int RepeatPict;
+        bool KeyFrame;
+        bool TFF;
+        uint8_t Hash[16];
     };
-    std::map<int, TrackAttributes> Tracks;
+
+    bool Variable;
+    std::string HWDevice;
+    std::map<std::string, std::string> LAVFOptions;
+    std::vector<FrameInfo> Frames;
 };
 
-bool GetSourceAttributes(const std::string &CachePath, const std::string &Filename, SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts);
-bool SetSourceAttributes(const std::string &CachePath, const std::string &Filename, const SourceAttributes &Attrs, std::map<std::string, std::string> &LAVFOpts);
+bool WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTrackIndex &Index);
+bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackIndex &Index);
 
 #endif
