@@ -209,12 +209,10 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     // Full explanation by more clever person available here: https://github.com/Nevcairiel/LAVFilters/issues/113
     if (CodecContext->codec_id == AV_CODEC_ID_H264 && CodecContext->has_b_frames) {
         CodecContext->has_b_frames = 15; // the maximum possible value for h264
-
-        if (HWMode)
-            CodecContext->extra_hw_frames = ExtraHWFrames;
     }
 
     if (HWMode) {
+        CodecContext->extra_hw_frames = ExtraHWFrames;
         CodecContext->pix_fmt = hw_pix_fmt;
         if (av_hwdevice_ctx_create(&HWDeviceContext, Type, nullptr, nullptr, 0) < 0)
             throw VideoException("Failed to create specified HW device");
