@@ -13,7 +13,6 @@ It can be used as either a C++ library directly or through the VapourSynth plugi
 ## Dependencies
 
 - FFmpeg 6.1.x. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` and `libswscale` libraries are required.
-- Jansson
 - libp2p (already included as submodule)
 
 ### Linux and macOS Compilation

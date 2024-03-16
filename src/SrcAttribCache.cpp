@@ -18,16 +18,12 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
-// FIXME, indexing progress update
 // FIXME, warn on cache write failure
 
 #include "SrcAttribCache.h"
 #include "version.h"
 
 #include <memory>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <jansson.h>
 
 extern "C" {
 #include <libavutil/avutil.h>
@@ -38,8 +34,6 @@ extern "C" {
 #ifdef _WIN32
 #include <windows.h>
 
-#define STAT_STRUCT_TYPE _stat64
-
 static std::wstring Utf16FromUtf8(const std::string &Str) {
     int RequiredSize = MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), -1, nullptr, 0);
     std::wstring Buffer;
@@ -47,12 +41,6 @@ static std::wstring Utf16FromUtf8(const std::string &Str) {
     MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), static_cast<int>(Str.size()), &Buffer[0], RequiredSize);
     return Buffer;
 }
-#else
-
-#include <stdlib.h>
-
-#define STAT_STRUCT_TYPE stat
-
 #endif
 
 namespace std {
@@ -188,13 +176,4 @@ bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackInde
     }
 
     return true;
-}
-
-// FIXME, unused
-static bool StatWrapper(const std::string &Filename, struct STAT_STRUCT_TYPE &Info) {
-#ifdef _WIN32
-    return !_wstat64(Utf16FromUtf8(Filename).c_str(), &Info);
-#else
-    return !stat(Filename.c_str(), &Info);
-#endif
 }

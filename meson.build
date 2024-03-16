@@ -50,7 +50,6 @@ vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(
 
 deps = [
     vapoursynth_dep,
-    dependency('jansson', version: '>=2.12', static: link_static),
     dependency('libavcodec', version: '>=60.31.0', static: link_static),
     dependency('libavformat', version: '>=60.16.0', static: link_static),
     dependency('libavutil', version: '>=58.29.0', static: link_static),
