@@ -24,6 +24,7 @@
 #include <set>
 #include <array>
 #include <cassert>
+#include <iterator>
 
 #include "../libp2p/p2p_api.h"
 
@@ -726,6 +727,10 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
+
+    if (ExtraHWFrames < 0)
+        throw VideoException("ExtraHWFrames must be 0 or greater");
+
     Decoders[0] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
     Decoders[0]->SkipFrames(1);
     Decoders[0]->GetVideoProperties(VP);
@@ -741,6 +746,19 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     }
 
     VP.NumFrames = TrackIndex.Frames.size();
+
+    if (TrackIndex.Frames[0].RepeatPict < 0)
+        throw VideoException("Found thought to not exist RFF quirk, please submit a bug report and attach the source file");
+
+    int64_t NumFields = 0;
+
+    for (auto &Iter : TrackIndex.Frames)
+        NumFields += Iter.RepeatPict + 2;
+
+    VP.NumRFFFrames = (NumFields + 1) / 2;
+
+    if (VP.NumFrames == VP.NumRFFFrames)
+        RFFState = rffUnused;
 }
 
 BestVideoSource::~BestVideoSource() {
@@ -1116,4 +1134,67 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N) {
     }
 
     return RetFrame;
+}
+
+bool BestVideoSource::InitializeRFF() {
+    assert(RFFState == rffUninitialized);
+
+    int64_t DestFieldTop = 0;
+    int64_t DestFieldBottom = 0;
+    RFFFields.resize(VP.NumRFFFrames);
+
+    int64_t N = 0;
+    for (auto &Iter : TrackIndex.Frames) {
+        int RepeatFields = Iter.RepeatPict + 2;
+
+        bool DestTop = Iter.TFF;
+        for (int i = 0; i < RepeatFields; i++) {
+            if (DestTop) {
+                assert(DestFieldTop <= DestFieldBottom);
+                RFFFields[DestFieldTop++].first = N;
+            } else {
+                assert(DestFieldTop >= DestFieldBottom);
+                RFFFields[DestFieldBottom++].second = N;
+            }
+            DestTop = !DestTop;
+        }
+        N++;
+    }
+
+    if (DestFieldTop > DestFieldBottom) {
+        RFFFields[DestFieldBottom].second = RFFFields[DestFieldBottom - 1].second;
+        DestFieldBottom++;
+    } else if (DestFieldTop < DestFieldBottom) {
+        RFFFields[DestFieldTop].first = RFFFields[DestFieldTop - 1].first;
+        DestFieldTop++;
+    }
+
+    assert(DestFieldTop == DestFieldBottom);
+    assert(DestFieldTop == VP.NumRFFFrames);
+
+    return true;
+}
+
+BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
+    if (RFFState == rffUninitialized)
+        InitializeRFF();
+    if (RFFState == rffUnused) {
+        return GetFrame(N, Linear);
+    } else {
+        
+    }
+}
+
+BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
+    int64_t PTS = static_cast<int64_t>(((Time * 1000 * VP.TimeBase.Den) / VP.TimeBase.Num) + .001);
+    VideoTrackIndex::FrameInfo F{ PTS };
+
+    auto Pos = std::lower_bound(TrackIndex.Frames.begin(), TrackIndex.Frames.end(), F, [](const VideoTrackIndex::FrameInfo &FI1, const VideoTrackIndex::FrameInfo &FI2) { return FI1.PTS < FI2.PTS; });
+
+    if (Pos == TrackIndex.Frames.end())
+        return GetFrame(TrackIndex.Frames.size() - 1, Linear);
+    size_t Frame = std::distance(TrackIndex.Frames.begin(), Pos);
+    if (Pos == TrackIndex.Frames.begin() || std::abs(Pos->PTS - PTS) <= std::abs((Pos - 1)->PTS - PTS))
+        return GetFrame(Frame, Linear);
+    return GetFrame(Frame - 1);
 }

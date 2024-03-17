@@ -58,6 +58,7 @@ struct VideoProperties {
     double StartTime; // in seconds
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
+    int64_t NumRFFFrames; // can be -1 to signal that the number of frames is completely unknown, RFF applied
 
     BSRational FPS;
     BSRational SAR;
@@ -180,8 +181,6 @@ public:
 
 class BestVideoSource {
 private:
-    VideoTrackIndex TrackIndex;
-
     class Cache {
     private:
         class CacheBlock {
@@ -204,7 +203,12 @@ private:
         [[nodiscard]] BestVideoFrame *GetFrame(int64_t N);
     };
 
+    VideoTrackIndex TrackIndex;
     Cache FrameCache;
+
+    enum RFFStateEnum { rffUninitialized, rffReady, rffUnused };
+    RFFStateEnum RFFState = rffUninitialized;
+    std::vector<std::pair<int64_t, int64_t>> RFFFields;
 
     static constexpr size_t MaxVideoSources = 4;
     std::map<std::string, std::string> LAVFOptions;
@@ -226,7 +230,8 @@ private:
     [[nodiscard]] BestVideoFrame *SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth = 0);
     [[nodiscard]] BestVideoFrame *GetFrameInternal(int64_t N);
     [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N);
-    bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
+    [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
+    bool InitializeRFF();
 public:
     BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     ~BestVideoSource();
@@ -235,6 +240,8 @@ public:
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
     [[nodiscard]] const VideoProperties &GetVideoProperties() const;
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
+    [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
+    [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false);
 };
 
 #endif
