@@ -967,16 +967,16 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         if (F) {
             Frames.push_back(F);
 
-            for (int64_t i = 0; i <= TrackIndex.Frames.size() - Frames.size(); i++) {
+            for (size_t i = 0; i <= TrackIndex.Frames.size() - Frames.size(); i++) {
                 bool HashMatch = true;
-                for (int64_t j = 0; j < Frames.size(); j++)
+                for (size_t j = 0; j < Frames.size(); j++)
                     HashMatch = HashMatch && Frames.CompareHash(j, TrackIndex.Frames[i + j].Hash);
                 if (HashMatch)
                     Matches.insert(i);
             }
         } else if (!F) {
             bool HashMatch = true;
-            for (int64_t j = 0; j < Frames.size(); j++)
+            for (size_t j = 0; j < Frames.size(); j++)
                 HashMatch = HashMatch && Frames.CompareHash(j, TrackIndex.Frames[TrackIndex.Frames.size() - Frames.size() + j].Hash);
             if (HashMatch)
                 Matches.insert(TrackIndex.Frames.size() - Frames.size());
@@ -1024,7 +1024,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 
                 // Insert frames into cache if appropriate
                 BestVideoFrame *RetFrame = nullptr;
-                for (int64_t FramesIdx = 0; FramesIdx < Frames.size(); FramesIdx++) {
+                for (size_t FramesIdx = 0; FramesIdx < Frames.size(); FramesIdx++) {
                     int64_t FrameNumber = MatchedN + FramesIdx;
 
                     if (FrameNumber >= N - PreRoll) {
@@ -1299,7 +1299,7 @@ static void WriteInt64(file_ptr_t &F, int64_t Value) {
 }
 
 static void WriteString(file_ptr_t &F, const std::string &Value) {
-    WriteInt(F, Value.size());
+    WriteInt(F, static_cast<int>(Value.size()));
     fwrite(Value.c_str(), 1, Value.size(), F.get());
 }
 
@@ -1321,7 +1321,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath, int Tra
     WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
 
-    WriteInt(F, LAVFOptions.size());
+    WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
         WriteString(F, Iter.first);
         WriteString(F, Iter.second);
