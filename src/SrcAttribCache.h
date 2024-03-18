@@ -38,6 +38,7 @@ struct VideoTrackIndex {
     bool Variable;
     std::string HWDevice;
     std::map<std::string, std::string> LAVFOptions;
+    int64_t LastFrameDuration;
     std::vector<FrameInfo> Frames;
 };
 

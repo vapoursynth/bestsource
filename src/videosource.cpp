@@ -524,6 +524,38 @@ bool BestVideoFrame::HasAlpha() const {
     return ::HasAlpha(Desc);
 };
 
+void BestVideoFrame::MergeField(bool Top, const AVFrame *FieldSrc) {
+    if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
+        throw VideoException("Merged frames must have same format");
+    if (av_frame_make_writable(Frame) < 0)
+        throw VideoException("Failed to make AVFrame writable");
+
+    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
+
+    for (int Plane = 0; Plane < 4; Plane++) {
+        uint8_t *DstData = Frame->data[Plane];
+        int DstLineSize = Frame->linesize[Plane];
+        uint8_t *SrcData = FieldSrc->data[Plane];
+        int SrcLineSize = FieldSrc->linesize[Plane];
+        int MinLineSize = std::min(SrcLineSize, DstLineSize);
+
+        if (!Top) {
+            DstData += DstLineSize;
+            SrcData += SrcLineSize;
+        }
+
+        int Height = Frame->height;
+        if (Plane == 1 || Plane == 2)
+            Height <<= Desc->log2_chroma_h;
+
+        for (int h = Top ? 0 : 1; h < Height; h += 2) {
+            memcpy(DstData, SrcData, MinLineSize);
+            DstData += 2 * DstLineSize;
+            SrcData += 2 * SrcLineSize;
+        }
+    }
+}
+
 bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
@@ -715,10 +747,12 @@ void BestVideoSource::Cache::CacheFrame(int64_t FrameNumber, AVFrame *Frame) {
 }
 
 BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
-    // FIXME, put found frame in front
-    for (auto &Iter : Data) {
-        if (Iter.FrameNumber == N)
-            return new BestVideoFrame(Iter.Frame);
+    for (auto Iter = Data.begin(); Iter != Data.end(); ++Iter) {
+        if (Iter->FrameNumber == N) {
+            AVFrame *F = Iter->Frame;
+            Data.splice(Data.begin(), Data, Iter);
+            return new BestVideoFrame(F);
+        }
     }
     return nullptr;
 }
@@ -731,24 +765,25 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     if (ExtraHWFrames < 0)
         throw VideoException("ExtraHWFrames must be 0 or greater");
 
-    Decoders[0] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
-    Decoders[0]->SkipFrames(1);
-    Decoders[0]->GetVideoProperties(VP);
-    VideoTrack = Decoders[0]->GetTrack();
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
+
+    Decoder->SkipFrames(1);
+    Decoder->GetVideoProperties(VP);
+    VideoTrack = Decoder->GetTrack();
     
+    // FIXME, index read and write all the other properties correctly
     if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath, VideoTrack, TrackIndex)) {
-        if (!IndexTrack(Progress)) {
-            delete Decoders[0];
+        if (!IndexTrack(Progress))
             throw VideoException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
-        }
 
         WriteVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath, VideoTrack, TrackIndex);
     }
 
     VP.NumFrames = TrackIndex.Frames.size();
+    VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + std::max<int64_t>(1, TrackIndex.LastFrameDuration);
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
-        throw VideoException("Found thought to not exist RFF quirk, please submit a bug report and attach the source file");
+        throw VideoException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
 
     int64_t NumFields = 0;
 
@@ -759,6 +794,8 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
 
     if (VP.NumFrames == VP.NumRFFFrames)
         RFFState = rffUnused;
+
+    Decoders[0] = Decoder.release();
 }
 
 BestVideoSource::~BestVideoSource() {
@@ -785,6 +822,8 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
+    TrackIndex.LastFrameDuration = 0;
+
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
@@ -792,6 +831,7 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
         VideoTrackIndex::FrameInfo FI = { F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) };
         GetHash(F, FI.Hash);
         TrackIndex.Frames.push_back(FI);
+        TrackIndex.LastFrameDuration = F->duration;
         if (Progress)
             Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize);
     };
@@ -799,7 +839,9 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
     if (Progress)
         Progress(VideoTrack, INT64_MAX, INT64_MAX);
 
-    VP.NumFrames = Decoder->GetFrameNumber();
+    TrackIndex.HWDevice = HWDevice;
+    TrackIndex.Variable = VariableFormat;
+    TrackIndex.LAVFOptions = LAVFOptions;
 
     return !TrackIndex.Frames.empty();
 }
@@ -1181,7 +1223,26 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
     if (RFFState == rffUnused) {
         return GetFrame(N, Linear);
     } else {
-        
+        const auto &Fields = RFFFields[N];
+        if (Fields.first == Fields.second) {
+            return GetFrame(Fields.first, Linear);
+        } else {
+            if (Fields.first < Fields.second) {
+                std::unique_ptr<BestVideoFrame> Top(GetFrame(Fields.first, Linear));
+                std::unique_ptr<BestVideoFrame> Bottom(GetFrame(Fields.second, Linear));
+                if (!Top || !Bottom)
+                    return nullptr;
+                Top->MergeField(false, Bottom->GetAVFrame());
+                return Top.release();
+            } else {
+                std::unique_ptr<BestVideoFrame> Bottom(GetFrame(Fields.second, Linear));
+                std::unique_ptr<BestVideoFrame> Top(GetFrame(Fields.first, Linear));
+                if (!Top || !Bottom)
+                    return nullptr;
+                Bottom->MergeField(true, Top->GetAVFrame());
+                return Bottom.release();
+            }
+        }
     }
 }
 

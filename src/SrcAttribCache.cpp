@@ -94,12 +94,16 @@ bool WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTr
     WriteInt(F, Track);
     WriteInt(F, Index.Variable);
     WriteString(F, Index.HWDevice);
+
     WriteInt(F, Index.LAVFOptions.size());
     for (const auto &Iter : Index.LAVFOptions) {
         WriteString(F, Iter.first);
         WriteString(F, Iter.second);
     }
+
     WriteInt64(F, Index.Frames.size());
+    WriteInt64(F, Index.LastFrameDuration);
+
     for (const auto &Iter : Index.Frames) {
         fwrite(Iter.Hash, 1, sizeof(Iter.Hash), F.get());
         WriteInt64(F, Iter.PTS);
@@ -162,6 +166,7 @@ bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackInde
         Index.LAVFOptions[Key] = ReadString(F);
     }
     int64_t NumFrames = ReadInt64(F);
+    Index.LastFrameDuration = ReadInt64(F);
     Index.Frames.reserve(NumFrames);
 
     for (int i = 0; i < NumFrames; i++) {
