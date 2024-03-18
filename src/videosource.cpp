@@ -547,7 +547,7 @@ void BestVideoFrame::MergeField(bool Top, const AVFrame *FieldSrc) {
 
         int Height = Frame->height;
         if (Plane == 1 || Plane == 2)
-            Height <<= Desc->log2_chroma_h;
+            Height >>= Desc->log2_chroma_h;
 
         for (int h = Top ? 0 : 1; h < Height; h += 2) {
             memcpy(DstData, SrcData, MinLineSize);
