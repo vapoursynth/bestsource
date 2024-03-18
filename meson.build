@@ -1,5 +1,5 @@
 project('BestSource', 'cpp',
-    default_options: ['buildtype=release', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++14'],
+    default_options: ['buildtype=release', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
     meson_version: '>=0.53.0',
     version: '.'.join([
@@ -14,7 +14,6 @@ sources = [
     'src/audiosource.cpp',
     'src/BSRational.cpp',
     'src/BSShared.cpp',
-    'src/SrcAttribCache.cpp',
     'src/vapoursynth.cpp',
     'src/videosource.cpp'
 ]
