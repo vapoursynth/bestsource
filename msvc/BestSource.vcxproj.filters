@@ -30,9 +30,6 @@
     <ClCompile Include="..\src\BSRational.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\SrcAttribCache.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\audiosource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -45,9 +42,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\BSRational.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\SrcAttribCache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\audiosource.h">

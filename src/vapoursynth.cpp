@@ -287,7 +287,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 D->FPSDen = 1;
             }
         } else if (D->RFF) {
-            D->VI.numFrames = VP.NumRFFFrames;
+            D->VI.numFrames = vsh::int64ToIntS(VP.NumRFFFrames);
         }
 
         D->V->SetSeekPreRoll(SeekPreRoll);

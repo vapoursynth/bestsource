@@ -22,7 +22,6 @@
 #define VIDEOSOURCE_H
 
 #include "BSRational.h"
-#include "SrcAttribCache.h"
 #include <cstdint>
 #include <stdexcept>
 #include <list>
@@ -182,6 +181,23 @@ public:
 
 class BestVideoSource {
 private:
+    struct VideoTrackIndex {
+        struct FrameInfo {
+            int64_t PTS;
+            int RepeatPict;
+            bool KeyFrame;
+            bool TFF;
+            uint8_t Hash[16];
+        };
+
+        int64_t LastFrameDuration;
+        std::vector<FrameInfo> Frames;
+    };
+
+    // FIMXE, is Track necessary?
+    bool WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTrackIndex &Index);
+    bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackIndex &Index);
+
     class Cache {
     private:
         class CacheBlock {

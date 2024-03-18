@@ -20,7 +20,6 @@
 
 #include "audiosource.h"
 #include "videosource.h"
-#include "SrcAttribCache.h"
 
 #include <algorithm>
 #include <memory>
