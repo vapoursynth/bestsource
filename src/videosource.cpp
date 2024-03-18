@@ -424,11 +424,16 @@ bool LWVideoDecoder::HasMoreFrames() const {
 }
 
 bool LWVideoDecoder::Seek(int64_t PTS) {
+    Seeked = true;
     avcodec_flush_buffers(CodecContext);
     CurrentFrame = INT64_MIN;
     // Mild variable reuse, if seek fails then there's no point to decode more either
     DecodeSuccess = (av_seek_frame(FormatContext, TrackNumber, PTS, AVSEEK_FLAG_BACKWARD) >= 0);
     return DecodeSuccess;
+}
+
+bool LWVideoDecoder::HasSeeked() const {
+    return Seeked;
 }
 
 void VideoFormat::Set(const AVPixFmtDescriptor *Desc) {
@@ -672,7 +677,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     return false;
 }
 
-static void GetHash(const AVFrame *Frame, uint8_t *Hash) {
+static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
+    std::array<uint8_t, 16> Hash;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     int NumPlanes = 0;
     int SampleSize[4] = {};
@@ -701,8 +707,9 @@ static void GetHash(const AVFrame *Frame, uint8_t *Hash) {
         }
     }
 
-    av_hash_final(hctx, Hash);
+    av_hash_final(hctx, Hash.data());
     av_hash_freep(&hctx);
+    return Hash;
 }
 
 BestVideoSource::Cache::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Frame) : FrameNumber(FrameNumber), Frame(Frame) {
@@ -733,6 +740,8 @@ void BestVideoSource::Cache::SetMaxSize(size_t Bytes) {
 }
 
 void BestVideoSource::Cache::CacheFrame(int64_t FrameNumber, AVFrame *Frame) {
+    assert(Frame);
+    assert(FrameNumber >= 0);
     // Don't cache the same frame twice, get rid of the oldest copy instead
     for (auto Iter = Data.begin(); Iter != Data.end(); ++Iter) {
         if (Iter->FrameNumber == FrameNumber) {
@@ -826,9 +835,7 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
-        VideoTrackIndex::FrameInfo FI = { F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) };
-        GetHash(F, FI.Hash);
-        TrackIndex.Frames.push_back(FI);
+        TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), GetHash(F) });
         TrackIndex.LastFrameDuration = F->duration;
         if (Progress)
             Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize);
@@ -851,10 +858,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     BestVideoFrame *F = FrameCache.GetFrame(N);
     if (!F)
         F = (Linear ? GetFrameLinearInternal(N) : GetFrameInternal(N));
-    std::array<uint8_t, 16> FrameHash;
-    GetHash(F->GetAVFrame(), FrameHash.data());
 
-    if (memcmp(TrackIndex.Frames[N].Hash, FrameHash.data(), 16)) {
+    // FIXME, we can catch this one much earlier so this check should be removed
+    if (TrackIndex.Frames[N].Hash != GetHash(F->GetAVFrame())) {
         // If the frame isn't correct fall back to linear mode
         if (!LinearMode) {
             SetLinearMode();
@@ -910,9 +916,7 @@ namespace {
         }
 
         void push_back(AVFrame *F) {
-            std::array<uint8_t, 16> FrameHash;
-            ::GetHash(F, FrameHash.data());
-            Data.push_back(std::make_pair(F, FrameHash));
+            Data.push_back(std::make_pair(F, GetHash(F)));
         }
 
         size_t size() {
@@ -930,8 +934,8 @@ namespace {
             return Tmp;
         }
 
-        [[nodiscard]] bool CompareHash(size_t Index, const uint8_t *Other) {
-            return !memcmp(Data[Index].second.data(), Other, 16);
+        [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, 16> &Other) {
+            return Data[Index].second == Other;
         }
 
         ~FrameHolder() {
@@ -947,17 +951,17 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         return GetFrameLinearInternal(N);
     }
 
-    FrameHolder Frames;
+    FrameHolder MatchFrames;
 
     // "automatically" free all large allocations before heading to another function
-    auto GetFrameLinearWrapper = [this, &Frames](int64_t N) {
-        Frames.clear();
+    auto GetFrameLinearWrapper = [this, &MatchFrames](int64_t N) {
+        MatchFrames.clear();
         return GetFrameLinearInternal(N);
         };
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
-        if (!F && Frames.empty()) {
+        if (!F && MatchFrames.empty()) {
             SetLinearMode();
             return GetFrameLinearWrapper(N);
         }
@@ -965,21 +969,21 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         std::set<int64_t> Matches;
 
         if (F) {
-            Frames.push_back(F);
+            MatchFrames.push_back(F);
 
-            for (size_t i = 0; i <= TrackIndex.Frames.size() - Frames.size(); i++) {
+            for (size_t i = 0; i <= TrackIndex.Frames.size() - MatchFrames.size(); i++) {
                 bool HashMatch = true;
-                for (size_t j = 0; j < Frames.size(); j++)
-                    HashMatch = HashMatch && Frames.CompareHash(j, TrackIndex.Frames[i + j].Hash);
+                for (size_t j = 0; j < MatchFrames.size(); j++)
+                    HashMatch = HashMatch && MatchFrames.CompareHash(j, TrackIndex.Frames[i + j].Hash);
                 if (HashMatch)
                     Matches.insert(i);
             }
         } else if (!F) {
             bool HashMatch = true;
-            for (size_t j = 0; j < Frames.size(); j++)
-                HashMatch = HashMatch && Frames.CompareHash(j, TrackIndex.Frames[TrackIndex.Frames.size() - Frames.size() + j].Hash);
+            for (size_t j = 0; j < MatchFrames.size(); j++)
+                HashMatch = HashMatch && MatchFrames.CompareHash(j, TrackIndex.Frames[TrackIndex.Frames.size() - MatchFrames.size() + j].Hash);
             if (HashMatch)
-                Matches.insert(TrackIndex.Frames.size() - Frames.size());
+                Matches.insert(TrackIndex.Frames.size() - MatchFrames.size());
         }
 
         // #3 Seek failure, fall back to linear
@@ -993,7 +997,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 if (iter <= N) // Do we care about preroll or is it just a nice thing to have? With seeking it's a lot less important anyway...
                     SuitableCandidate = true;
 
-            bool UndeterminableLocation = (Matches.size() > 1 && (!F || Frames.size() >= 10));
+            bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
 
             if (!SuitableCandidate || UndeterminableLocation) {
                 if (Depth < 2) {
@@ -1001,8 +1005,8 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                     if (SeekFrameNext < 100) { // #2 again
                         return GetFrameLinearWrapper(N);
                     } else {
-                        // Free 
-                        Frames.clear();
+                        // Free frames before recursion to save memory
+                        MatchFrames.clear();
                         return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
                     }
                 } else {
@@ -1020,18 +1024,18 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                     return GetFrameLinearWrapper(N);
                 }
 
-                Decoder->SetFrameNumber(MatchedN + Frames.size());
+                Decoder->SetFrameNumber(MatchedN + MatchFrames.size());
 
                 // Insert frames into cache if appropriate
                 BestVideoFrame *RetFrame = nullptr;
-                for (size_t FramesIdx = 0; FramesIdx < Frames.size(); FramesIdx++) {
+                for (size_t FramesIdx = 0; FramesIdx < MatchFrames.size(); FramesIdx++) {
                     int64_t FrameNumber = MatchedN + FramesIdx;
 
                     if (FrameNumber >= N - PreRoll) {
                         if (FrameNumber == N)
-                            RetFrame = new BestVideoFrame(Frames.GetFrame(FramesIdx));
+                            RetFrame = new BestVideoFrame(MatchFrames.GetFrame(FramesIdx));
 
-                        FrameCache.CacheFrame(FrameNumber, Frames.GetFrame(FramesIdx, true));
+                        FrameCache.CacheFrame(FrameNumber, MatchFrames.GetFrame(FramesIdx, true));
                     }
                 }
 
@@ -1113,12 +1117,12 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     return SeekAndDecode(N, SeekFrame, Index);
 }
 
-BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N) {
+BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, bool ForceUnseeked) {
     // FIXME, can this selection code be written in a more compact way?
     // Check for a suitable existing decoder
     int Index = -1;
     for (int i = 0; i < MaxVideoSources; i++) {
-        if (Decoders[i] && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
+        if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
     }
 
@@ -1153,6 +1157,19 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N) {
         int64_t FrameNumber = Decoder->GetFrameNumber();
         if (FrameNumber >= N - PreRoll) {
             AVFrame *Frame = Decoder->GetNextFrame();
+
+            // This is the most central sanity check. It primarily exists to catch the case
+            // when a decoder has successfully seeked and had its location identified but
+            // still returns frames out of order. Possibly open gop related but hard to tell.
+
+            if (TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
+                if (Decoder->HasSeeked()) {
+                    delete Decoder;
+                    Decoders[Index] = nullptr;
+                    Decoder = nullptr;
+                    return GetFrameLinearInternal(N, true);
+                }
+            }
 
             if (FrameNumber == N)
                 RetFrame = new BestVideoFrame(Frame);
@@ -1331,7 +1348,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath, int Tra
     WriteInt64(F, Index.LastFrameDuration);
 
     for (const auto &Iter : Index.Frames) {
-        fwrite(Iter.Hash, 1, sizeof(Iter.Hash), F.get());
+        fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
         WriteInt64(F, Iter.PTS);
         WriteInt(F, Iter.RepeatPict);
         WriteInt(F, Iter.KeyFrame | (Iter.TFF << 1));
@@ -1407,7 +1424,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Trac
 
     for (int i = 0; i < NumFrames; i++) {
         VideoTrackIndex::FrameInfo FI = {};
-        fread(FI.Hash, 1, sizeof(FI.Hash), F.get());
+        fread(FI.Hash.data(), 1, FI.Hash.size(), F.get());
         FI.PTS = ReadInt64(F);
         FI.RepeatPict = ReadInt(F);
         int Flags = ReadInt(F);

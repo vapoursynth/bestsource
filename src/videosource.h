@@ -29,6 +29,7 @@
 #include <map>
 #include <vector>
 #include <functional>
+#include <array>
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -92,7 +93,6 @@ struct VideoProperties {
     int Rotation; /* A positive number in degrees */
 };
 
-
 struct LWVideoDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
@@ -106,6 +106,7 @@ private:
     bool DecodeSuccess = true;
     AVPacket *Packet = nullptr;
     bool ResendPacket = false;
+    bool Seeked = false;
 
     void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     bool ReadPacket(AVPacket *Packet);
@@ -124,6 +125,7 @@ public:
     bool SkipFrames(int64_t Count);
     [[nodiscard]] bool HasMoreFrames() const;
     [[nodiscard]] bool Seek(int64_t PTS); // Note that the current frame number isn't updated and if seeking fails the decoder is in an undefined state
+    [[nodiscard]] bool HasSeeked() const;
 };
 
 
@@ -187,7 +189,7 @@ private:
             int RepeatPict;
             bool KeyFrame;
             bool TFF;
-            uint8_t Hash[16];
+            std::array<uint8_t, 16> Hash;
         };
 
         int64_t LastFrameDuration;
@@ -246,7 +248,7 @@ private:
     [[nodiscard]] int64_t GetSeekFrame(int64_t N);
     [[nodiscard]] BestVideoFrame *SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth = 0);
     [[nodiscard]] BestVideoFrame *GetFrameInternal(int64_t N);
-    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N);
+    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     bool InitializeRFF();
 public:
