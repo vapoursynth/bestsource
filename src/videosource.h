@@ -246,6 +246,7 @@ private:
     LWVideoDecoder *Decoders[MaxVideoSources] = {};
     int64_t PreRoll = 20;
     int64_t SeekThreshold = 50;
+    static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();
     [[nodiscard]] int64_t GetSeekFrame(int64_t N);

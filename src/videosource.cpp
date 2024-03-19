@@ -456,6 +456,7 @@ void VideoFormat::Set(const AVPixFmtDescriptor *Desc) {
 }
 
 BestVideoFrame::BestVideoFrame(AVFrame *f) {
+    assert(f);
     Frame = av_frame_clone(f);
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
@@ -887,9 +888,9 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     if (N < 0 || N >= VP.NumFrames)
         return nullptr;
 
-    BestVideoFrame *F = FrameCache.GetFrame(N);
+    std::unique_ptr<BestVideoFrame> F(FrameCache.GetFrame(N));
     if (!F)
-        F = (Linear ? GetFrameLinearInternal(N) : GetFrameInternal(N));
+        F.reset(Linear ? GetFrameLinearInternal(N) : GetFrameInternal(N));
 
     // FIXME, we can catch this one much earlier so this check should be removed
     if (TrackIndex.Frames[N].Hash != GetHash(F->GetAVFrame())) {
@@ -904,7 +905,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
         }
     }
 
-    return F;
+    return F.release();
 }
 
 void BestVideoSource::SetLinearMode() {
@@ -999,10 +1000,12 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         if (!F && MatchFrames.empty()) {
             BadSeekLocations.insert(SeekFrame);
             DebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
-            if (Depth < 2) {
+            if (Depth < RetrySeekAttempts) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
+                    delete Decoder;
+                    Decoders[Index] = nullptr;
                     return GetFrameLinearWrapper(N);
                 } else {
                     return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
@@ -1056,10 +1059,12 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         if (!SuitableCandidate || UndeterminableLocation) {
             DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
             BadSeekLocations.insert(SeekFrame);
-            if (Depth < 2) {
+            if (Depth < RetrySeekAttempts) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
+                    delete Decoder;
+                    Decoders[Index] = nullptr;
                     return GetFrameLinearWrapper(N);
                 } else {
                     // Free frames before recursion to save memory
@@ -1228,10 +1233,12 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                     DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), added as bad seek location", N, FrameNumber);
                     assert(SeekFrame >= 0);
                     BadSeekLocations.insert(SeekFrame);
-                    if (Depth < 2) {
+                    if (Depth < RetrySeekAttempts) {
                         int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                         DebugPrint("Retrying seeking with", N, SeekFrameNext);
                         if (SeekFrameNext < 100) { // #2 again
+                            delete Decoder;
+                            Decoders[Index] = nullptr;
                             return GetFrameLinearInternal(N);
                         } else {
                             return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
