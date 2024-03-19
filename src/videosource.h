@@ -27,6 +27,7 @@
 #include <list>
 #include <string>
 #include <map>
+#include <set>
 #include <vector>
 #include <functional>
 #include <array>
@@ -244,11 +245,12 @@ private:
     LWVideoDecoder *Decoders[MaxVideoSources] = {};
     int64_t PreRoll = 20;
     int64_t SeekThreshold = 50;
+    std::set<int64_t> BadSeekLocations;
     void SetLinearMode();
     [[nodiscard]] int64_t GetSeekFrame(int64_t N);
     [[nodiscard]] BestVideoFrame *SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth = 0);
     [[nodiscard]] BestVideoFrame *GetFrameInternal(int64_t N);
-    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, bool ForceUnseeked = false);
+    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, int64_t SeekPoint = -1, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     bool InitializeRFF();
 public:

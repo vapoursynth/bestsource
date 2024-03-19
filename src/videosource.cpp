@@ -22,7 +22,6 @@
 #include "version.h"
 #include <algorithm>
 #include <thread>
-#include <set>
 #include <cassert>
 #include <iterator>
 
@@ -908,7 +907,7 @@ void BestVideoSource::SetLinearMode() {
 
 int64_t BestVideoSource::GetSeekFrame(int64_t N) {
     for (int64_t i = N - PreRoll; i >= 100; i--) {
-        if (TrackIndex.Frames[i].PTS != AV_NOPTS_VALUE)
+        if (TrackIndex.Frames[i].KeyFrame && TrackIndex.Frames[i].PTS != AV_NOPTS_VALUE && !BadSeekLocations.count(i))
             return i;
     }
 
@@ -966,17 +965,29 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
     FrameHolder MatchFrames;
 
     // "automatically" free all large allocations before heading to another function
-    auto GetFrameLinearWrapper = [this, &MatchFrames](int64_t N) {
+    auto GetFrameLinearWrapper = [this, &MatchFrames](int64_t N, int64_t SeekPoint = -1) {
         MatchFrames.clear();
-        return GetFrameLinearInternal(N);
+        return GetFrameLinearInternal(N, SeekPoint);
         };
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
-            DebugPrint("No frame could be decoded after seeking, setting linear mode", N, SeekFrame);
-            SetLinearMode();
-            return GetFrameLinearWrapper(N);
+            BadSeekLocations.insert(SeekFrame);
+            DebugPrint("No frame could be decoded after seeking", N, SeekFrame);
+            if (Depth < 2) {
+                int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+                DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                if (SeekFrameNext < 100) { // #2 again
+                    return GetFrameLinearWrapper(N);
+                } else {
+                    return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
+                }
+            } else {
+                DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                SetLinearMode();
+                return GetFrameLinearWrapper(N);
+            }
         }
 
         std::set<int64_t> Matches;
@@ -1022,6 +1033,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 #endif
 
             if (!SuitableCandidate || UndeterminableLocation) {
+                BadSeekLocations.insert(SeekFrame);
                 if (Depth < 2) {
                     int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                     DebugPrint("Retrying seeking with", N, SeekFrameNext);
@@ -1075,7 +1087,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                     return RetFrame;
 
                 // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
-                return GetFrameLinearWrapper(N);
+                return GetFrameLinearWrapper(N, SeekFrame);
             }
 
             assert(Matches.size() > 1);
@@ -1149,7 +1161,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     return SeekAndDecode(N, SeekFrame, Index);
 }
 
-BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, bool ForceUnseeked) {
+BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekPoint, bool ForceUnseeked) {
     // FIXME, can this selection code be written in a more compact way?
     // Check for a suitable existing decoder
     int Index = -1;
@@ -1197,10 +1209,12 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, bool ForceUns
             if (TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
                 if (Decoder->HasSeeked()) {
                     DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), using fallback", N, FrameNumber);
+                    assert(SeekPoint >= 0);
+                    BadSeekLocations.insert(SeekPoint);
                     delete Decoder;
                     Decoders[Index] = nullptr;
                     Decoder = nullptr;
-                    return GetFrameLinearInternal(N, true);
+                    return GetFrameLinearInternal(N, -1, true);
                 }
             }
 
