@@ -819,12 +819,7 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     if (VP.NumFrames == VP.NumRFFFrames)
         RFFState = rffUnused;
 
-    Decoders[0] = Decoder.release();
-}
-
-BestVideoSource::~BestVideoSource() {
-    for (auto &Iter : Decoders)
-        delete Iter;
+    Decoders[0] = std::move(Decoder);
 }
 
 int BestVideoSource::GetTrack() const {
@@ -918,10 +913,8 @@ void BestVideoSource::SetLinearMode() {
         DebugPrint("Linear mode is now forced");
         LinearMode = true;
         FrameCache.Clear();
-        for (size_t i = 0; i < MaxVideoSources; i++) {
-            delete Decoders[i];
-            Decoders[i] = nullptr;
-        }
+        for (size_t i = 0; i < MaxVideoSources; i++)
+            Decoders[i].reset();
     }
 }
 
@@ -984,7 +977,7 @@ namespace {
 }
 
 BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth) {
-    LWVideoDecoder *Decoder = Decoders[Index];
+    std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
     if (!Decoder->Seek(TrackIndex.Frames[SeekFrame].PTS)) {
         DebugPrint("Unseekable file", N);
         SetLinearMode();
@@ -1008,8 +1001,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    delete Decoder;
-                    Decoders[Index] = nullptr;
+                    Decoder.reset();
                     return GetFrameLinearWrapper(N);
                 } else {
                     return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
@@ -1067,8 +1059,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    delete Decoder;
-                    Decoders[Index] = nullptr;
+                    Decoder.reset();
                     return GetFrameLinearWrapper(N);
                 } else {
                     // Free frames before recursion to save memory
@@ -1165,7 +1156,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     for (int i = 0; i < MaxVideoSources; i++) {
         if (!Decoders[i]) {
             Index = i;
-            Decoders[i] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
+            Decoders[i].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
             break;
         }
     }
@@ -1199,7 +1190,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
         for (int i = 0; i < MaxVideoSources; i++) {
             if (!Decoders[i]) {
                 Index = i;
-                Decoders[i] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
+                Decoders[i].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
                 break;
             }
         }
@@ -1212,11 +1203,10 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
             if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[Index])
                 Index = i;
         }
-        delete Decoders[Index];
-        Decoders[Index] = new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions);
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
     }
 
-    LWVideoDecoder *Decoder = Decoders[Index];
+    std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
     BestVideoFrame *RetFrame = nullptr;
@@ -1241,8 +1231,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                         int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                         DebugPrint("Retrying seeking with", N, SeekFrameNext);
                         if (SeekFrameNext < 100) { // #2 again
-                            delete Decoder;
-                            Decoders[Index] = nullptr;
+                            Decoder.reset();
                             return GetFrameLinearInternal(N);
                         } else {
                             return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
@@ -1266,11 +1255,8 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
             Decoder->SkipFrames(N - PreRoll - FrameNumber);
         }
 
-        if (!Decoder->HasMoreFrames()) {
-            delete Decoder;
-            Decoders[Index] = nullptr;
-            Decoder = nullptr;
-        }
+        if (!Decoder->HasMoreFrames())
+            Decoder.reset();
     }
 
     return RetFrame;
