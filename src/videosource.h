@@ -146,6 +146,7 @@ public:
     int Height;
 
     int64_t Pts;
+    int64_t Duration;
     int Matrix;
     int Primaries;
     int Transfer;
@@ -250,7 +251,7 @@ private:
     [[nodiscard]] int64_t GetSeekFrame(int64_t N);
     [[nodiscard]] BestVideoFrame *SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth = 0);
     [[nodiscard]] BestVideoFrame *GetFrameInternal(int64_t N);
-    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, int64_t SeekPoint = -1, bool ForceUnseeked = false);
+    [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, int64_t SeekFrame = -1, size_t Depth = 0, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     bool InitializeRFF();
 public:

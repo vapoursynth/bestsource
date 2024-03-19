@@ -53,6 +53,8 @@ struct BestVideoSourceData {
     bool RFF;
 };
 
+
+
 static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
     BestVideoSourceData *D = reinterpret_cast<BestVideoSourceData *>(InstanceData);
 
@@ -106,10 +108,6 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             return nullptr;
         }
 
-        std::unique_ptr<BestVideoFrame> DurFrame(D->V->GetFrame(n + 1));
-        if (!DurFrame)
-            DurFrame.reset(D->V->GetFrame(n - 1));
-
         const VideoProperties &VP = D->V->GetVideoProperties();
         VSMap *Props = vsapi->getFramePropertiesRW(Dst);
         if (AlphaDst)
@@ -144,11 +142,11 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         vsh::muldivRational(&AbsNum, &AbsDen, Src->Pts, 1);
         vsapi->mapSetFloat(Props, "_AbsoluteTime", static_cast<double>(AbsNum) / AbsDen, maAppend);
 
-        if (DurFrame) {
-            int64_t FrameDuration = abs(Src->Pts - DurFrame->Pts);
+        // FIXME, use PTS difference between frames instead?
+        if (Src->Duration > 0) {
             int64_t DurNum = VP.TimeBase.Num;
             int64_t DurDen = VP.TimeBase.Den;
-            vsh::muldivRational(&DurNum, &DurDen, FrameDuration, 1);
+            vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
             vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
             vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
         }

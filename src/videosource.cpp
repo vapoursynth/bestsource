@@ -211,11 +211,13 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     }
     CodecContext->thread_count = Threads;
 
+    // FIXME, implement for newer ffmpeg versions
     if (!VariableFormat) {
         // Probably guard against mid-stream format changes
         CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;
     }
 
+    // FIXME, is this workaround necessary at all?
     // Full explanation by more clever person available here: https://github.com/Nevcairiel/LAVFilters/issues/113
     if (CodecContext->codec_id == AV_CODEC_ID_H264 && CodecContext->has_b_frames) {
         CodecContext->has_b_frames = 15; // the maximum possible value for h264
@@ -460,7 +462,7 @@ BestVideoFrame::BestVideoFrame(AVFrame *f) {
     Pts = Frame->pts;
     Width = Frame->width;
     Height = Frame->height;
-
+    Duration = Frame->duration;
     KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
     PictType = av_get_picture_type_char(Frame->pict_type);
     RepeatPict = Frame->repeat_pict;
@@ -839,12 +841,34 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
 
     TrackIndex.LastFrameDuration = 0;
 
+    // Fixme, implement frame discarding based on first seen format?
+    /*
+    bool First = true;
+    int Format = -1;
+    int Width = -1;
+    int Height = -1;
+    */
+
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
+
+        /*
+        if (First) {
+            Format = F->format;
+            Width = F->width;
+            Height = F->height;
+            First = false;
+        }
+        */
+
+        //if (VariableFormat || (Format == F->format && Width == F->width && Height == F->height)) {
         TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), GetHash(F) });
         TrackIndex.LastFrameDuration = F->duration;
+        //}
+
+        av_frame_free(&F);
         if (Progress)
             Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize);
     };
@@ -974,7 +998,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
             BadSeekLocations.insert(SeekFrame);
-            DebugPrint("No frame could be decoded after seeking", N, SeekFrame);
+            DebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
             if (Depth < 2) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
@@ -1033,6 +1057,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 #endif
 
             if (!SuitableCandidate || UndeterminableLocation) {
+                DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
                 BadSeekLocations.insert(SeekFrame);
                 if (Depth < 2) {
                     int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
@@ -1112,14 +1137,9 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
         return GetFrameLinearInternal(N);
 
     // #1 Do the more complicated check to see if linear decoding is the obvious answer
-    int64_t NearestKF = 0;
-    for (int64_t i = N; i >= 0; i--) {
-        if (TrackIndex.Frames[i].KeyFrame) {
-            NearestKF = i;
-            break;
-        }
-    }
-    int64_t SeekLimit = std::max(std::min(NearestKF, N - SeekThreshold), 0LL);
+    int64_t SeekFrame = GetSeekFrame(N);
+
+    int64_t SeekLimit = std::max(std::min(SeekFrame, N - SeekThreshold), 0LL);
     // If the seek limit is less than 100 frames away from the start see #2 and do linear decoding
     if (SeekLimit < 100)
         return GetFrameLinearInternal(N);
@@ -1131,7 +1151,6 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     }
 
     // #3 Preparations here
-    int64_t SeekFrame = GetSeekFrame(N);
     // Another #2 case which may happen
     if (SeekFrame == -1)
         return GetFrameLinearInternal(N);
@@ -1161,7 +1180,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     return SeekAndDecode(N, SeekFrame, Index);
 }
 
-BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekPoint, bool ForceUnseeked) {
+BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekFrame, size_t Depth, bool ForceUnseeked) {
     // FIXME, can this selection code be written in a more compact way?
     // Check for a suitable existing decoder
     int Index = -1;
@@ -1207,14 +1226,28 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekP
             // still returns frames out of order. Possibly open gop related but hard to tell.
 
             if (TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
+                av_frame_free(&Frame);
+
                 if (Decoder->HasSeeked()) {
-                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), using fallback", N, FrameNumber);
-                    assert(SeekPoint >= 0);
-                    BadSeekLocations.insert(SeekPoint);
-                    delete Decoder;
-                    Decoders[Index] = nullptr;
-                    Decoder = nullptr;
-                    return GetFrameLinearInternal(N, -1, true);
+                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), added as bad seek location", N, FrameNumber);
+                    assert(SeekFrame >= 0);
+                    BadSeekLocations.insert(SeekFrame);
+                    if (Depth < 2) {
+                        int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+                        DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                        if (SeekFrameNext < 100) { // #2 again
+                            return GetFrameLinearInternal(N);
+                        } else {
+                            return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
+                        }
+                    } else {
+                        DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                        SetLinearMode();
+                        return GetFrameLinearInternal(N, -1, 0, true);
+                    }
+                } else {
+                    DebugPrint("Linear decoding returned a bad frame, this should be impossible so I'll just return nothing now", N, SeekFrame);
+                    return nullptr;
                 }
             }
 
