@@ -1034,91 +1034,87 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 Matches.insert(TrackIndex.Frames.size() - MatchFrames.size());
         }
 
-        // #3 Seek failure, fall back to linear
-        if (Matches.empty()) {
-            DebugPrint("No matching frames after seeking, setting linear mode", N, SeekFrame);
-            SetLinearMode();
-            return GetFrameLinearWrapper(N);
-        } else if (Matches.size() >= 1) {
-            // Check if any match is in target zone, if not seek further back a couple of times
-            bool SuitableCandidate = false;
-            for (const auto &iter : Matches)
-                if (iter <= N) // Do we care about preroll or is it just a nice thing to have? With seeking it's a lot less important anyway...
-                    SuitableCandidate = true;
+        // #3 Seek failure?, fall back to linear
+        // Check if any match is in target zone, if not seek further back a couple of times
+        bool SuitableCandidate = false;
+        for (const auto &iter : Matches)
+            if (iter <= N) // Do we care about preroll or is it just a nice thing to have? With seeking it's a lot less important anyway...
+                SuitableCandidate = true;
 
-            bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
+        bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
 
 #ifndef NDEBUG
-            if (!SuitableCandidate)
-                DebugPrint("Seek location beyond destination, have to retry seeking", N, SeekFrame);
+        if (!SuitableCandidate && Matches.size() > 0)
+            DebugPrint("Seek location beyond destination, have to retry seeking", N, SeekFrame);
+        else if (!SuitableCandidate)
+            DebugPrint("Seek location yielded corrupt frame, have to retry seeking", N, SeekFrame);
 
-            if (UndeterminableLocation)
-                DebugPrint("Seek location cannot be unambiguosly identified, have to retry seeking", N, SeekFrame);
+        if (UndeterminableLocation)
+            DebugPrint("Seek location cannot be unambiguosly identified, have to retry seeking", N, SeekFrame);
 #endif
 
-            if (!SuitableCandidate || UndeterminableLocation) {
-                DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
-                BadSeekLocations.insert(SeekFrame);
-                if (Depth < 2) {
-                    int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                    DebugPrint("Retrying seeking with", N, SeekFrameNext);
-                    if (SeekFrameNext < 100) { // #2 again
-                        return GetFrameLinearWrapper(N);
-                    } else {
-                        // Free frames before recursion to save memory
-                        MatchFrames.clear();
-                        return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
-                    }
+        if (!SuitableCandidate || UndeterminableLocation) {
+            DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
+            BadSeekLocations.insert(SeekFrame);
+            if (Depth < 2) {
+                int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+                DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                if (SeekFrameNext < 100) { // #2 again
+                    return GetFrameLinearWrapper(N);
                 } else {
-                    DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
-                    // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
-                    SetLinearMode();
-                    return GetFrameLinearWrapper(N);
+                    // Free frames before recursion to save memory
+                    MatchFrames.clear();
+                    return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
                 }
+            } else {
+                DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
+                SetLinearMode();
+                return GetFrameLinearWrapper(N);
             }
+        }
 
-            if (Matches.size() == 1) {
-                int64_t MatchedN = *Matches.begin();
+        if (Matches.size() == 1) {
+            int64_t MatchedN = *Matches.begin();
 
 #ifndef NDEBUG
-                if (MatchedN < 100)
-                    DebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
+            if (MatchedN < 100)
+                DebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
 #endif
 
-                /* Does it make sense to fall back here? maybe not?
-                if (MatchedN < 100) { // Kinda another #2 case again
-                    delete Decoder;
-                    Decoders[Index] = nullptr;
-                    return GetFrameLinearWrapper(N);
+            /* Does it make sense to fall back here? maybe not?
+            if (MatchedN < 100) { // Kinda another #2 case again
+                delete Decoder;
+                Decoders[Index] = nullptr;
+                return GetFrameLinearWrapper(N);
+            }
+            */
+
+            Decoder->SetFrameNumber(MatchedN + MatchFrames.size());
+
+            // Insert frames into cache if appropriate
+            BestVideoFrame *RetFrame = nullptr;
+            for (size_t FramesIdx = 0; FramesIdx < MatchFrames.size(); FramesIdx++) {
+                int64_t FrameNumber = MatchedN + FramesIdx;
+
+                if (FrameNumber >= N - PreRoll) {
+                    if (FrameNumber == N)
+                        RetFrame = new BestVideoFrame(MatchFrames.GetFrame(FramesIdx));
+
+                    FrameCache.CacheFrame(FrameNumber, MatchFrames.GetFrame(FramesIdx, true));
                 }
-                */
-
-                Decoder->SetFrameNumber(MatchedN + MatchFrames.size());
-
-                // Insert frames into cache if appropriate
-                BestVideoFrame *RetFrame = nullptr;
-                for (size_t FramesIdx = 0; FramesIdx < MatchFrames.size(); FramesIdx++) {
-                    int64_t FrameNumber = MatchedN + FramesIdx;
-
-                    if (FrameNumber >= N - PreRoll) {
-                        if (FrameNumber == N)
-                            RetFrame = new BestVideoFrame(MatchFrames.GetFrame(FramesIdx));
-
-                        FrameCache.CacheFrame(FrameNumber, MatchFrames.GetFrame(FramesIdx, true));
-                    }
-                }
-
-                if (RetFrame)
-                    return RetFrame;
-
-                // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
-                return GetFrameLinearWrapper(N, SeekFrame);
             }
 
-            assert(Matches.size() > 1);
+            if (RetFrame)
+                return RetFrame;
 
-            // Multiple candidates match, go another lap to figure out which one it is
+            // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
+            return GetFrameLinearWrapper(N, SeekFrame);
         }
+
+        assert(Matches.size() > 1);
+
+        // Multiple candidates match, go another lap to figure out which one it is
     };
 
     // All paths should exit elsewhere
