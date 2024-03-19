@@ -434,6 +434,10 @@ bool LWVideoDecoder::HasMoreFrames() const {
 }
 
 bool LWVideoDecoder::Seek(int64_t PTS) {
+    // This workaround is required so the decoder can se the broken SEI in the first frame and compensate for it
+    // Why is it always h264?
+    if (!Seeked && CodecContext->codec_id == AV_CODEC_ID_H264)
+        SkipFrames(1);
     Seeked = true;
     avcodec_flush_buffers(CodecContext);
     CurrentFrame = INT64_MIN;
