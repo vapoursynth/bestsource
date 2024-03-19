@@ -976,8 +976,7 @@ namespace {
     };
 }
 
-BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth) {
-    std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
+BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std::unique_ptr<LWVideoDecoder> &Decoder, size_t Depth) {
     if (!Decoder->Seek(TrackIndex.Frames[SeekFrame].PTS)) {
         DebugPrint("Unseekable file", N);
         SetLinearMode();
@@ -987,8 +986,9 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
     FrameHolder MatchFrames;
 
     // "automatically" free all large allocations before heading to another function
-    auto GetFrameLinearWrapper = [this, &MatchFrames](int64_t N, int64_t SeekPoint = -1) {
+    auto GetFrameLinearWrapper = [this, &MatchFrames, &Decoder](int64_t N, int64_t SeekPoint = -1) {
         MatchFrames.clear();
+        Decoder.reset();
         return GetFrameLinearInternal(N, SeekPoint);
         };
 
@@ -1001,10 +1001,9 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    Decoder.reset();
                     return GetFrameLinearWrapper(N);
                 } else {
-                    return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
+                    return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
                 DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
@@ -1059,12 +1058,11 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    Decoder.reset();
                     return GetFrameLinearWrapper(N);
                 } else {
                     // Free frames before recursion to save memory
                     MatchFrames.clear();
-                    return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
+                    return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
                 DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
@@ -1173,7 +1171,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
     // #3 Actual seeking dance of death starts here
-    return SeekAndDecode(N, SeekFrame, Index);
+    return SeekAndDecode(N, SeekFrame, Decoders[Index]);
 }
 
 BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekFrame, size_t Depth, bool ForceUnseeked) {
@@ -1234,7 +1232,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                             Decoder.reset();
                             return GetFrameLinearInternal(N);
                         } else {
-                            return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
+                            return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                         }
                     } else {
                         DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
