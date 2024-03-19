@@ -23,7 +23,6 @@
 #include <algorithm>
 #include <thread>
 #include <set>
-#include <array>
 #include <cassert>
 #include <iterator>
 
@@ -40,6 +39,16 @@ extern "C" {
 #include <libavutil/hdr_dynamic_metadata.h>
 #include <libavutil/hash.h>
 }
+
+#undef NDEBUG
+
+#ifndef NDEBUG
+static void DebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1) {
+    printf("Req/Current: %" PRId64 "/%" PRId64 ", %s\n", RequestedN, CurrentN, Message.data());
+}
+#else
+#define DebugPrint(x, ...)
+#endif
 
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
     return !!(Desc->flags & AV_PIX_FMT_FLAG_FLOAT);
@@ -863,6 +872,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     if (TrackIndex.Frames[N].Hash != GetHash(F->GetAVFrame())) {
         // If the frame isn't correct fall back to linear mode
         if (!LinearMode) {
+            DebugPrint("GetFrame detected invalid frame on final hashing", N);
             SetLinearMode();
             return GetFrame(N);
         } else {
@@ -877,6 +887,7 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
 void BestVideoSource::SetLinearMode() {
     assert(!LinearMode);
     if (!LinearMode) {
+        DebugPrint("Linear mode is now forced");
         LinearMode = true;
         FrameCache.Clear();
         for (size_t i = 0; i < MaxVideoSources; i++) {
@@ -947,6 +958,7 @@ namespace {
 BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int Index, size_t Depth) {
     LWVideoDecoder *Decoder = Decoders[Index];
     if (!Decoder->Seek(TrackIndex.Frames[SeekFrame].PTS)) {
+        DebugPrint("Unseekable file", N);
         SetLinearMode();
         return GetFrameLinearInternal(N);
     }
@@ -962,6 +974,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
+            DebugPrint("No frame could be decoded after seeking, setting linear mode", N, SeekFrame);
             SetLinearMode();
             return GetFrameLinearWrapper(N);
         }
@@ -988,6 +1001,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 
         // #3 Seek failure, fall back to linear
         if (Matches.empty()) {
+            DebugPrint("No matching frames after seeking, setting linear mode", N, SeekFrame);
             SetLinearMode();
             return GetFrameLinearWrapper(N);
         } else if (Matches.size() >= 1) {
@@ -999,9 +1013,18 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 
             bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
 
+#ifndef NDEBUG
+            if (!SuitableCandidate)
+                DebugPrint("Seek location beyond destination, have to retry seeking", N, SeekFrame);
+
+            if (UndeterminableLocation)
+                DebugPrint("Seek location cannot be unambiguosly identified, have to retry seeking", N, SeekFrame);
+#endif
+
             if (!SuitableCandidate || UndeterminableLocation) {
                 if (Depth < 2) {
                     int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+                    DebugPrint("Retrying seeking with", N, SeekFrameNext);
                     if (SeekFrameNext < 100) { // #2 again
                         return GetFrameLinearWrapper(N);
                     } else {
@@ -1010,6 +1033,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
                         return SeekAndDecode(N, SeekFrameNext, Index, Depth + 1);
                     }
                 } else {
+                    DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                     // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
                     SetLinearMode();
                     return GetFrameLinearWrapper(N);
@@ -1018,11 +1042,19 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, int
 
             if (Matches.size() == 1) {
                 int64_t MatchedN = *Matches.begin();
+
+#ifndef NDEBUG
+                if (MatchedN < 100)
+                    DebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
+#endif
+
+                /* Does it make sense to fall back here? maybe not?
                 if (MatchedN < 100) { // Kinda another #2 case again
                     delete Decoder;
                     Decoders[Index] = nullptr;
                     return GetFrameLinearWrapper(N);
                 }
+                */
 
                 Decoder->SetFrameNumber(MatchedN + MatchFrames.size());
 
@@ -1164,6 +1196,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, bool ForceUns
 
             if (TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
                 if (Decoder->HasSeeked()) {
+                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), using fallback", N, FrameNumber);
                     delete Decoder;
                     Decoders[Index] = nullptr;
                     Decoder = nullptr;
