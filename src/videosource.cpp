@@ -1106,30 +1106,19 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     if (LinearMode)
         return GetFrameLinearInternal(N);
 
-    // Algorithm starts here
-
-    // #2 Checked first due to simplicity and this will grab a suitable decoder/start over as necessary
-    if (N < 100) 
-        return GetFrameLinearInternal(N);
-
-    // #1 Do the more complicated check to see if linear decoding is the obvious answer
+    // #2 If the seek limit is less than 100 frames away from the start see #2 and do linear decoding
     int64_t SeekFrame = GetSeekFrame(N);
 
-    int64_t SeekLimit = std::max(std::min(SeekFrame, N - SeekThreshold), 0LL);
-    // If the seek limit is less than 100 frames away from the start see #2 and do linear decoding
-    if (SeekLimit < 100)
+    if (SeekFrame < 100)
         return GetFrameLinearInternal(N);
 
-    // # 1 Continued, a suitable linear decoder exists and seeking is out of the question
+    // # 1 A suitable linear decoder exists and seeking is out of the question
     for (int i = 0; i < MaxVideoSources; i++) {
-        if (Decoders[i] && Decoders[i]->GetFrameNumber() <= N && Decoders[i]->GetFrameNumber() >= SeekLimit)
+        if (Decoders[i] && Decoders[i]->GetFrameNumber() <= N && Decoders[i]->GetFrameNumber() >= SeekFrame)
             return GetFrameLinearInternal(N);
     }
 
     // #3 Preparations here
-    // Another #2 case which may happen
-    if (SeekFrame == -1)
-        return GetFrameLinearInternal(N);
 
     // Grab/create a decoder to use
     int Index = -1;
