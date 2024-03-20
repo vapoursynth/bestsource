@@ -282,14 +282,18 @@ void LWVideoDecoder::SetFrameNumber(int64_t N) {
     CurrentFrame = N;
 }
 
-void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) const {
-    assert(CurrentFrame != 0);
+void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
+    assert(CurrentFrame == 0);
     VP = {};
+    AVFrame *PropFrame = GetNextFrame();
+    assert(PropFrame);
+    if (!PropFrame)
+        return;
 
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
     VP.PixFmt = CodecContext->pix_fmt;
-    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(DecodeFrame->format)));
+    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
 
     VP.FPS = CodecContext->framerate;
     // Set the framerate from the container if the codec framerate is invalid
@@ -314,8 +318,8 @@ void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) const {
         VP.FPS.Num = 30;
     }
 
-    if (DecodeFrame->pts != AV_NOPTS_VALUE)
-        VP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * DecodeFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
+    if (PropFrame->pts != AV_NOPTS_VALUE)
+        VP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * PropFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;
@@ -792,7 +796,6 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
 
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
-    Decoder->SkipFrames(1);
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
     
