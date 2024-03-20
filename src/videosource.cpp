@@ -883,6 +883,16 @@ const VideoProperties &BestVideoSource::GetVideoProperties() const {
     return VP;
 }
 
+// Short algorithm summary
+// 1. If a current decoder is close to the requested frame simply start from there
+//    Determine if a decoder is "close" based on whether or not it is already in the optimal zone based on the existing keyframes
+// 2. If a decoder isn't nearby and the seek destination is within the frist 100 frames simply start with a fresh decoder to avoid the seek to start issue (technically almost always fresh)
+// 3. Seek with an existing or new decoder. Seek to the nearest keyframe at or before frame N-preroll using PTS. If no such point exists more than 100 frames after the start don't seek.
+//    After seeking match the hash of the decoded frame. For duplicate hashes match a string of up to 10 frame hashes.
+// 4. If the frame is determined to not exist, be beyond the target frame to decode or simply in a string of frames that aren't uniquely identifiable by hashes mark the keyframe as unusable and retry seeking to
+//    at least 100 frames earlier.
+// 5. If linear decoding after seeking fails handle it the same way as #4 and flag it as a bad seek point and retry from at least 100 frames earlier.
+
 BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     if (N < 0 || N >= VP.NumFrames)
         return nullptr;
@@ -904,15 +914,6 @@ void BestVideoSource::SetLinearMode() {
             Decoders[i].reset();
     }
 }
-
-// 1. If a current decoder is close to the requested frame simply start from there
-//    Determine if a decoder is "close" by either a 50(?) frame threshold or longer if already in the optimal zone based on the keyframe
-// 2. If a decoder isn't nearby and one of the first 100 frames are requested simply start with a fresh decoder to avoid the seek to start issue
-// 3. Seek with an existing or new decoder. Seek to frame N-preroll-20 using PTS. If the index doesn't have a valid PTS there or earlier linearly decode from the start
-//    After seeking match the hash of the decoded frame. For duplicate hashes match a string of frame hashes.
-// 4. If the frame is determined to not exist (corrupt decoding) enable linear mode and start over.
-// 5. If the frame is beyond the specified destination try again but 100 frames earlier (or decode from start if needed). Do this a few times before enabling linear mode.
-// 6. Handle other weirdness like too many duplicates in a section to identify by the frame hash pattern.
 
 int64_t BestVideoSource::GetSeekFrame(int64_t N) {
     for (int64_t i = N - PreRoll; i >= 100; i--) {
@@ -1061,14 +1062,6 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                 DebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
 #endif
 
-            /* Does it make sense to fall back here? maybe not?
-            if (MatchedN < 100) { // Kinda another #2 case again
-                delete Decoder;
-                Decoders[Index] = nullptr;
-                return GetFrameLinearWrapper(N);
-            }
-            */
-
             Decoder->SetFrameNumber(MatchedN + MatchFrames.size());
 
             // Insert frames into cache if appropriate
@@ -1146,32 +1139,22 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekFrame, size_t Depth, bool ForceUnseeked) {
-    // FIXME, can this selection code be written in a more compact way?
     // Check for a suitable existing decoder
     int Index = -1;
+    int EmptySlot = -1;
+    int LeastRecentlyUsed = -1;
     for (int i = 0; i < MaxVideoSources; i++) {
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
+        if (!Decoders[i])
+            EmptySlot = i;
+        if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[Index])
+            LeastRecentlyUsed = i;
     }
 
-    // If an empty slot exists simply spawn a new decoder there
+    // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
-        for (int i = 0; i < MaxVideoSources; i++) {
-            if (!Decoders[i]) {
-                Index = i;
-                Decoders[i].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
-                break;
-            }
-        }
-    }
-
-    // No far enough back decoder exists and all slots are occupied so evict a random one
-    if (Index < 0) {
-        Index = 0;
-        for (int i = 0; i < MaxVideoSources; i++) {
-            if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[Index])
-                Index = i;
-        }
+        Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
         Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
     }
 
