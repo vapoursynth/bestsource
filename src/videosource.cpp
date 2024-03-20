@@ -985,13 +985,6 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
     FrameHolder MatchFrames;
 
-    // "automatically" free all large allocations before heading to another function
-    auto GetFrameLinearWrapper = [this, &MatchFrames, &Decoder](int64_t N, int64_t SeekPoint = -1) {
-        MatchFrames.clear();
-        Decoder.reset();
-        return GetFrameLinearInternal(N, SeekPoint);
-        };
-
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
@@ -1001,14 +994,15 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    return GetFrameLinearWrapper(N);
+                    Decoder.reset();
+                    return GetFrameLinearInternal(N);
                 } else {
                     return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
                 DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                 SetLinearMode();
-                return GetFrameLinearWrapper(N);
+                return GetFrameLinearInternal(N);
             }
         }
 
@@ -1054,21 +1048,21 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
         if (!SuitableCandidate || UndeterminableLocation) {
             DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
             BadSeekLocations.insert(SeekFrame);
+            MatchFrames.clear();
             if (Depth < RetrySeekAttempts) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
                 DebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
-                    return GetFrameLinearWrapper(N);
+                    Decoder.reset();
+                    return GetFrameLinearInternal(N);
                 } else {
-                    // Free frames before recursion to save memory
-                    MatchFrames.clear();
                     return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
                 DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                 // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
                 SetLinearMode();
-                return GetFrameLinearWrapper(N);
+                return GetFrameLinearInternal(N);
             }
         }
 
@@ -1107,7 +1101,8 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                 return RetFrame;
 
             // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
-            return GetFrameLinearWrapper(N, SeekFrame);
+            MatchFrames.clear();
+            return GetFrameLinearInternal(N, SeekFrame);
         }
 
         assert(Matches.size() > 1);
