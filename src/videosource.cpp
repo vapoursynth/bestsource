@@ -891,19 +891,6 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     if (!F)
         F.reset(Linear ? GetFrameLinearInternal(N) : GetFrameInternal(N));
 
-    // FIXME, we can catch this one much earlier so this check should be removed
-    if (TrackIndex.Frames[N].Hash != GetHash(F->GetAVFrame())) {
-        // If the frame isn't correct fall back to linear mode
-        if (!LinearMode) {
-            DebugPrint("GetFrame detected invalid frame on final hashing", N);
-            SetLinearMode();
-            return GetFrame(N);
-        } else {
-            // Complete failure that should never happen
-            return nullptr;
-        }
-    }
-
     return F.release();
 }
 
@@ -1235,7 +1222,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                         return GetFrameLinearInternal(N, -1, 0, true);
                     }
                 } else {
-                    DebugPrint("Linear decoding returned a bad frame, this should be impossible so I'll just return nothing now", N, SeekFrame);
+                    DebugPrint("Linear decoding returned a bad frame, this should be impossible so I'll just return nothing now. Try deleting the index and using threads=1 if you haven't already done so.", N, SeekFrame);
                     return nullptr;
                 }
             }
