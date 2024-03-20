@@ -1200,11 +1200,11 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
             // when a decoder has successfully seeked and had its location identified but
             // still returns frames out of order. Possibly open gop related but hard to tell.
 
-            if (TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
+            if (!Frame || TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
                 av_frame_free(&Frame);
 
                 if (Decoder->HasSeeked()) {
-                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal(), added as bad seek location", N, FrameNumber);
+                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal() or no frame produced at all, added as bad seek location", N, FrameNumber);
                     assert(SeekFrame >= 0);
                     BadSeekLocations.insert(SeekFrame);
                     if (Depth < RetrySeekAttempts) {
