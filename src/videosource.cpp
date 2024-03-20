@@ -1113,24 +1113,19 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     // #3 Preparations here
 
-    // Grab/create a decoder to use
-    int Index = -1;
+    // Grab/create a new decoder to use for seeking, the position is irrelevant
+    int EmptySlot = -1;
+    int LeastRecentlyUsed = 0;
     for (int i = 0; i < MaxVideoSources; i++) {
-        if (!Decoders[i]) {
-            Index = i;
-            Decoders[i].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
-            break;
-        }
+        if (!Decoders[i])
+            EmptySlot = i;
+        if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[LeastRecentlyUsed])
+            LeastRecentlyUsed = i;
     }
 
-    // No empty slot exists, select the least recently used one
-    if (Index < 0) {
-        Index = 0;
-        for (int i = 0; i < MaxVideoSources; i++) {
-            if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[Index])
-                Index = i;
-        }
-    }
+    int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
+    if (!Decoders[Index])
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
@@ -1142,13 +1137,13 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // Check for a suitable existing decoder
     int Index = -1;
     int EmptySlot = -1;
-    int LeastRecentlyUsed = -1;
+    int LeastRecentlyUsed = 0;
     for (int i = 0; i < MaxVideoSources; i++) {
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
         if (!Decoders[i])
             EmptySlot = i;
-        if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[Index])
+        if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[LeastRecentlyUsed])
             LeastRecentlyUsed = i;
     }
 
