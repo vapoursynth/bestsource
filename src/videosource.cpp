@@ -796,11 +796,11 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
     
-    if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath, VideoTrack, TrackIndex)) {
+    if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
             throw VideoException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
 
-        WriteVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath, VideoTrack, TrackIndex);
+        WriteVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath);
     }
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
@@ -1351,13 +1351,13 @@ static void WriteBSHeader(file_ptr_t &F) {
     WriteInt(F, avcodec_version());
 }
 
-bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTrackIndex &Index) {
-    file_ptr_t F = OpenCacheFile(CachePath, Track, true);
+bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, VideoTrack, true);
     if (!F)
         return false;
     WriteBSHeader(F);
     // FIXME, file size, hash or something else here to make sure the index is for the right file?
-    WriteInt(F, Track);
+    WriteInt(F, VideoTrack);
     WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
 
@@ -1367,10 +1367,10 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath, int Tra
         WriteString(F, Iter.second);
     }
 
-    WriteInt64(F, Index.Frames.size());
-    WriteInt64(F, Index.LastFrameDuration);
+    WriteInt64(F, TrackIndex.Frames.size());
+    WriteInt64(F, TrackIndex.LastFrameDuration);
 
-    for (const auto &Iter : Index.Frames) {
+    for (const auto &Iter : TrackIndex.Frames) {
         fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
         WriteInt64(F, Iter.PTS);
         WriteInt(F, Iter.RepeatPict);
@@ -1427,14 +1427,14 @@ static bool ReadBSHeader(file_ptr_t &F) {
         ReadCompareInt(F, avcodec_version());
 }
 
-bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackIndex &Index) {
-    file_ptr_t F = OpenCacheFile(CachePath, Track, false);
+bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, VideoTrack, false);
     if (!F)
         return false;
     if (!ReadBSHeader(F))
         return false;
     // FIXME, file size, hash or something else here to make sure the index is for the right file?
-    if (!ReadCompareInt(F, Track))
+    if (!ReadCompareInt(F, VideoTrack))
         return false;
     if (!ReadCompareInt(F, VariableFormat))
         return false;
@@ -1449,8 +1449,8 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Trac
     if (LAVFOptions != IndexLAVFOptions)
         return false;
     int64_t NumFrames = ReadInt64(F);
-    Index.LastFrameDuration = ReadInt64(F);
-    Index.Frames.reserve(NumFrames);
+    TrackIndex.LastFrameDuration = ReadInt64(F);
+    TrackIndex.Frames.reserve(NumFrames);
 
     for (int i = 0; i < NumFrames; i++) {
         VideoTrackIndex::FrameInfo FI = {};
@@ -1461,7 +1461,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Trac
         int Flags = ReadInt(F);
         FI.KeyFrame = !!(Flags & 1);
         FI.TFF = !!(Flags & 2);
-        Index.Frames.push_back(FI);
+        TrackIndex.Frames.push_back(FI);
     }
 
     return true;

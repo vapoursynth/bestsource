@@ -199,9 +199,8 @@ private:
         std::vector<FrameInfo> Frames;
     };
 
-    // FIMXE, is Track necessary?
-    bool WriteVideoTrackIndex(const std::string &CachePath, int Track, const VideoTrackIndex &Index);
-    bool ReadVideoTrackIndex(const std::string &CachePath, int Track, VideoTrackIndex &Index);
+    bool WriteVideoTrackIndex(const std::string &CachePath);
+    bool ReadVideoTrackIndex(const std::string &CachePath);
 
     class Cache {
     private:
