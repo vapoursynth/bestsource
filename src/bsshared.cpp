@@ -19,11 +19,22 @@
 //  THE SOFTWARE.
 
 
-#include "BSShared.h"
+#include "bsshared.h"
 
 extern "C" {
 #include <libavutil/log.h>
+#include <libavutil/rational.h>
 }
+
+BSRational::BSRational(const AVRational &r) {
+    Num = r.num;
+    Den = r.den;
+}
+
+double BSRational::ToDouble() const {
+    return Num / (double)Den;
+}
+
 
 int SetFFmpegLogLevel(int Level) {
     av_log_set_level(Level);

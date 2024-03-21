@@ -1320,14 +1320,17 @@ namespace std {
 
 typedef std::unique_ptr<FILE> file_ptr_t;
 
-static file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
-    std::string FullPath = CachePath + "." + std::to_string(Track) + ".bsindex";
+static file_ptr_t OpenFile(const std::string &Filename, bool Write) {
 #ifdef _WIN32
-    file_ptr_t F(_wfopen(Utf16FromUtf8(FullPath).c_str(), Write ? L"wb" : L"rb"));
+    file_ptr_t F(_wfopen(Utf16FromUtf8(Filename).c_str(), Write ? L"wb" : L"rb"));
 #else
     file_ptr_t F(fopen(FullPath.c_str(), Write ? "wb" : "rb"));
 #endif
     return F;
+}
+
+static file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
+    return OpenFile(CachePath + "." + std::to_string(Track) + ".bsindex", Write);
 }
 
 static void WriteInt(file_ptr_t &F, int Value) {
@@ -1457,4 +1460,14 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Trac
     }
 
     return true;
+}
+
+bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
+    file_ptr_t F(OpenFile(TimecodeFile, true));
+    if (!F)
+        return false;
+
+    fprintf(F.get(), "# timecode format v2\n");
+    for (const auto &Iter : TrackIndex.Frames)
+        fprintf(F.get(), "%.02f\n", (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den);
 }

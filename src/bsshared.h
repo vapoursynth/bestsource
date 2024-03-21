@@ -18,18 +18,20 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
+#ifndef BSSHARED_H
+#define BSSHARED_H
 
-#include "BSRational.h"
+struct AVRational;
 
-extern "C" {
-#include <libavutil/rational.h>
-}
+struct BSRational {
+    int Num;
+    int Den;
+    BSRational() = default;
+    BSRational(const AVRational &r);
+    double ToDouble() const;
+};
 
-BSRational::BSRational(const AVRational &r) {
-    Num = r.num;
-    Den = r.den;
-}
+int SetFFmpegLogLevel(int Level);
+int GetFFmpegLogLevel();
 
-double BSRational::ToDouble() const {
-    return Num / (double)Den;
-}
+#endif

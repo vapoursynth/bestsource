@@ -20,7 +20,7 @@
 
 #include "videosource.h"
 #include "audiosource.h"
-#include "BSShared.h"
+#include "bsshared.h"
 #include "version.h"
 #include <VapourSynth4.h>
 #include <VSHelper4.h>

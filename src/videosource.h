@@ -21,7 +21,7 @@
 #ifndef VIDEOSOURCE_H
 #define VIDEOSOURCE_H
 
-#include "BSRational.h"
+#include "bsshared.h"
 #include <cstdint>
 #include <stdexcept>
 #include <list>
@@ -264,6 +264,7 @@ public:
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false);
+    bool WriteTimecodes(const std::string &TimecodeFile) const;
 };
 
 #endif

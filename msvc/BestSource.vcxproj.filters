@@ -27,21 +27,15 @@
     <ClCompile Include="..\libp2p\v210.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\BSRational.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\audiosource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\BSShared.cpp">
+    <ClCompile Include="..\src\bsshared.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\videosource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\BSRational.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\audiosource.h">
@@ -50,7 +44,7 @@
     <ClInclude Include="..\src\version.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\BSShared.h">
+    <ClInclude Include="..\src\bsshared.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
