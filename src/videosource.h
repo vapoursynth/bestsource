@@ -111,7 +111,7 @@ private:
     bool Seeked = false;
 
     void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
-    bool ReadPacket(AVPacket *Packet);
+    bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
 public:

@@ -33,7 +33,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 }
 
-bool LWAudioDecoder::ReadPacket(AVPacket *Packet) {
+bool LWAudioDecoder::ReadPacket() {
     while (av_read_frame(FormatContext, Packet) >= 0) {
         if (Packet->stream_index == TrackNumber)
             return true;
@@ -54,7 +54,7 @@ bool LWAudioDecoder::DecodeNextAVFrame() {
         if (Ret == 0) {
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (ResendPacket || ReadPacket(Packet)) {
+            if (ResendPacket || ReadPacket()) {
                 int SendRet = avcodec_send_packet(CodecContext, Packet);
                 ResendPacket = (SendRet == AVERROR(EAGAIN));
                 if (!ResendPacket)
@@ -303,7 +303,7 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), CachePath(CachePath), AudioTrack(Track), DrcScale(DrcScale), Threads(Threads) {
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : DrcScale(DrcScale), Source(SourceFile), CachePath(CachePath), AudioTrack(Track), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source, Track, Threads, LAVFOptions, DrcScale);

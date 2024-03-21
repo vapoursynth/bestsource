@@ -77,7 +77,7 @@ static int IsRealPlanar(const AVPixFmtDescriptor *Desc) {
     return (MaxPlane + 1) == Desc->nb_components;
 }
 
-bool LWVideoDecoder::ReadPacket(AVPacket *Packet) {
+bool LWVideoDecoder::ReadPacket() {
     while (av_read_frame(FormatContext, Packet) >= 0) {
         if (Packet->stream_index == TrackNumber)
             return true;
@@ -104,7 +104,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
             }
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (ResendPacket || ReadPacket(Packet)) {
+            if (ResendPacket || ReadPacket()) {
                 int SendRet = avcodec_send_packet(CodecContext, Packet);
                 ResendPacket = (SendRet == AVERROR(EAGAIN));
                 if (!ResendPacket)
@@ -340,9 +340,9 @@ void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
             const AVMasteringDisplayMetadata *MasteringDisplay = (const AVMasteringDisplayMetadata *)FormatContext->streams[TrackNumber]->codecpar->coded_side_data[i].data;
             if (MasteringDisplay->has_primaries) {
                 VP.HasMasteringDisplayPrimaries = !!MasteringDisplay->has_primaries;
-                for (int i = 0; i < 3; i++) {
-                    VP.MasteringDisplayPrimaries[i][0] = MasteringDisplay->display_primaries[i][0];
-                    VP.MasteringDisplayPrimaries[i][1] = MasteringDisplay->display_primaries[i][1];
+                for (int j = 0; j < 3; j++) {
+                    VP.MasteringDisplayPrimaries[j][0] = MasteringDisplay->display_primaries[j][0];
+                    VP.MasteringDisplayPrimaries[j][1] = MasteringDisplay->display_primaries[j][1];
                 }
                 VP.MasteringDisplayWhitePoint[0] = MasteringDisplay->white_point[0];
                 VP.MasteringDisplayWhitePoint[1] = MasteringDisplay->white_point[1];
@@ -569,11 +569,11 @@ void BestVideoFrame::MergeField(bool Top, const AVFrame *FieldSrc) {
             SrcData += SrcLineSize;
         }
 
-        int Height = Frame->height;
+        int PlaneHeight = Frame->height;
         if (Plane == 1 || Plane == 2)
-            Height >>= Desc->log2_chroma_h;
+            PlaneHeight >>= Desc->log2_chroma_h;
 
-        for (int h = Top ? 0 : 1; h < Height; h += 2) {
+        for (int h = Top ? 0 : 1; h < PlaneHeight; h += 2) {
             memcpy(DstData, SrcData, MinLineSize);
             DstData += 2 * DstLineSize;
             SrcData += 2 * SrcLineSize;
@@ -628,8 +628,6 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                 Dst += AlphaStride;
             }
         }
-
-        return true;
     } else {
         p2p_buffer_param Buf = {};
         Buf.height = Frame->height;
@@ -690,10 +688,9 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
 
         p2p_unpack_frame(&Buf, 0);
-        return true;
     }
 
-    return false;
+    return true;
 }
 
 static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
@@ -1403,7 +1400,7 @@ static std::string ReadString(file_ptr_t &F) {
     int Size = ReadInt(F);
     std::string S;
     S.resize(Size);
-    if (fread(&S[0], 1, Size, F.get()) == Size)
+    if (static_cast<int>(fread(&S[0], 1, Size, F.get())) == Size)
         return S;
     else
         return "";
@@ -1478,4 +1475,6 @@ bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
     fprintf(F.get(), "# timecode format v2\n");
     for (const auto &Iter : TrackIndex.Frames)
         fprintf(F.get(), "%.02f\n", (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den);
+
+    return true;
 }

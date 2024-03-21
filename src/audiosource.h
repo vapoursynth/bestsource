@@ -63,7 +63,7 @@ private:
     bool ResendPacket = false;
 
     void OpenFile(const std::string &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
-    bool ReadPacket(AVPacket *Packet);
+    bool ReadPacket();
     bool DecodeNextAVFrame();
     void Free();
 public:
