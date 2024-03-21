@@ -98,7 +98,7 @@ private:
         uint8_t *GetPlanePtr(int Plane);
     };
 
-    static constexpr size_t MaxAudioSources = 4;
+    static constexpr int MaxAudioSources = 4;
     std::map<std::string, std::string> LAVFOptions;
     double DrcScale;
     AudioProperties AP = {};

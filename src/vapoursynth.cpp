@@ -67,8 +67,8 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
                 Src.reset(D->V->GetFrameWithRFF(std::min(n, D->VI.numFrames - 1)));
             } else if (D->FPSNum > 0) {
                 double currentTime = D->V->GetVideoProperties().StartTime +
-                    (double)(n * D->FPSDen) / D->FPSNum;
-                Src.reset(D->V->GetFrameByTime(std::min(n, D->VI.numFrames - 1)));
+                    (double)(std::min(n, D->VI.numFrames - 1) * D->FPSDen) / D->FPSNum;
+                Src.reset(D->V->GetFrameByTime(currentTime));
             } else {
                 Src.reset(D->V->GetFrame(std::min(n, D->VI.numFrames - 1)));
             }

@@ -232,7 +232,7 @@ private:
     RFFStateEnum RFFState = rffUninitialized;
     std::vector<std::pair<int64_t, int64_t>> RFFFields;
 
-    static constexpr size_t MaxVideoSources = 4;
+    static constexpr int MaxVideoSources = 4;
     std::map<std::string, std::string> LAVFOptions;
     VideoProperties VP = {};
     std::string Source;

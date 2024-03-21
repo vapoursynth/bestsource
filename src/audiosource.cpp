@@ -303,8 +303,7 @@ uint8_t *BestAudioSource::CacheBlock::GetPlanePtr(int Plane) {
         return Storage.data() + Plane * LineSize;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), AudioTrack(Track), Threads(Threads), DrcScale(DrcScale) {
-    this->CachePath = CachePath;
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale) : Source(SourceFile), CachePath(CachePath), AudioTrack(Track), DrcScale(DrcScale), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
     Decoders[0] = new LWAudioDecoder(Source, Track, Threads, LAVFOptions, DrcScale);
@@ -315,7 +314,6 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
         SampleDelay = static_cast<int64_t>(GetRelativeStartTime(AjustDelay) * AP.SampleRate);
 
     AP.NumSamples += SampleDelay;
-
 
     MaxSize = (100 * 1024 * 1024) / (static_cast<size_t>(AP.Channels) * AP.BytesPerSample);
 }

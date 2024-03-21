@@ -1324,7 +1324,7 @@ static file_ptr_t OpenFile(const std::string &Filename, bool Write) {
 #ifdef _WIN32
     file_ptr_t F(_wfopen(Utf16FromUtf8(Filename).c_str(), Write ? L"wb" : L"rb"));
 #else
-    file_ptr_t F(fopen(FullPath.c_str(), Write ? "wb" : "rb"));
+    file_ptr_t F(fopen(Filename.c_str(), Write ? "wb" : "rb"));
 #endif
     return F;
 }
@@ -1385,22 +1385,28 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath, int Tra
 
 static int ReadInt(file_ptr_t &F) {
     int Value;
-    fread(&Value, 1, sizeof(Value), F.get());
-    return Value;
+    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
+        return Value;
+    else
+        return -1;
 }
 
 static int64_t ReadInt64(file_ptr_t &F) {
     int64_t Value;
-    fread(&Value, 1, sizeof(Value), F.get());
-    return Value;
+    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
+        return Value;
+    else
+        return -1;
 }
 
 static std::string ReadString(file_ptr_t &F) {
     int Size = ReadInt(F);
     std::string S;
     S.resize(Size);
-    fread(&S[0], 1, Size, F.get());
-    return S;
+    if (fread(&S[0], 1, Size, F.get()) == Size)
+        return S;
+    else
+        return "";
 }
 
 static bool ReadCompareInt(file_ptr_t &F, int Value) {
@@ -1415,7 +1421,8 @@ static bool ReadCompareString(file_ptr_t &F, const std::string &Value) {
 
 static bool ReadBSHeader(file_ptr_t &F) {
     char Magic[4] = {};
-    fread(Magic, 1, sizeof(Magic), F.get());
+    if (fread(Magic, 1, sizeof(Magic), F.get()) != sizeof(Magic))
+        return false;
     return !memcmp("BS2I", Magic, sizeof(Magic)) &&
         ReadCompareInt(F, (BEST_SOURCE_VERSION_MAJOR << 16) | BEST_SOURCE_VERSION_MINOR) &&
         ReadCompareInt(F, avutil_version()) &&
@@ -1450,7 +1457,8 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath, int Trac
 
     for (int i = 0; i < NumFrames; i++) {
         VideoTrackIndex::FrameInfo FI = {};
-        fread(FI.Hash.data(), 1, FI.Hash.size(), F.get());
+        if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+            return false;
         FI.PTS = ReadInt64(F);
         FI.RepeatPict = ReadInt(F);
         int Flags = ReadInt(F);
