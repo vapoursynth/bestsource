@@ -889,7 +889,7 @@ const VideoProperties &BestVideoSource::GetVideoProperties() const {
 // Short algorithm summary
 // 1. If a current decoder is close to the requested frame simply start from there
 //    Determine if a decoder is "close" based on whether or not it is already in the optimal zone based on the existing keyframes
-// 2. If a decoder isn't nearby and the seek destination is within the frist 100 frames simply start with a fresh decoder to avoid the seek to start issue (technically almost always fresh)
+// 2. If a decoder isn't nearby and the seek destination is within the first 100 frames simply start with a fresh decoder to avoid the seek to start issue (technically almost always fresh)
 // 3. Seek with an existing or new decoder. Seek to the nearest keyframe at or before frame N-preroll using PTS. If no such point exists more than 100 frames after the start don't seek.
 //    After seeking match the hash of the decoded frame. For duplicate hashes match a string of up to 10 frame hashes.
 // 4. If the frame is determined to not exist, be beyond the target frame to decode or simply in a string of frames that aren't uniquely identifiable by hashes mark the keyframe as unusable and retry seeking to

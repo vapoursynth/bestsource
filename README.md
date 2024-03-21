@@ -39,7 +39,7 @@ ninja -C build install
 
 *variableformat*: Allow format changes in the output for video. Untested.
 
-*fpsnum*: Convert the source material to constant framerate. Connot be combined with *rff*.
+*fpsnum*: Convert the source material to constant framerate. Cannot be combined with *rff*.
 
 *fpsden*: Convert the source material to constant framerate. Used in conjunction with *fpsnum*.
 
