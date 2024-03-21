@@ -463,9 +463,9 @@ void VideoFormat::Set(const AVPixFmtDescriptor *Desc) {
     SubSamplingH = Desc->log2_chroma_h;
 }
 
-BestVideoFrame::BestVideoFrame(AVFrame *f) {
-    assert(f);
-    Frame = av_frame_clone(f);
+BestVideoFrame::BestVideoFrame(AVFrame *F) {
+    assert(F);
+    Frame = av_frame_clone(F);
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
     Pts = Frame->pts;
@@ -1374,7 +1374,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
         fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
         WriteInt64(F, Iter.PTS);
         WriteInt(F, Iter.RepeatPict);
-        WriteInt(F, Iter.KeyFrame | (Iter.TFF << 1));
+        WriteInt(F, static_cast<int>(Iter.KeyFrame) | (static_cast<int>(Iter.TFF) << 1));
     }
 
     return true;
