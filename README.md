@@ -65,7 +65,7 @@ ninja -C build install
 
 *extrahwframes*: The number of additional frames to allocate when *hwdevice* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
 
-*timecodes*: Writes a timecode v2 file with all frame times to the file if specified.
+*timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option can produce EXTREMELY INVALID TIMECODE FILES due to performing no additional processing or check on the timestamps reported by FFmpeg. It is common for transport streams and other containers to have unknown values (shows up as large negative values) and discontinuous timestamps.
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages.
 
