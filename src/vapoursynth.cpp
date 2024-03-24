@@ -242,18 +242,20 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
+            int LastValue = -1;
             D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts, 
-                [vsapi, Core, &NextUpdate](int Track, int64_t Cur, int64_t Total) {
+                [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                        if (Cur == INT64_MAX && Cur == Total) {
+                        if (Total == INT64_MAX && Cur == Total) {
                             vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                        } else if (Total > 0) {
-                            int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
-                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
                         } else {
-                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                            int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
+                            if (PValue != LastValue) {
+                                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
+                                LastValue = PValue;
+                                NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
+                            }
                         }
-                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
                     }));
             
@@ -372,17 +374,19 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         if (Exact) {
             if (ShowProgress) {
                 auto NextUpdate = std::chrono::high_resolution_clock::now();
-                D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate](int64_t Cur, int64_t Total) {
+                int LastValue = -1;
+                D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate, &LastValue](int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                        if (Cur == INT64_MAX && Cur == Total) {
+                        if (Total == INT64_MAX && Cur == Total) {
                             vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " indexing complete").c_str(), Core);
-                        } else if (Total > 0) {
-                            int Percentage = static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100);
-                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(Percentage) + "%").c_str(), Core);
                         } else {
-                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(Cur / (1024 * 1024)) + "MB").c_str(), Core);
+                            int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
+                            if (PValue != LastValue) {
+                                vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
+                                LastValue = PValue;
+                                NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
+                            }
                         }
-                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
                     });
             } else {
