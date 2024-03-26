@@ -118,7 +118,7 @@ int64_t ReadInt64(file_ptr_t &F) {
 }
 
 double ReadDouble(file_ptr_t &F) {
-    int64_t Value;
+    double Value;
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else

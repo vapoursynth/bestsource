@@ -101,7 +101,6 @@ public:
     [[nodiscard]] const AVFrame *GetAVFrame() const;
 
     int64_t Pts;
-    int64_t Start;
     int64_t NumSamples;
 };
 
@@ -159,6 +158,7 @@ private:
     uint64_t DecoderLastUse[MaxVideoSources] = {};
     std::unique_ptr<LWAudioDecoder> Decoders[MaxVideoSources];
     int64_t PreRoll = 40;
+    int64_t SampleDelay = 0;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();
@@ -178,10 +178,11 @@ public:
         int64_t FirstSamplePos;
     };
 
-    BestAudioSource(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
+    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
+    double GetRelativeStartTime(int Track) const;
     [[nodiscard]] const AudioProperties &GetAudioProperties() const;
     [[nodiscard]] BestAudioFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;

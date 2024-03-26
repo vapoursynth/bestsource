@@ -19,6 +19,7 @@
 //  THE SOFTWARE.
 
 #include "audiosource.h"
+#include "videosource.h"
 #include "version.h"
 #include <algorithm>
 #include <thread>
@@ -375,7 +376,7 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress)
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress)
     : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), Threads(Threads), DrcScale(DrcScale) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
@@ -394,6 +395,11 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, bool 
 
     AP.NumFrames = TrackIndex.Frames.size();
     AP.NumSamples = TrackIndex.Frames.back().Start + TrackIndex.Frames.back().Length;
+
+    if (AjustDelay >= -1)
+        SampleDelay = static_cast<int64_t>(GetRelativeStartTime(AjustDelay) * AP.SampleRate);
+
+    AP.NumSamples += SampleDelay;
 
     Decoders[0] = std::move(Decoder);
 }
@@ -444,6 +450,35 @@ bool BestAudioSource::IndexTrack(const std::function<void(int Track, int64_t Cur
     return !TrackIndex.Frames.empty();
 }
 
+double BestAudioSource::GetRelativeStartTime(int Track) const {
+    if (Track < 0) {
+        try {
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
+            VideoProperties VP;
+            Dec->GetVideoProperties(VP);
+            return AP.StartTime - VP.StartTime;
+        } catch (VideoException &) {
+        }
+        return 0;
+    } else {
+        try {
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
+            VideoProperties VP;
+            Dec->GetVideoProperties(VP);
+            return AP.StartTime - VP.StartTime;
+        } catch (VideoException &) {
+            try {
+                std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, false, Track, Threads, LAVFOptions, 0));
+                AudioProperties AP2;
+                Dec->GetAudioProperties(AP2);
+                return AP.StartTime - AP2.StartTime;
+            } catch (AudioException &) {
+                throw AudioException("Can't get delay relative to track");
+            }
+        }
+    }
+}
+
 const AudioProperties &BestAudioSource::GetAudioProperties() const {
     return AP;
 }
@@ -481,7 +516,6 @@ void BestAudioSource::SetLinearMode() {
 }
 
 int64_t BestAudioSource::GetSeekFrame(int64_t N) {
-    // FIXME, maybe needs a version that takes a sample position?
     for (int64_t i = N - PreRoll; i >= 100; i--) {
         if (TrackIndex.Frames[i].PTS != AV_NOPTS_VALUE && !BadSeekLocations.count(i))
             return i;
@@ -875,7 +909,7 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
 }
 
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
-    Start -= 0 /* FIXME implement SampleDelay again */;
+    Start -= SampleDelay;
 
     std::vector<uint8_t *> DataV;
     DataV.reserve(AP.Channels);

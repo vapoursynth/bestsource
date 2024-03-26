@@ -350,7 +350,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         Track = -1;
     int AdjustDelay = vsapi->mapGetIntSaturated(In, "adjustdelay", 0, &err);
     if (err)
-        AdjustDelay = -1; // FIXME, unimplemented
+        AdjustDelay = -1;
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
     if (err)
@@ -370,7 +370,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
             int LastValue = -1;
-            D->A.reset(new BestAudioSource(Source, Track, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale,
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale,
                 [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Total == INT64_MAX && Cur == Total) {
@@ -387,7 +387,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
                 }));
 
         } else {
-            D->A.reset(new BestAudioSource(Source, Track, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
         }
 
         const AudioProperties &AP = D->A->GetAudioProperties();
