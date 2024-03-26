@@ -83,6 +83,10 @@ void WriteInt64(file_ptr_t &F, int64_t Value) {
     fwrite(&Value, 1, sizeof(Value), F.get());
 }
 
+void WriteDouble(file_ptr_t &F, double Value) {
+    fwrite(&Value, 1, sizeof(Value), F.get());
+}
+
 void WriteString(file_ptr_t &F, const std::string &Value) {
     WriteInt(F, static_cast<int>(Value.size()));
     fwrite(Value.c_str(), 1, Value.size(), F.get());
@@ -113,6 +117,14 @@ int64_t ReadInt64(file_ptr_t &F) {
         return -1;
 }
 
+double ReadDouble(file_ptr_t &F) {
+    int64_t Value;
+    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
+        return Value;
+    else
+        return -1;
+}
+
 std::string ReadString(file_ptr_t &F) {
     int Size = ReadInt(F);
     std::string S;
@@ -125,6 +137,11 @@ std::string ReadString(file_ptr_t &F) {
 
 bool ReadCompareInt(file_ptr_t &F, int Value) {
     int Value2 = ReadInt(F);
+    return (Value == Value2);
+}
+
+bool ReadCompareDouble(file_ptr_t &F, double Value) {
+    double Value2 = ReadDouble(F);
     return (Value == Value2);
 }
 

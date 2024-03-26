@@ -916,7 +916,7 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     // FIXME, file size, hash or something else here to make sure the index is for the right file?
     WriteInt(F, AudioTrack);
     WriteInt(F, VariableFormat);
-    // FIXME, DRCSCale
+    WriteDouble(F, DrcScale);
 
     WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
@@ -946,7 +946,9 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
         return false;
     if (!ReadCompareInt(F, VariableFormat))
         return false;
-    // drcscale
+    if (!ReadCompareDouble(F, DrcScale))
+        return false;
+
     int LAVFOptCount = ReadInt(F);
     std::map<std::string, std::string> IndexLAVFOptions;
     for (int i = 0; i < LAVFOptCount; i++) {
