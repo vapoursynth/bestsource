@@ -29,7 +29,7 @@ ninja -C build install
 
 ## VapourSynth plugin
 
-`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint exact = True, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
+`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
 
 `bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, bint showprogress = True])`
 
@@ -48,8 +48,6 @@ ninja -C build install
 *threads*: Number of threads to use for decoding. Pass 0 to autodetect.
 
 *seekpreroll*: Number of frames before the requested frame to cache when seeking.
-
-*exact*: Decode the full track to get an exact frame/sample count. Will throw an error if set to false and the frame or sample count can't be guessed at all. If too many frames/samples is guessed the end is passed with the last available frame/silence to fill up the missing data.
 
 *enable_drefs*: Option passed to the FFmpeg mov demuxer.
 

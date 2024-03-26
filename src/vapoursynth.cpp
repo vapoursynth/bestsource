@@ -312,18 +312,18 @@ struct BestAudioSourceData {
 };
 
 static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
-    BestAudioSourceData *d = reinterpret_cast<BestAudioSourceData *>(InstanceData);
+    BestAudioSourceData *D = reinterpret_cast<BestAudioSourceData *>(InstanceData);
 
     if (ActivationReason == arInitial) {
-        int64_t SamplesOut = std::min<int64_t>(VS_AUDIO_FRAME_SAMPLES, d->AI.numSamples - n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES));
-        VSFrame *Dst = vsapi->newAudioFrame(&d->AI.format, static_cast<int>(SamplesOut), nullptr, Core);
+        int64_t SamplesOut = std::min<int64_t>(VS_AUDIO_FRAME_SAMPLES, D->AI.numSamples - n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES));
+        VSFrame *Dst = vsapi->newAudioFrame(&D->AI.format, static_cast<int>(SamplesOut), nullptr, Core);
 
         std::vector<uint8_t *> Tmp;
-        Tmp.reserve(d->AI.format.numChannels);
-        for (int Channel = 0; Channel < d->AI.format.numChannels; Channel++)
+        Tmp.reserve(D->AI.format.numChannels);
+        for (int Channel = 0; Channel < D->AI.format.numChannels; Channel++)
             Tmp.push_back(vsapi->getWritePtr(Dst, Channel));
         try {
-            d->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
+            D->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
         } catch (AudioException &e) {
             vsapi->setFilterError(("AudioSource: " + std::string(e.what())).c_str(), FrameCtx);
             vsapi->freeFrame(Dst);
@@ -350,11 +350,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         Track = -1;
     int AdjustDelay = vsapi->mapGetIntSaturated(In, "adjustdelay", 0, &err);
     if (err)
-        AdjustDelay = -1;
+        AdjustDelay = -1; // FIXME, unimplemented
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
-    bool Exact = !!vsapi->mapGetInt(In, "exact", 0, &err);
-    if (err)
-        Exact = true;
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
     if (err)
         ShowProgress = true;
@@ -370,36 +367,34 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BestAudioSourceData *D = new BestAudioSourceData();
 
     try {
-        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
-        if (Exact) {
-            if (ShowProgress) {
-                auto NextUpdate = std::chrono::high_resolution_clock::now();
-                int LastValue = -1;
-                D->A->GetExactDuration([vsapi, Core, Track = std::to_string(D->A->GetTrack()), &NextUpdate, &LastValue](int64_t Cur, int64_t Total) {
+        if (ShowProgress) {
+            auto NextUpdate = std::chrono::high_resolution_clock::now();
+            int LastValue = -1;
+            D->A.reset(new BestAudioSource(Source, Track, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale,
+                [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Total == INT64_MAX && Cur == Total) {
-                            vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " indexing complete").c_str(), Core);
+                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
                         } else {
                             int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
                             if (PValue != LastValue) {
-                                vsapi->logMessage(mtInformation, ("AudioSource track #" + Track + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
+                                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
                                 LastValue = PValue;
                                 NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                             }
                         }
                     }
-                    });
-            } else {
-                D->A->GetExactDuration();
-            }
+                }));
+
+        } else {
+            D->A.reset(new BestAudioSource(Source, Track, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
         }
+
         const AudioProperties &AP = D->A->GetAudioProperties();
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, Core))
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
-        if (D->AI.numSamples <= 0)
-            throw VideoException("Failed to estimate number of samples, exact mode must be used");
         D->AI.numFrames = static_cast<int>((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES);
         if ((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES > std::numeric_limits<int>::max())
             throw AudioException("Too many audio samples, cut file into smaller parts");
@@ -429,7 +424,7 @@ static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, con
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;exact:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("GetLogLevel", "", "level:int;", GetLogLevel, nullptr, plugin);
     vspapi->registerFunction("SetLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
 }
