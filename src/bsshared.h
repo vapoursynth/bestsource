@@ -21,7 +21,22 @@
 #ifndef BSSHARED_H
 #define BSSHARED_H
 
+#include <memory>
+#include <cstdio>
+#include <string>
+
+namespace std {
+    template<>
+    struct default_delete<FILE> {
+        void operator()(FILE *Ptr) {
+            fclose(Ptr);
+        }
+    };
+}
+
 struct AVRational;
+
+typedef std::unique_ptr<FILE> file_ptr_t;
 
 struct BSRational {
     int Num;
@@ -33,5 +48,18 @@ struct BSRational {
 
 int SetFFmpegLogLevel(int Level);
 int GetFFmpegLogLevel();
+
+file_ptr_t OpenFile(const std::string &Filename, bool Write);
+file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write);
+void WriteInt(file_ptr_t &F, int Value);
+void WriteInt64(file_ptr_t &F, int64_t Value);
+void WriteString(file_ptr_t &F, const std::string &Value);
+void WriteBSHeader(file_ptr_t &F, bool Video);
+int ReadInt(file_ptr_t &F);
+int64_t ReadInt64(file_ptr_t &F);
+std::string ReadString(file_ptr_t &F);
+bool ReadCompareInt(file_ptr_t &F, int Value);
+bool ReadCompareString(file_ptr_t &F, const std::string &Value);
+bool ReadBSHeader(file_ptr_t &F, bool Video);
 
 #endif

@@ -835,15 +835,14 @@ void BestAudioSource::ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count
     }
 }
 
-template<typename T>
-static void UnpackChannels(const uint8_t *Src, uint8_t *Dst[], size_t Length, size_t Channels) {
+static void UnpackChannels(const uint8_t *Src, uint8_t *Dst[], size_t Length, size_t Channels, size_t BytesPerSample) {
     const uint8_t *S = Src;
     for (size_t i = 0; i < Length; i++) {
         for (size_t c = 0; c < Channels; c++) {
-            memcpy(Dst[c], S + c * sizeof(T), sizeof(T));
-            Dst[c] += sizeof(T);
+            memcpy(Dst[c], S + c * BytesPerSample, BytesPerSample);
+            Dst[c] += BytesPerSample;
         }
-        S += Channels * sizeof(T);
+        S += Channels * BytesPerSample;
     }
 }
 
@@ -864,15 +863,7 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
             }
         } else {
             size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample * F->ch_layout.nb_channels;
-
-            if (AP.BytesPerSample == 1)
-                UnpackChannels<uint8_t>(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels);
-            else if (AP.BytesPerSample == 2)
-                UnpackChannels<uint16_t>(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels);
-            else if (AP.BytesPerSample == 4)
-                UnpackChannels<uint32_t>(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels);
-            else if (AP.BytesPerSample == 8)
-                UnpackChannels<uint64_t>(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels);
+            UnpackChannels(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels, AP.BytesPerSample);
         }
         Start += Length;
         Count -= Length;
@@ -917,68 +908,11 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
 ////////////////////////////////////////
 // Index read/write
 
-#ifdef _WIN32
-#include <windows.h>
-
-static std::wstring Utf16FromUtf8(const std::string &Str) {
-    int RequiredSize = MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), -1, nullptr, 0);
-    std::wstring Buffer;
-    Buffer.resize(RequiredSize - 1);
-    MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), static_cast<int>(Str.size()), &Buffer[0], RequiredSize);
-    return Buffer;
-}
-#endif
-
-namespace std {
-    template<>
-    struct default_delete<FILE> {
-        void operator()(FILE *Ptr) {
-            fclose(Ptr);
-        }
-    };
-}
-
-typedef std::unique_ptr<FILE> file_ptr_t;
-
-static file_ptr_t OpenFile(const std::string &Filename, bool Write) {
-#ifdef _WIN32
-    file_ptr_t F(_wfopen(Utf16FromUtf8(Filename).c_str(), Write ? L"wb" : L"rb"));
-#else
-    file_ptr_t F(fopen(Filename.c_str(), Write ? "wb" : "rb"));
-#endif
-    return F;
-}
-
-static file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
-    return OpenFile(CachePath + "." + std::to_string(Track) + ".bsindex", Write);
-}
-
-static void WriteInt(file_ptr_t &F, int Value) {
-    fwrite(&Value, 1, sizeof(Value), F.get());
-}
-
-static void WriteInt64(file_ptr_t &F, int64_t Value) {
-    fwrite(&Value, 1, sizeof(Value), F.get());
-}
-
-static void WriteString(file_ptr_t &F, const std::string &Value) {
-    WriteInt(F, static_cast<int>(Value.size()));
-    fwrite(Value.c_str(), 1, Value.size(), F.get());
-}
-
-static void WriteBSHeader(file_ptr_t &F) {
-    fwrite("BS2I", 1, 4, F.get());
-    WriteInt(F, (BEST_SOURCE_VERSION_MAJOR << 16) | BEST_SOURCE_VERSION_MINOR);
-    WriteInt(F, avutil_version());
-    WriteInt(F, avformat_version());
-    WriteInt(F, avcodec_version());
-}
-
 bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     file_ptr_t F = OpenCacheFile(CachePath, AudioTrack, true);
     if (!F)
         return false;
-    WriteBSHeader(F);
+    WriteBSHeader(F, false);
     // FIXME, file size, hash or something else here to make sure the index is for the right file?
     WriteInt(F, AudioTrack);
     WriteInt(F, VariableFormat);
@@ -1001,58 +935,11 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     return true;
 }
 
-static int ReadInt(file_ptr_t &F) {
-    int Value;
-    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
-        return Value;
-    else
-        return -1;
-}
-
-static int64_t ReadInt64(file_ptr_t &F) {
-    int64_t Value;
-    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
-        return Value;
-    else
-        return -1;
-}
-
-static std::string ReadString(file_ptr_t &F) {
-    int Size = ReadInt(F);
-    std::string S;
-    S.resize(Size);
-    if (static_cast<int>(fread(&S[0], 1, Size, F.get())) == Size)
-        return S;
-    else
-        return "";
-}
-
-static bool ReadCompareInt(file_ptr_t &F, int Value) {
-    int Value2 = ReadInt(F);
-    return (Value == Value2);
-}
-
-static bool ReadCompareString(file_ptr_t &F, const std::string &Value) {
-    std::string Value2 = ReadString(F);
-    return (Value == Value2);
-}
-
-static bool ReadBSHeader(file_ptr_t &F) {
-    char Magic[4] = {};
-    if (fread(Magic, 1, sizeof(Magic), F.get()) != sizeof(Magic))
-        return false;
-    return !memcmp("BS2I", Magic, sizeof(Magic)) &&
-        ReadCompareInt(F, (BEST_SOURCE_VERSION_MAJOR << 16) | BEST_SOURCE_VERSION_MINOR) &&
-        ReadCompareInt(F, avutil_version()) &&
-        ReadCompareInt(F, avformat_version()) &&
-        ReadCompareInt(F, avcodec_version());
-}
-
 bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
     file_ptr_t F = OpenCacheFile(CachePath, AudioTrack, false);
     if (!F)
         return false;
-    if (!ReadBSHeader(F))
+    if (!ReadBSHeader(F, false))
         return false;
     // FIXME, file size, hash or something else here to make sure the index is for the right file?
     if (!ReadCompareInt(F, AudioTrack))
