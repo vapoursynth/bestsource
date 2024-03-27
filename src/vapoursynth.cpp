@@ -203,11 +203,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
-    int SeekPreRoll = vsapi->mapGetIntSaturated(In, "seekpreroll", 0, &err);
-    if (err)
-        SeekPreRoll = 20;
     bool VariableFormat = !!vsapi->mapGetInt(In, "variableformat", 0, &err);
-    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);;
+    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
     if (err)
         ShowProgress = true;
@@ -236,9 +233,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (D->FPSNum > 0 && D->RFF)
             throw VideoException("Cannot combine CFR and RFF modes");
-
-        if (SeekPreRoll < 0 || SeekPreRoll > 40)
-            throw VideoException("SeekPreRoll must be 0 or greater and less than 40");
 
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
@@ -289,7 +283,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->VI.numFrames = vsh::int64ToIntS(VP.NumRFFFrames);
         }
 
-        D->V->SetSeekPreRoll(SeekPreRoll);
+        int SeekPreRoll = vsapi->mapGetIntSaturated(In, "seekpreroll", 0, &err);
+        if (!err)
+            D->V->SetSeekPreRoll(SeekPreRoll);
 
         if (Timecodes)
             D->V->WriteTimecodes(Timecodes);

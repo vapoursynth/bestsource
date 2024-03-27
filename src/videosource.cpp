@@ -825,7 +825,9 @@ void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
 }
 
 void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
-    PreRoll = std::max<int64_t>(Frames, 0);
+    if (Frames < 0 || Frames > 40)
+        throw VideoException("SeekPreRoll must be between 0 and 40");
+    PreRoll = Frames;
 }
 
 bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress) {

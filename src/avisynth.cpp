@@ -23,6 +23,7 @@
 #include "bsshared.h"
 #include "version.h"
 #include "../AviSynthPlus/avs_core/include/avisynth.h"
+#include <VSHelper4.h>
 #include <vector>
 #include <algorithm>
 #include <memory>
@@ -30,6 +31,7 @@
 #include <string>
 #include <chrono>
 #include <mutex>
+#include <cassert>
 
 #ifdef _WIN32
 #define AVS_EXPORT __declspec(dllexport)
@@ -50,267 +52,302 @@ static void BSInit() {
         });
 }
 
-/*
-struct BestVideoSourceData {
-    VSVideoInfo VI = {};
+class AvisynthVideoSource : public IClip {
+    VideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
     int64_t FPSNum;
     int64_t FPSDen;
     bool RFF;
-};
+    std::string VarPrefix;
+public:
+    AvisynthVideoSource(const char *SourceFile, int Track,
+        int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
+        const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
+        const char *Timecodes, const char *VarPrefix, IScriptEnvironment *Env)
+        : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF), VarPrefix(VarPrefix) {
+
+        try {
+            if (FPSDen < 1)
+                throw VideoException("FPS denominator needs to be 1 or greater");
+
+            if (FPSNum > 0 && RFF)
+                throw VideoException("Cannot combine CFR and RFF modes");
+
+            std::map<std::string, std::string> Opts;
+            if (EnableDrefs)
+                Opts["enable_drefs"] = "1";
+            if (UseAbsolutePath)
+                Opts["use_absolute_path"] = "1";
+
+            V.reset(new BestVideoSource(SourceFile, HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CachePath, &Opts));
+
+            const VideoProperties &VP = V->GetVideoProperties();
+            if (VP.VF.ColorFamily == cfGray) {
+                VI.pixel_type = VideoInfo::CS_GENERIC_Y;
+            } else if (VP.VF.ColorFamily == cfYUV && VP.VF.Alpha) {
+                VI.pixel_type = VideoInfo::CS_PLANAR | VideoInfo::CS_YUVA | VideoInfo::CS_VPlaneFirst; // Why is there no generic YUVA constant?
+            } else if (VP.VF.ColorFamily == cfYUV) {
+                VI.pixel_type = VideoInfo::CS_PLANAR | VideoInfo::CS_YUV | VideoInfo::CS_VPlaneFirst; // Why is there no generic YUV constant?
+            } else if (VP.VF.ColorFamily == cfRGB && VP.VF.Alpha) {
+                VI.pixel_type = VideoInfo::CS_GENERIC_RGBP;
+            } else if (VP.VF.ColorFamily == cfRGB) {
+                VI.pixel_type = VideoInfo::CS_GENERIC_RGBAP;
+            } else {
+                throw VideoException("Unsupported output colorspace");
+            }
+
+            if (VP.VF.SubSamplingH == 0) {
+                // do nothing
+            } else if (VP.VF.SubSamplingH == 1) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
+            } else if (VP.VF.SubSamplingH == 2) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
+            } else if (VP.VF.SubSamplingH == 3) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
+            } else {
+                throw VideoException("Unsupported output subsampling");
+            }
+
+            if (VP.VF.SubSamplingW == 0) {
+                // do nothing
+            } else if (VP.VF.SubSamplingW == 1) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
+            } else if (VP.VF.SubSamplingW == 2) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Width_2;
+            } else if (VP.VF.SubSamplingW == 3) {
+                VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
+            } else {
+                throw VideoException("Unsupported output subsampling");
+            }
+
+            if (VP.VF.Bits == 32 && VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_32;
+            } else if (VP.VF.Bits == 16 && !VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_16;
+            } else if (VP.VF.Bits == 14 && !VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_14;
+            } else if (VP.VF.Bits == 12 && !VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_12;
+            } else if (VP.VF.Bits == 10 && !VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_10;
+            } else if (VP.VF.Bits == 8 && !VP.VF.Float) {
+                VI.pixel_type |= VideoInfo::CS_Sample_Bits_8;
+            } else {
+                throw VideoException("Unsupported output bitdepth");
+            }
+
+            // FIXME, set TFF flag too?
+
+            VI.width = VP.Width;
+            VI.height = VP.Height;
+
+            // Crop to obey subsampling width/height requirements
+            VI.width -= VI.width % (1 << VP.VF.SubSamplingW);
+            VI.height -= VI.height % (1 << VP.VF.SubSamplingH);
+            VI.num_frames = vsh::int64ToIntS(VP.NumFrames);
+            VI.fps_numerator = VP.FPS.Num;
+            VI.fps_denominator = VP.FPS.Den;
+            
+            VI.MulDivFPS(1, 1);
+
+            if (FPSNum > 0) {
+                vsh::reduceRational(&FPSNum, &FPSDen);
+                if (VP.FPS.Den != FPSDen || VP.FPS.Num != FPSNum) {
+                    VI.fps_denominator = FPSDen;
+                    VI.fps_numerator = FPSNum;
+                    VI.num_frames = std::max(1, static_cast<int>((VP.Duration * VI.fps_numerator) / VI.fps_denominator));
+                } else {
+                    FPSNum = -1;
+                    FPSDen = 1;
+                }
+            } else if (RFF) {
+                VI.num_frames = vsh::int64ToIntS(VP.NumRFFFrames);
+            }
+
+            V->SetSeekPreRoll(SeekPreRoll);
+
+            if (CacheSize >= 0)
+                V->SetMaxCacheSize(CacheSize * 1024 * 1024);
+
+            if (Timecodes)
+                V->WriteTimecodes(Timecodes);
 
 
+            // Set AR variables
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_NUM"), VP.SAR.Num);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_DEN"), VP.SAR.Den);
+            if (VP.SAR.Num > 0 && VP.SAR.Den > 0)
+                Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR"), VP.SAR.Num / static_cast<double>(VP.SAR.Den));
 
-static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
-    BestVideoSourceData *D = reinterpret_cast<BestVideoSourceData *>(InstanceData);
+            /*
+            FIXME, is this even relevant?
+            // Set crop variables
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_LEFT"), VP->CropLeft);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_RIGHT"), VP->CropRight);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_TOP"), VP->CropTop);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_BOTTOM"), VP->CropBottom);
+            */
+        } catch (VideoException &e) {
+            Env->ThrowError("BestVideoSource: %s", e.what());
+        }
+    }
 
-    if (ActivationReason == arInitial) {
-        VSFrame *Dst = nullptr;
-        VSFrame *AlphaDst = nullptr;
+    bool __stdcall GetParity(int n) {
+        // FIXME, expose the frame info or something
+        return false;
+    }
+
+    int __stdcall SetCacheHints(int cachehints, int frame_range) {
+        return 0;
+    }
+
+    const VideoInfo &__stdcall GetVideoInfo() {
+        return VI;
+    }
+
+    void __stdcall GetAudio(void *Buf, int64_t Start, int64_t Count, IScriptEnvironment *Env) {
+    }
+
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *Env) {
+        PVideoFrame Dst;
+
         std::unique_ptr<BestVideoFrame> Src;
         try {
-            if (D->RFF) {
-                Src.reset(D->V->GetFrameWithRFF(std::min(n, D->VI.numFrames - 1)));
-            } else if (D->FPSNum > 0) {
-                double currentTime = D->V->GetVideoProperties().StartTime +
-                    (double)(std::min(n, D->VI.numFrames - 1) * D->FPSDen) / D->FPSNum;
-                Src.reset(D->V->GetFrameByTime(currentTime));
+            if (RFF) {
+                Src.reset(V->GetFrameWithRFF(std::min(n, VI.num_frames - 1)));
+            } else if (FPSNum > 0) {
+                double currentTime = V->GetVideoProperties().StartTime +
+                    (double)(std::min(n, VI.num_frames - 1) * FPSDen) / FPSNum;
+                Src.reset(V->GetFrameByTime(currentTime));
             } else {
-                Src.reset(D->V->GetFrame(std::min(n, D->VI.numFrames - 1)));
+                Src.reset(V->GetFrame(std::min(n, VI.num_frames - 1)));
             }
 
             if (!Src)
                 throw VideoException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
 
-            VSVideoFormat VideoFormat = {};
-            vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core);
-            VSVideoFormat AlphaFormat = {};
-            vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, Core);
+            Dst = Env->NewVideoFrame(VI);
 
-            Dst = vsapi->newVideoFrame(&VideoFormat, Src->Width, Src->Height, nullptr, Core);
-            uint8_t *DstPtrs[3] = {};
-            ptrdiff_t DstStride[3] = {};
+            uint8_t *DstPtrs[3] = { Dst->GetWritePtr() };
+            ptrdiff_t DstStride[3] = { Dst->GetPitch() };
 
-            for (int Plane = 0; Plane < VideoFormat.numPlanes; Plane++) {
-                DstPtrs[Plane] = vsapi->getWritePtr(Dst, Plane);
-                DstStride[Plane] = vsapi->getStride(Dst, Plane);
+            bool DestHasAlpha = (VI.IsYUVA() || VI.IsPlanarRGBA());
+
+            if (VI.IsYUV() || VI.IsYUVA()) {
+                DstPtrs[0] = Dst->GetWritePtr(PLANAR_Y);
+                DstStride[0] = Dst->GetPitch(PLANAR_Y);
+                DstPtrs[1] = Dst->GetWritePtr(PLANAR_U);
+                DstStride[1] = Dst->GetPitch(PLANAR_U);
+                DstPtrs[2] = Dst->GetWritePtr(PLANAR_V);
+                DstStride[2] = Dst->GetPitch(PLANAR_V);
+            } else if (VI.IsRGB() || VI.IsPlanarRGBA()) {
+                DstPtrs[0] = Dst->GetWritePtr(PLANAR_R);
+                DstStride[0] = Dst->GetPitch(PLANAR_R);
+                DstPtrs[1] = Dst->GetWritePtr(PLANAR_G);
+                DstStride[1] = Dst->GetPitch(PLANAR_G);
+                DstPtrs[2] = Dst->GetWritePtr(PLANAR_B);
+                DstStride[2] = Dst->GetPitch(PLANAR_B);
+            } else if (VI.IsY()) {
+                DstPtrs[0] = Dst->GetWritePtr(PLANAR_Y);
+                DstStride[0] = Dst->GetPitch(PLANAR_Y);
+            } else {
+                assert(false);
             }
 
-            ptrdiff_t AlphaStride = 0;
-            if (Src->HasAlpha()) {
-                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, Core);
-                AlphaStride = vsapi->getStride(AlphaDst, 0);
-                vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
-            }
-
-            if (!Src->ExportAsPlanar(DstPtrs, DstStride, AlphaDst ? vsapi->getWritePtr(AlphaDst, 0) : nullptr, AlphaStride)) {
+            if (!Src->ExportAsPlanar(DstPtrs, DstStride, DestHasAlpha ? Dst->GetWritePtr(PLANAR_A) : nullptr, DestHasAlpha ? Dst->GetPitch(PLANAR_A) : 0)) {
                 throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
         } catch (VideoException &e) {
-            vsapi->freeFrame(Dst);
-            vsapi->freeFrame(AlphaDst);
-            vsapi->setFilterError(("VideoSource: " + std::string(e.what())).c_str(), FrameCtx);
-            return nullptr;
+            Env->ThrowError("BestVideoSource: %s", e.what());
         }
 
-        const VideoProperties &VP = D->V->GetVideoProperties();
-        VSMap *Props = vsapi->getFramePropertiesRW(Dst);
-        if (AlphaDst)
-            vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
+        const VideoProperties &VP = V->GetVideoProperties();
+        AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        // Set AR variables
+
         if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
-            vsapi->mapSetInt(Props, "_SARNum", VP.SAR.Num, maAppend);
-            vsapi->mapSetInt(Props, "_SARDen", VP.SAR.Den, maAppend);
+            Env->propSetInt(Props, "_SARNum", VP.SAR.Num, 0);
+            Env->propSetInt(Props, "_SARDen", VP.SAR.Den, 0);
         }
 
-        vsapi->mapSetInt(Props, "_Matrix", Src->Matrix, maAppend);
-        vsapi->mapSetInt(Props, "_Primaries", Src->Primaries, maAppend);
-        vsapi->mapSetInt(Props, "_Transfer", Src->Transfer, maAppend);
+        Env->propSetInt(Props, "_Matrix", Src->Matrix, 0);
+        Env->propSetInt(Props, "_Primaries", Src->Primaries, 0);
+        Env->propSetInt(Props, "_Transfer", Src->Transfer, 0);
         if (Src->ChromaLocation > 0)
-            vsapi->mapSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, maAppend);
+            Env->propSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, 0);
 
         if (Src->ColorRange == 1) // Hardcoded ffmpeg constants, nothing to see here
-            vsapi->mapSetInt(Props, "_ColorRange", 1, maAppend);
+            Env->propSetInt(Props, "_ColorRange", 1, 0);
         else if (Src->ColorRange == 2)
-            vsapi->mapSetInt(Props, "_ColorRange", 0, maAppend);
-        vsapi->mapSetData(Props, "_PictType", &Src->PictType, 1, dtUtf8, maAppend);
+            Env->propSetInt(Props, "_ColorRange", 0, 0);
+        Env->propSetData(Props, "_PictType", &Src->PictType, 1, 0);
 
         // Set field information
         int FieldBased = 0;
         if (Src->InterlacedFrame)
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
-        vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
-
-        int64_t AbsNum = VP.TimeBase.Num;
-        int64_t AbsDen = VP.TimeBase.Den;
-        vsh::muldivRational(&AbsNum, &AbsDen, Src->Pts, 1);
-        vsapi->mapSetFloat(Props, "_AbsoluteTime", static_cast<double>(AbsNum) / AbsDen, maAppend);
-
-        // FIXME, use PTS difference between frames instead?
-        if (Src->Duration > 0) {
-            int64_t DurNum = VP.TimeBase.Num;
-            int64_t DurDen = VP.TimeBase.Den;
-            vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
-            vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
-            vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
-        }
+        Env->propSetInt(Props, "_FieldBased", FieldBased, 0);
 
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), maAppend);
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesY", Src->MasteringDisplayPrimaries[i][1].ToDouble(), maAppend);
+                Env->propSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), 1);
+                Env->propSetFloat(Props, "MasteringDisplayPrimariesY", Src->MasteringDisplayPrimaries[i][1].ToDouble(), 1);
             }
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointX", Src->MasteringDisplayWhitePoint[0].ToDouble(), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointY", Src->MasteringDisplayWhitePoint[1].ToDouble(), maAppend);
+            Env->propSetFloat(Props, "MasteringDisplayWhitePointX", Src->MasteringDisplayWhitePoint[0].ToDouble(), 0);
+            Env->propSetFloat(Props, "MasteringDisplayWhitePointY", Src->MasteringDisplayWhitePoint[1].ToDouble(), 0);
         }
 
         if (Src->HasMasteringDisplayLuminance) {
-            vsapi->mapSetFloat(Props, "MasteringDisplayMinLuminance", Src->MasteringDisplayMinLuminance.ToDouble(), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayMaxLuminance", Src->MasteringDisplayMaxLuminance.ToDouble(), maAppend);
+            Env->propSetFloat(Props, "MasteringDisplayMinLuminance", Src->MasteringDisplayMinLuminance.ToDouble(), 0);
+            Env->propSetFloat(Props, "MasteringDisplayMaxLuminance", Src->MasteringDisplayMaxLuminance.ToDouble(), 0);
         }
 
         if (Src->HasContentLightLevel) {
-            vsapi->mapSetInt(Props, "ContentLightLevelMax", Src->ContentLightLevelMax, maAppend);
-            vsapi->mapSetInt(Props, "ContentLightLevelAverage", Src->ContentLightLevelAverage, maAppend);
+            Env->propSetFloat(Props, "ContentLightLevelMax", Src->ContentLightLevelMax, 0);
+            Env->propSetFloat(Props, "ContentLightLevelAverage", Src->ContentLightLevelAverage, 0);
         }
 
-        if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize) {
-            vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), dtBinary, maAppend);
+        if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize > 0) {
+            Env->propSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), Src->DolbyVisionRPUSize, 0);
         }
 
         if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
-            vsapi->mapSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), static_cast<int>(Src->HDR10PlusSize), dtBinary, maReplace);
+            Env->propSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), Src->HDR10PlusSize, 0);
         }
 
-        vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
-        vsapi->mapSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, maAppend);
-        vsapi->mapSetInt(Props, "Rotation", VP.Rotation, maAppend);
+        Env->propSetInt(Props, "FlipVertical", VP.FlipVerical, 0);
+        Env->propSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, 0);
+        Env->propSetInt(Props, "Rotation", VP.Rotation, 0);
 
         return Dst;
     }
+};
 
-    return nullptr;
-}
-
-static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VSAPI *vsapi) {
-    delete reinterpret_cast<BestVideoSourceData *>(InstanceData);
-}
-
-static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
+static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
 
-    int err;
-    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
-    const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
-    const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
-    const char *Timecodes = vsapi->mapGetData(In, "timecodes", 0, &err);
-    int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
-    if (err)
-        Track = -1;
-    int SeekPreRoll = vsapi->mapGetIntSaturated(In, "seekpreroll", 0, &err);
-    if (err)
-        SeekPreRoll = 20;
-    bool VariableFormat = !!vsapi->mapGetInt(In, "variableformat", 0, &err);
-    int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);;
-    bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
-    if (err)
-        ShowProgress = true;
-    int ExtraHWFrames = vsapi->mapGetIntSaturated(In, "extrahwframes", 0, &err);
-    if (err)
-        ExtraHWFrames = 9;
-    std::map<std::string, std::string> Opts;
-    if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
-        Opts["enable_drefs"] = "1";
-    if (vsapi->mapGetInt(In, "use_absolute_path", 0, &err))
-        Opts["use_absolute_path"] = "1";
+    if (!Args[0].Defined())
+        Env->ThrowError("BestVideoSource: No source specified");
 
-    BestVideoSourceData *D = new BestVideoSourceData();
+    const char *Source = Args[0].AsString();
+    int Track = Args[1].AsInt(-1);
+    int FPSNum = Args[2].AsInt(-1);
+    int FPSDen = Args[3].AsInt(1);
+    bool RFF = Args[4].AsBool(false);
+    int Threads = Args[5].AsInt(-1);
+    int SeekPreroll = Args[6].AsInt(1);
+    bool EnableDrefs = Args[7].AsBool(false);
+    bool UseAbsolutePath = Args[8].AsBool(false);
+    const char *CachePath = Args[9].AsString("");
+    int CacheSize = Args[10].AsInt(-1);
+    const char *HWDevice = Args[11].AsString();
+    int ExtraHWFrames = Args[12].AsInt(9);
+    const char *Timecodes = Args[13].AsString(nullptr);
+    const char *VarPrefix = Args[14].AsString("");
 
-    try {
-        D->FPSNum = vsapi->mapGetInt(In, "fpsnum", 0, &err);
-        if (err)
-            D->FPSNum = -1;
-        D->FPSDen = vsapi->mapGetInt(In, "fpsden", 0, &err);
-        if (err)
-            D->FPSDen = 1;
-        D->RFF = !!vsapi->mapGetInt(In, "rff", 0, &err);
-
-        if (D->FPSDen < 1)
-            throw VideoException("FPS denominator needs to be 1 or greater");
-
-        if (D->FPSNum > 0 && D->RFF)
-            throw VideoException("Cannot combine CFR and RFF modes");
-
-        if (SeekPreRoll < 0 || SeekPreRoll > 40)
-            throw VideoException("SeekPreRoll must be 0 or greater and less than 40");
-
-        if (ShowProgress) {
-            auto NextUpdate = std::chrono::high_resolution_clock::now();
-            int LastValue = -1;
-            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts, 
-                [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
-                    if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                        if (Total == INT64_MAX && Cur == Total) {
-                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                        } else {
-                            int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
-                            if (PValue != LastValue) {
-                                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
-                                LastValue = PValue;
-                                NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                            }
-                        }
-                    }
-                    }));
-            
-        } else {
-            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
-        }
-
-        const VideoProperties &VP = D->V->GetVideoProperties();
-        if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
-            throw VideoException("Unsupported video format from decoder (probably less than 8 bit or palette)");
-        D->VI.width = VP.Width;
-        D->VI.height = VP.Height;
-        if (VariableFormat)
-            D->VI = {};
-        D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
-        D->VI.fpsNum = VP.FPS.Num;
-        D->VI.fpsDen = VP.FPS.Den;
-        vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
-
-        if (D->FPSNum > 0) {
-            vsh::reduceRational(&D->FPSNum, &D->FPSDen);
-            if (VP.FPS.Den != D->FPSDen || VP.FPS.Num != D->FPSNum) {
-                D->VI.fpsDen = D->FPSDen;
-                D->VI.fpsNum = D->FPSNum;
-                D->VI.numFrames = std::max(1, static_cast<int>((VP.Duration * D->VI.fpsNum) / D->VI.fpsDen));
-            } else {
-                D->FPSNum = -1;
-                D->FPSDen = 1;
-            }
-        } else if (D->RFF) {
-            D->VI.numFrames = vsh::int64ToIntS(VP.NumRFFFrames);
-        }
-
-        D->V->SetSeekPreRoll(SeekPreRoll);
-
-        if (Timecodes)
-            D->V->WriteTimecodes(Timecodes);
-    } catch (VideoException &e) {
-        delete D;
-        vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
-        return;
-    }
-
-    int64_t CacheSize = vsapi->mapGetInt(In, "cachesize", 0, &err);
-    if (!err && CacheSize >= 0)
-        D->V->SetMaxCacheSize(CacheSize * 1024 * 1024);
-
-    vsapi->createVideoFilter(Out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
-};*/
+    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, VarPrefix, Env);
+}
 
 class AvisynthAudioSource : public IClip {
     VideoInfo VI = {};
@@ -319,15 +356,11 @@ public:
     AvisynthAudioSource(const char *Source, int Track,
         int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, const char *CachePath, int CacheSize, IScriptEnvironment *Env) {
 
-        if (Track <= -2)
-            Env->ThrowError("BestAudioSource: No audio track selected");
-
         std::map<std::string, std::string> Opts;
         if (EnableDrefs)
             Opts["enable_drefs"] = "1";
         if (UseAbsolutePath)
             Opts["use_absolute_path"] = "1";
-
 
         try {
             A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
@@ -348,7 +381,8 @@ public:
             VI.audio_samples_per_second = AP.SampleRate;
             VI.num_audio_samples = AP.NumSamples;
             VI.nchannels = AP.Channels;
-            VI.SetChannelMask(true, AP.ChannelLayout);
+            if (AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
+                VI.SetChannelMask(true, static_cast<unsigned>(AP.ChannelLayout));
             
         } catch (AudioException &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
@@ -403,13 +437,6 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CachePath, CacheSize, Env);
 }
 
-/*
-VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
-    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-}
-*/
-
 static AVSValue __cdecl BSGetLogLevel(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
     return GetFFmpegLogLevel();
@@ -426,11 +453,10 @@ const AVS_Linkage *AVS_linkage = nullptr;
 extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironment * Env, const AVS_Linkage *const vectors) {
     AVS_linkage = vectors;
 
-    //Env->AddFunction("BestVideoSource", "[source]s[track]i[cache]b[cachefile]s[fpsnum]i[fpsden]i[threads]i[timecodes]s[seekmode]i[rffmode]i[width]i[height]i[resizer]s[colorspace]s[varprefix]s", CreateBSVideoSource, nullptr);
+    Env->AddFunction("BestVideoSource", "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[varprefix]s", CreateBSVideoSource, nullptr);
     Env->AddFunction("BestAudioSource", "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachepath]s[cachesize]i", CreateBSAudioSource, nullptr);
-
     Env->AddFunction("BSGetLogLevel", "", BSGetLogLevel, nullptr);
     Env->AddFunction("BSSetLogLevel", "i", BSSetLogLevel, nullptr);
 
-    return "BestSource2";
+    return "Best Source";
 }
