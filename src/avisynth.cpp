@@ -168,7 +168,7 @@ public:
             if (Timecodes)
                 V->WriteTimecodes(Timecodes);
 
-
+            // FIXME, does anyone use this?
             // Set AR variables
             Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_NUM"), VP.SAR.Num);
             Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_DEN"), VP.SAR.Den);
@@ -189,8 +189,7 @@ public:
     }
 
     bool __stdcall GetParity(int n) {
-        // FIXME, expose the frame info or something
-        return false;
+        return V->GetFrameIsTFF(n, RFF);
     }
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) {

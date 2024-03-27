@@ -1364,6 +1364,20 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
     return true;
 }
 
+bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
+    if (N < 0 || (N >= VP.NumFrames && !RFF) || (N >= VP.NumRFFFrames && RFF))
+        return false;
+
+    if (RFF && RFFState == rffUninitialized)
+        InitializeRFF();
+
+    if (!RFF || RFFState == rffUnused) {
+        return TrackIndex.Frames[N].TFF;
+    } else {
+        return (RFFFields[N].first < RFFFields[N].second);
+    }
+}
+
 bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
     file_ptr_t F(OpenFile(TimecodeFile, true));
     if (!F)
