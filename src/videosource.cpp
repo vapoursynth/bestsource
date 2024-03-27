@@ -217,12 +217,6 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;
     }
 
-    // FIXME, is this workaround necessary at all?
-    // Full explanation by more clever person available here: https://github.com/Nevcairiel/LAVFilters/issues/113
-    if (CodecContext->codec_id == AV_CODEC_ID_H264 && CodecContext->has_b_frames) {
-        CodecContext->has_b_frames = 15; // the maximum possible value for h264
-    }
-
     if (HWMode) {
         CodecContext->extra_hw_frames = ExtraHWFrames;
         CodecContext->pix_fmt = hw_pix_fmt;
