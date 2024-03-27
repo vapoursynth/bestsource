@@ -15,7 +15,14 @@ It can be used as either a C++ library directly or through the VapourSynth plugi
 - FFmpeg 6.1.x. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` and `libswscale` libraries are required.
 - libp2p (already included as submodule)
 
-### Linux and macOS Compilation
+
+### Windows Compilation
+
+On Windows the easiest way to compile the FFmpeg dependency is to use [vcpkg](https://vcpkg.io) and install `ffmpeg[avcodec,avdevice,avfilter,avformat,bzip2,core,dav1d,gpl,lzma,nvcodec,swresample,swscale,zlib]:x64-windows-static`.
+
+Use the latest version of Visual Studio. It should automatically find all the required libraries if you used vcpkg.
+
+### Linux and MacOS Compilation
 
 Requires `pkg-config`, `meson` and `ninja-build`.
 

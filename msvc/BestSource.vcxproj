@@ -22,6 +22,7 @@
     <ClCompile Include="..\libp2p\p2p_api.cpp" />
     <ClCompile Include="..\libp2p\v210.cpp" />
     <ClCompile Include="..\src\audiosource.cpp" />
+    <ClCompile Include="..\src\avisynth.cpp" />
     <ClCompile Include="..\src\bsshared.cpp" />
     <ClCompile Include="..\src\vapoursynth.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>

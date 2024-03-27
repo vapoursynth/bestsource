@@ -168,8 +168,11 @@ private:
     [[nodiscard]] BestAudioFrame *GetFrameLinearInternal(int64_t N, int64_t SeekFrame = -1, size_t Depth = 0, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
     bool InitializeRFF();
-    void ZeroFillStart(uint8_t *Data[], int64_t &Start, int64_t &Count);
-    void ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count);
+    void ZeroFillStartPacked(uint8_t *Data, int64_t &Start, int64_t &Count);
+    void ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count);
+    bool FillInFramePacked(const BestAudioFrame *Frame, int64_t FrameStartSample, uint8_t *Data, int64_t &Start, int64_t &Count);
+    void ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64_t &Count);
+    void ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t &Count);
     bool FillInFramePlanar(const BestAudioFrame *Frame, int64_t FrameStartSample, uint8_t *Data[], int64_t &Start, int64_t &Count);
 public:
     struct FrameRange {
@@ -186,7 +189,7 @@ public:
     [[nodiscard]] const AudioProperties &GetAudioProperties() const;
     [[nodiscard]] BestAudioFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;
-
+    void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count);
     void GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count);
 };
 

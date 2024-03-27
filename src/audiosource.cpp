@@ -846,7 +846,68 @@ BestAudioSource::FrameRange BestAudioSource::GetFrameRangeBySamples(int64_t Star
     return Result;
 }
 
-void BestAudioSource::ZeroFillStart(uint8_t *Data[], int64_t &Start, int64_t &Count) {
+void BestAudioSource::ZeroFillStartPacked(uint8_t *Data, int64_t &Start, int64_t &Count) {
+    if (Start < 0) {
+        int64_t Length = std::min(Count, -Start);
+        size_t ByteLength = Length * AP.BytesPerSample * AP.Channels;
+        memset(Data, 0, ByteLength);
+        Data += ByteLength;
+        Start += Length;
+        Count -= Length;
+    }
+}
+
+void BestAudioSource::ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count) {
+    if (Start + Count > AP.NumSamples) {
+        int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
+        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.BytesPerSample * AP.Channels;
+        memset(Data + ByteOffset, 0, Length * AP.BytesPerSample * AP.Channels);
+        Count -= Length;
+    }
+}
+
+static void PackChannels(const uint8_t **Src, uint8_t *Dst, size_t Length, size_t Channels, size_t BytesPerSample) {
+    for (size_t i = 0; i < Length; i++) {
+        for (size_t c = 0; c < Channels; c++) {
+            memcpy(Dst, Src[c], BytesPerSample);
+            Src[c] += BytesPerSample;
+            Dst += BytesPerSample;
+        }
+    }
+}
+
+bool BestAudioSource::FillInFramePacked(const BestAudioFrame *Frame, int64_t FrameStartSample, uint8_t *Data, int64_t &Start, int64_t &Count) {
+    const AVFrame *F = Frame->GetAVFrame();
+    bool IsPlanar = av_sample_fmt_is_planar(static_cast<AVSampleFormat>(F->format));
+    if ((Start >= FrameStartSample) && (Start < FrameStartSample + Frame->NumSamples)) {
+        int64_t Length = std::min(Count, Frame->NumSamples - Start + FrameStartSample);
+        if (Length == 0)
+            return false;
+
+        if (IsPlanar) {
+            std::vector<const uint8_t *> DataV;
+            DataV.reserve(F->ch_layout.nb_channels);
+            size_t ByteLength = Length * AP.BytesPerSample;
+            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample;
+            for (int i = 0; i < F->ch_layout.nb_channels; i++)
+                DataV.push_back(F->extended_data[i] + ByteOffset);
+            PackChannels(DataV.data(), Data, Length, F->ch_layout.nb_channels, AP.BytesPerSample);
+        } else {
+            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample * F->ch_layout.nb_channels;
+            size_t ByteLength = Length * AP.BytesPerSample * F->ch_layout.nb_channels;
+            memcpy(Data, F->extended_data[0] + ByteOffset, ByteLength);
+            Data += ByteLength;
+        }
+        Start += Length;
+        Count -= Length;
+        return true;
+    } else {
+        assert(false);
+    }
+    return false;
+}
+
+void BestAudioSource::ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64_t &Count) {
     if (Start < 0) {
         int64_t Length = std::min(Count, -Start);
         size_t ByteLength = Length * AP.BytesPerSample;
@@ -859,7 +920,7 @@ void BestAudioSource::ZeroFillStart(uint8_t *Data[], int64_t &Start, int64_t &Co
     }
 }
 
-void BestAudioSource::ZeroFillEnd(uint8_t *Data[], int64_t Start, int64_t &Count) {
+void BestAudioSource::ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t &Count) {
     if (Start + Count > AP.NumSamples) {
         int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
         size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.BytesPerSample;
@@ -892,7 +953,7 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
             size_t ByteLength = Length * AP.BytesPerSample;
             size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample;
             for (int i = 0; i < AP.Channels; i++) {
-                memcpy(Data[i], Frame->GetAVFrame()->extended_data[i] + ByteOffset, ByteLength);
+                memcpy(Data[i], F->extended_data[i] + ByteOffset, ByteLength);
                 Data[i] += ByteLength;
             }
         } else {
@@ -908,6 +969,31 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
     return false;
 }
 
+void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count) {
+    Start -= SampleDelay;
+
+    ZeroFillStartPacked(Data, Start, Count);
+    ZeroFillEndPacked(Data, Start, Count);
+
+    auto Range = GetFrameRangeBySamples(Start, Count);
+    if (Range.First == -1)
+        return;
+
+    for (int64_t i = Range.First; i <= Range.Last; i++) {
+        std::unique_ptr<BestAudioFrame> F(GetFrame(i));
+        FillInFramePacked(F.get(), Range.FirstSamplePos, Data, Start, Count);
+        Range.FirstSamplePos += F->NumSamples;
+    }
+
+    assert(Count == 0);
+
+    if (Count == 0)
+        return;
+
+    if (Count != 0)
+        throw AudioException("Code error, failed to provide all samples");
+}
+
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
     Start -= SampleDelay;
 
@@ -916,9 +1002,8 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
     for (int i = 0; i < AP.Channels; i++)
         DataV.push_back(Data[i]);
 
-    ZeroFillStart(DataV.data(), Start, Count);
-
-    ZeroFillEnd(DataV.data(), Start, Count);
+    ZeroFillStartPlanar(DataV.data(), Start, Count);
+    ZeroFillEndPlanar(DataV.data(), Start, Count);
 
     auto Range = GetFrameRangeBySamples(Start, Count);
     if (Range.First == -1)
