@@ -548,7 +548,8 @@ bool BestVideoFrame::HasAlpha() const {
     return ::HasAlpha(Desc);
 };
 
-void BestVideoFrame::MergeField(bool Top, const AVFrame *FieldSrc) {
+void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
+    const AVFrame *FieldSrc = AFieldSrc->GetAVFrame();
     if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
         throw VideoException("Merged frames must have same format");
     if (av_frame_make_writable(Frame) < 0)
@@ -1264,14 +1265,14 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
                 std::unique_ptr<BestVideoFrame> Bottom(GetFrame(Fields.second, Linear));
                 if (!Top || !Bottom)
                     return nullptr;
-                Top->MergeField(false, Bottom->GetAVFrame());
+                Top->MergeField(false, Bottom.get());
                 return Top.release();
             } else {
                 std::unique_ptr<BestVideoFrame> Bottom(GetFrame(Fields.second, Linear));
                 std::unique_ptr<BestVideoFrame> Top(GetFrame(Fields.first, Linear));
                 if (!Top || !Bottom)
                     return nullptr;
-                Bottom->MergeField(true, Top->GetAVFrame());
+                Bottom->MergeField(true, Top.get());
                 return Bottom.release();
             }
         }

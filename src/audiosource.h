@@ -99,9 +99,12 @@ public:
     BestAudioFrame(AVFrame *Frame);
     ~BestAudioFrame();
     [[nodiscard]] const AVFrame *GetAVFrame() const;
-
+    // FIXME, doesn't expose nearly enough information relative to BestVideoFrame
+    // NumChannels, Audio format info (float, bits)
     int64_t Pts;
     int64_t NumSamples;
+
+    // FIXME, add something like exportplanar and exportpacked to the frame?
 };
 
 class BestAudioSource {
