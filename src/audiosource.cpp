@@ -887,7 +887,6 @@ bool BestAudioSource::FillInFramePacked(const BestAudioFrame *Frame, int64_t Fra
         if (IsPlanar) {
             std::vector<const uint8_t *> DataV;
             DataV.reserve(F->ch_layout.nb_channels);
-            size_t ByteLength = Length * AP.BytesPerSample;
             size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample;
             for (int i = 0; i < F->ch_layout.nb_channels; i++)
                 DataV.push_back(F->extended_data[i] + ByteOffset);

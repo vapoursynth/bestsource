@@ -97,24 +97,20 @@ public:
             }
 
             if (VP.VF.SubSamplingH == 0) {
-                // do nothing
-            } else if (VP.VF.SubSamplingH == 1) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
-            } else if (VP.VF.SubSamplingH == 2) {
+            } else if (VP.VF.SubSamplingH == 1) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
-            } else if (VP.VF.SubSamplingH == 3) {
+            } else if (VP.VF.SubSamplingH == 2) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
             } else {
                 throw VideoException("Unsupported output subsampling");
             }
 
             if (VP.VF.SubSamplingW == 0) {
-                // do nothing
-            } else if (VP.VF.SubSamplingW == 1) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
-            } else if (VP.VF.SubSamplingW == 2) {
+            } else if (VP.VF.SubSamplingW == 1) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Width_2;
-            } else if (VP.VF.SubSamplingW == 3) {
+            } else if (VP.VF.SubSamplingW == 2) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
             } else {
                 throw VideoException("Unsupported output subsampling");
@@ -259,7 +255,6 @@ public:
 
         const VideoProperties &VP = V->GetVideoProperties();
         AVSMap *Props = Env->getFramePropsRW(Dst);
-
 
         if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
             Env->propSetInt(Props, "_SARNum", VP.SAR.Num, 0);
