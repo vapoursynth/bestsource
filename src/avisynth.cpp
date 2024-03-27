@@ -145,16 +145,12 @@ public:
             VI.width -= VI.width % (1 << VP.VF.SubSamplingW);
             VI.height -= VI.height % (1 << VP.VF.SubSamplingH);
             VI.num_frames = vsh::int64ToIntS(VP.NumFrames);
-            VI.fps_numerator = VP.FPS.Num;
-            VI.fps_denominator = VP.FPS.Den;
-            
-            VI.MulDivFPS(1, 1);
+            VI.SetFPS(VP.FPS.Num, VP.FPS.Den);
 
             if (FPSNum > 0) {
                 vsh::reduceRational(&FPSNum, &FPSDen);
                 if (VP.FPS.Den != FPSDen || VP.FPS.Num != FPSNum) {
-                    VI.fps_denominator = FPSDen;
-                    VI.fps_numerator = FPSNum;
+                    VI.SetFPS(FPSNum, FPSDen);
                     VI.num_frames = std::max(1, static_cast<int>((VP.Duration * VI.fps_numerator) / VI.fps_denominator));
                 } else {
                     FPSNum = -1;
