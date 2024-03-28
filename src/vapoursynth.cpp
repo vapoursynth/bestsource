@@ -137,11 +137,6 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
 
-        int64_t AbsNum = VP.TimeBase.Num;
-        int64_t AbsDen = VP.TimeBase.Den;
-        vsh::muldivRational(&AbsNum, &AbsDen, Src->Pts, 1);
-        vsapi->mapSetFloat(Props, "_AbsoluteTime", static_cast<double>(AbsNum) / AbsDen, maAppend);
-
         // FIXME, use PTS difference between frames instead?
         if (Src->Duration > 0) {
             int64_t DurNum = VP.TimeBase.Num;
