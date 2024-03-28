@@ -107,7 +107,6 @@ private:
     bool HWMode = false;
     bool DecodeSuccess = true;
     AVPacket *Packet = nullptr;
-    bool ResendPacket = false;
     bool Seeked = false;
 
     void OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);

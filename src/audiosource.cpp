@@ -65,11 +65,10 @@ bool LWAudioDecoder::DecodeNextFrame(bool SkipOutput) {
         if (Ret == 0) {
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (ResendPacket || ReadPacket()) {
+            if (ReadPacket()) {
                 int SendRet = avcodec_send_packet(CodecContext, Packet);
-                ResendPacket = (SendRet == AVERROR(EAGAIN));
-                if (!ResendPacket)
-                    av_packet_unref(Packet);
+                assert(SendRet != AVERROR(EAGAIN));
+                av_packet_unref(Packet);
             } else {
                 avcodec_send_packet(CodecContext, nullptr);
             }
@@ -930,13 +929,12 @@ void BestAudioSource::ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t 
 }
 
 static void UnpackChannels(const uint8_t *Src, uint8_t *Dst[], size_t Length, size_t Channels, size_t BytesPerSample) {
-    const uint8_t *S = Src;
     for (size_t i = 0; i < Length; i++) {
         for (size_t c = 0; c < Channels; c++) {
-            memcpy(Dst[c], S + c * BytesPerSample, BytesPerSample);
+            memcpy(Dst[c], Src, BytesPerSample);
             Dst[c] += BytesPerSample;
+            Src += BytesPerSample;
         }
-        S += Channels * BytesPerSample;
     }
 }
 

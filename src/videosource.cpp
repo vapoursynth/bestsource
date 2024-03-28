@@ -104,11 +104,10 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
             }
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
-            if (ResendPacket || ReadPacket()) {
+            if (ReadPacket()) {
                 int SendRet = avcodec_send_packet(CodecContext, Packet);
-                ResendPacket = (SendRet == AVERROR(EAGAIN));
-                if (!ResendPacket)
-                    av_packet_unref(Packet);
+                assert(SendRet != AVERROR(EAGAIN));
+                av_packet_unref(Packet);
             } else {
                 avcodec_send_packet(CodecContext, nullptr);
             }

@@ -67,7 +67,6 @@ private:
     int TrackNumber = -1;
     bool DecodeSuccess = true;
     AVPacket *Packet = nullptr;
-    bool ResendPacket = false;
     bool Seeked = false;
 
     void OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
