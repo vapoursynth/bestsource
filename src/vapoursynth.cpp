@@ -91,7 +91,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             }
 
             ptrdiff_t AlphaStride = 0;
-            if (Src->HasAlpha()) {
+            if (Src->VF.Alpha) {
                 AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, Core);
                 AlphaStride = vsapi->getStride(AlphaDst, 0);
                 vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
@@ -382,7 +382,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         }
 
         const AudioProperties &AP = D->A->GetAudioProperties();
-        if (!vsapi->queryAudioFormat(&D->AI.format, AP.IsFloat, AP.BitsPerSample, AP.ChannelLayout, Core))
+        if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, AP.AF.Bits, AP.ChannelLayout, Core))
             throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;

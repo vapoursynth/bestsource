@@ -210,9 +210,7 @@ void LWAudioDecoder::GetAudioProperties(AudioProperties &AP) {
     if (!PropFrame)
         return;
 
-    AP.IsFloat = (PropFrame->format == AV_SAMPLE_FMT_FLTP || PropFrame->format == AV_SAMPLE_FMT_FLT || PropFrame->format == AV_SAMPLE_FMT_DBLP || PropFrame->format == AV_SAMPLE_FMT_DBL);
-    AP.BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(PropFrame->format));
-    AP.BitsPerSample = CodecContext->bits_per_raw_sample ? (CodecContext->bits_per_raw_sample) : (AP.BytesPerSample * 8); // assume all bits are relevant if not specified
+    AP.AF.Set(PropFrame->format, CodecContext->bits_per_raw_sample);
     AP.SampleRate = PropFrame->sample_rate;
     AP.Channels = PropFrame->ch_layout.nb_channels;
 
@@ -230,7 +228,7 @@ void LWAudioDecoder::GetAudioProperties(AudioProperties &AP) {
     if (PropFrame->pts != AV_NOPTS_VALUE)
         AP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * PropFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
-    if (AP.BytesPerSample <= 0)
+    if (AP.AF.Bits <= 0)
         throw AudioException("Codec returned zero size audio");
 }
 
@@ -281,10 +279,18 @@ bool LWAudioDecoder::HasSeeked() const {
     return Seeked;
 }
 
+void AudioFormat::Set(int Format, int BitsPerRawSample) {
+    Float = (Format == AV_SAMPLE_FMT_FLTP || Format == AV_SAMPLE_FMT_FLT || Format == AV_SAMPLE_FMT_DBLP || Format == AV_SAMPLE_FMT_DBL);
+    BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(Format));
+    Bits = BitsPerRawSample ? BitsPerRawSample : (BytesPerSample * 8);
+}
+
 BestAudioFrame::BestAudioFrame(AVFrame *F) {
     assert(F);
     Frame = av_frame_clone(F);
-    // FIXME, fill in
+    
+    AF.Set(F->format, 0); // FIXME, number of used bits is wrong for individual frames
+    NumChannels = F->ch_layout.nb_channels;
     Pts = Frame->pts;
     NumSamples = Frame->nb_samples;
 }
@@ -848,7 +854,7 @@ BestAudioSource::FrameRange BestAudioSource::GetFrameRangeBySamples(int64_t Star
 void BestAudioSource::ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_t &Count) {
     if (Start < 0) {
         int64_t Length = std::min(Count, -Start);
-        size_t ByteLength = Length * AP.BytesPerSample * AP.Channels;
+        size_t ByteLength = Length * AP.AF.BytesPerSample * AP.Channels;
         memset(Data, 0, ByteLength);
         Data += ByteLength;
         Start += Length;
@@ -859,8 +865,8 @@ void BestAudioSource::ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_
 void BestAudioSource::ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count) {
     if (Start + Count > AP.NumSamples) {
         int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.BytesPerSample * AP.Channels;
-        memset(Data + ByteOffset, 0, Length * AP.BytesPerSample * AP.Channels);
+        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample * AP.Channels;
+        memset(Data + ByteOffset, 0, Length * AP.AF.BytesPerSample * AP.Channels);
         Count -= Length;
     }
 }
@@ -886,13 +892,13 @@ bool BestAudioSource::FillInFramePacked(const BestAudioFrame *Frame, int64_t Fra
         if (IsPlanar) {
             std::vector<const uint8_t *> DataV;
             DataV.reserve(F->ch_layout.nb_channels);
-            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample;
+            size_t ByteOffset = (Start - FrameStartSample) * AP.AF.BytesPerSample;
             for (int i = 0; i < F->ch_layout.nb_channels; i++)
                 DataV.push_back(F->extended_data[i] + ByteOffset);
-            PackChannels(DataV.data(), Data, Length, F->ch_layout.nb_channels, AP.BytesPerSample);
+            PackChannels(DataV.data(), Data, Length, F->ch_layout.nb_channels, AP.AF.BytesPerSample);
         } else {
-            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample * F->ch_layout.nb_channels;
-            size_t ByteLength = Length * AP.BytesPerSample * F->ch_layout.nb_channels;
+            size_t ByteOffset = (Start - FrameStartSample) * AP.AF.BytesPerSample * F->ch_layout.nb_channels;
+            size_t ByteLength = Length * AP.AF.BytesPerSample * F->ch_layout.nb_channels;
             memcpy(Data, F->extended_data[0] + ByteOffset, ByteLength);
             Data += ByteLength;
         }
@@ -908,7 +914,7 @@ bool BestAudioSource::FillInFramePacked(const BestAudioFrame *Frame, int64_t Fra
 void BestAudioSource::ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64_t &Count) {
     if (Start < 0) {
         int64_t Length = std::min(Count, -Start);
-        size_t ByteLength = Length * AP.BytesPerSample;
+        size_t ByteLength = Length * AP.AF.BytesPerSample;
         for (int i = 0; i < AP.Channels; i++) {
             memset(Data[i], 0, ByteLength);
             Data[i] += ByteLength;
@@ -921,9 +927,9 @@ void BestAudioSource::ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64
 void BestAudioSource::ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t &Count) {
     if (Start + Count > AP.NumSamples) {
         int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.BytesPerSample;
+        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample;
         for (int i = 0; i < AP.Channels; i++)
-            memset(Data[i] + ByteOffset, 0, Length * AP.BytesPerSample);
+            memset(Data[i] + ByteOffset, 0, Length * AP.AF.BytesPerSample);
         Count -= Length;
     }
 }
@@ -947,15 +953,15 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
             return false;
 
         if (IsPlanar) {
-            size_t ByteLength = Length * AP.BytesPerSample;
-            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample;
+            size_t ByteLength = Length * AP.AF.BytesPerSample;
+            size_t ByteOffset = (Start - FrameStartSample) * AP.AF.BytesPerSample;
             for (int i = 0; i < AP.Channels; i++) {
                 memcpy(Data[i], F->extended_data[i] + ByteOffset, ByteLength);
                 Data[i] += ByteLength;
             }
         } else {
-            size_t ByteOffset = (Start - FrameStartSample) * AP.BytesPerSample * F->ch_layout.nb_channels;
-            UnpackChannels(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels, AP.BytesPerSample);
+            size_t ByteOffset = (Start - FrameStartSample) * AP.AF.BytesPerSample * F->ch_layout.nb_channels;
+            UnpackChannels(F->extended_data[0] + ByteOffset, Data, Length, F->ch_layout.nb_channels, AP.AF.BytesPerSample);
         }
         Start += Length;
         Count -= Length;

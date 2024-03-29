@@ -33,8 +33,6 @@
 #include <array>
 #include <memory>
 
-
-
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVBufferRef;
@@ -45,10 +43,16 @@ class AudioException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+struct AudioFormat {
+    bool Float;
+    int Bits;
+    int BytesPerSample; // FIXME, kinda odd to have it exposed here but very useful to store internally
+
+    void Set(int Format, int BitsPerRawSample);
+};
+
 struct AudioProperties {
-    bool IsFloat;
-    int BytesPerSample;
-    int BitsPerSample;
+    AudioFormat AF;
     int SampleRate;
     int Channels;
     uint64_t ChannelLayout;
@@ -98,13 +102,11 @@ public:
     BestAudioFrame(AVFrame *Frame);
     ~BestAudioFrame();
     [[nodiscard]] const AVFrame *GetAVFrame() const;
-    // FIXME, doesn't expose nearly enough information relative to BestVideoFrame
-    // NumChannels, Audio format info (float, bits)
-    int64_t Pts;
-    int64_t NumSamples;
+    AudioFormat AF;
+    int NumChannels;
 
-    // FIXME, add something like exportplanar and exportpacked to the frame?
-};
+    int64_t Pts;
+    int64_t NumSamples;};
 
 class BestAudioSource {
 private:

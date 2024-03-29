@@ -356,13 +356,13 @@ public:
             A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
 
             const AudioProperties &AP = A->GetAudioProperties();
-            if (AP.IsFloat && AP.BitsPerSample == 32) {
+            if (AP.AF.Float && AP.AF.Bits == 32) {
                 VI.sample_type = SAMPLE_FLOAT;
-            } else if (!AP.IsFloat && AP.BitsPerSample == 8) {
+            } else if (!AP.AF.Float && AP.AF.Bits <= 8) {
                 VI.sample_type = SAMPLE_INT8;
-            } else if (!AP.IsFloat && AP.BitsPerSample == 16) {
+            } else if (!AP.AF.Float && AP.AF.Bits <= 16) {
                 VI.sample_type = SAMPLE_INT16;
-            } else if (!AP.IsFloat && AP.BitsPerSample == 32) {
+            } else if (!AP.AF.Float && AP.AF.Bits <= 32) {
                 VI.sample_type = SAMPLE_INT32;
             } else {
                 Env->ThrowError("BestAudioSource: Unsupported audio format");

@@ -290,7 +290,6 @@ void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
 
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
-    VP.PixFmt = CodecContext->pix_fmt;
     VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
 
     VP.FPS = CodecContext->framerate;
@@ -540,11 +539,6 @@ BestVideoFrame::~BestVideoFrame() {
 
 const AVFrame *BestVideoFrame::GetAVFrame() const {
     return Frame;
-};
-
-bool BestVideoFrame::HasAlpha() const {
-    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
-    return ::HasAlpha(Desc);
 };
 
 void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
