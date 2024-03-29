@@ -6,9 +6,9 @@
 [![codespell](https://github.com/vapoursynth/bestsource/actions/workflows/codespell.yml/badge.svg)](https://github.com/vapoursynth/bestsource/actions/workflows/codespell.yml)
 
 **BestSource** (abbreviated as **BS**) is a cross-platform wrapper library around [FFmpeg](http://ffmpeg.org)
-that ensures sample/frame accurate access to audio and video by always linearly decoding the input files. With a few tricks this can guarantee accurate "seeking" and can be surprisingly... not slow.
+that ensures always sample and frame accurate access to audio and video with good seeking performance for everything except some lossy audio formats.
 
-It can be used as either a C++ library directly or through the VapourSynth plugin that's included.
+It can be used as either a C++ library directly or through the combined VapourSynth and Avisynth+ plugin that's included.
 
 ## Dependencies
 
@@ -34,11 +34,27 @@ ninja -C build
 ninja -C build install
 ```
 
-## VapourSynth plugin
+## VapourSynth usage
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
 
 `bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, bint showprogress = True])`
+
+`bs.SetLogLevel(int level)`
+
+`bs.GetLogLevel()`
+
+## Avisynth+ usage
+
+`BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])`
+
+`BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes])`
+
+`BSSetLogLevel(int level)`
+
+`BSGetLogLevel()`
+
+## Argument explanation
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
@@ -74,8 +90,4 @@ ninja -C build install
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages.
 
-`bs.SetLogLevel(int level)`
-
-`bs.GetLogLevel()`
-
-Sets the log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Both functions return the current/newly set level. Mostly useful for debugging purposes.
+*level*: The log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Both functions return the current/newly set level. Mostly useful for debugging purposes.

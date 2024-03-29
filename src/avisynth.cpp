@@ -443,10 +443,10 @@ const AVS_Linkage *AVS_linkage = nullptr;
 extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironment * Env, const AVS_Linkage *const vectors) {
     AVS_linkage = vectors;
 
-    Env->AddFunction("BestVideoSource", "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[varprefix]s", CreateBSVideoSource, nullptr);
-    Env->AddFunction("BestAudioSource", "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachepath]s[cachesize]i", CreateBSAudioSource, nullptr);
+    Env->AddFunction("BSVideoSource", "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[varprefix]s", CreateBSVideoSource, nullptr);
+    Env->AddFunction("BSAudioSource", "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachepath]s[cachesize]i", CreateBSAudioSource, nullptr);
     Env->AddFunction("BSGetLogLevel", "", BSGetLogLevel, nullptr);
     Env->AddFunction("BSSetLogLevel", "i", BSSetLogLevel, nullptr);
 
-    return "Best Source";
+    return "Best Source (BS)";
 }
