@@ -1294,7 +1294,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
     if (!F)
         return false;
     WriteBSHeader(F, true);
-    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    WriteInt64(F, GetFileSize(Source));
     WriteInt(F, VideoTrack);
     WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
@@ -1324,7 +1324,8 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
         return false;
     if (!ReadBSHeader(F, true))
         return false;
-    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    if (!ReadCompareInt64(F, GetFileSize(Source)))
+        return false;
     if (!ReadCompareInt(F, VideoTrack))
         return false;
     if (!ReadCompareInt(F, VariableFormat))

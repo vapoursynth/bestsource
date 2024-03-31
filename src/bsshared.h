@@ -50,6 +50,7 @@ int SetFFmpegLogLevel(int Level);
 int GetFFmpegLogLevel();
 
 file_ptr_t OpenFile(const std::string &Filename, bool Write);
+int64_t GetFileSize(const std::string &Filename);
 file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write);
 void WriteInt(file_ptr_t &F, int Value);
 void WriteInt64(file_ptr_t &F, int64_t Value);
@@ -61,6 +62,7 @@ int64_t ReadInt64(file_ptr_t &F);
 double ReadDouble(file_ptr_t &F);
 std::string ReadString(file_ptr_t &F);
 bool ReadCompareInt(file_ptr_t &F, int Value);
+bool ReadCompareInt64(file_ptr_t &F, int64_t Value);
 bool ReadCompareDouble(file_ptr_t &F, double Value);
 bool ReadCompareString(file_ptr_t &F, const std::string &Value);
 bool ReadBSHeader(file_ptr_t &F, bool Video);

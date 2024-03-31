@@ -1035,7 +1035,7 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     if (!F)
         return false;
     WriteBSHeader(F, false);
-    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    WriteInt64(F, GetFileSize(Source));
     WriteInt(F, AudioTrack);
     WriteInt(F, VariableFormat);
     WriteDouble(F, DrcScale);
@@ -1063,7 +1063,8 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
         return false;
     if (!ReadBSHeader(F, false))
         return false;
-    // FIXME, file size, hash or something else here to make sure the index is for the right file?
+    if (!ReadCompareInt64(F, GetFileSize(Source)))
+        return false;
     if (!ReadCompareInt(F, AudioTrack))
         return false;
     if (!ReadCompareInt(F, VariableFormat))

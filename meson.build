@@ -12,6 +12,7 @@ link_static = get_option('link_static')
 
 sources = [
     'src/audiosource.cpp',
+    'src/avisynth.cpp',
     'src/bsshared.cpp',
     'src/vapoursynth.cpp',
     'src/videosource.cpp'
@@ -64,6 +65,7 @@ elif is_gnu_linker
 endif
 
 shared_module('bestsource', sources,
+    cpp_args: ['-D_FILE_OFFSET_BITS=64']
     dependencies: deps,
     gnu_symbol_visibility: 'hidden',
     install: true,

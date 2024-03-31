@@ -71,6 +71,19 @@ file_ptr_t OpenFile(const std::string &Filename, bool Write) {
     return F;
 }
 
+int64_t GetFileSize(const std::string &Filename) {
+    file_ptr_t F = OpenFile(Filename, false);
+#ifdef _WIN32
+    if (fseek(F.get(), 0, SEEK_END) != 0)
+        return -1;
+    return _ftelli64(F.get());
+#else
+    if (fseeko(F.get(), 0, SEEK_END) != 0)
+        return -1;
+    return ftello(F.get());
+#endif
+}
+
 file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
     return OpenFile(CachePath + "." + std::to_string(Track) + ".bsindex", Write);
 }
@@ -137,6 +150,11 @@ std::string ReadString(file_ptr_t &F) {
 
 bool ReadCompareInt(file_ptr_t &F, int Value) {
     int Value2 = ReadInt(F);
+    return (Value == Value2);
+}
+
+bool ReadCompareInt64(file_ptr_t &F, int64_t Value) {
+    int64_t Value2 = ReadInt64(F);
     return (Value == Value2);
 }
 
