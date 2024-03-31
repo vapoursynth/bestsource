@@ -448,5 +448,5 @@ extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironme
     Env->AddFunction("BSSetDebugOutput", "b[enable]", BSSetDebugOutput, nullptr);
     Env->AddFunction("BSSetFFmpegLogLevel", "i[level]", BSSetFFmpegLogLevel, nullptr);
 
-    return "Best Source (BS)";
+    return "Best Source 2";
 }
