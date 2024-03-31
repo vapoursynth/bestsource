@@ -435,7 +435,7 @@ static AVSValue __cdecl BSSetDebugOutput(AVSValue Args, void *UserData, IScriptE
 
 static AVSValue __cdecl BSSetFFmpegLogLevel(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
-    return SetFFmpegLogLevel(Args[0].AsInt());
+    return SetFFmpegLogLevel(Args[0].AsInt(32));
 }
 
 const AVS_Linkage *AVS_linkage = nullptr;

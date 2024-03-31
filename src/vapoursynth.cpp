@@ -409,7 +409,11 @@ static void VS_CC SetDebugOutput(const VSMap *in, VSMap *out, void *, VSCore *, 
 
 static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
     BSInit();
-    vsapi->mapSetInt(out, "level", SetFFmpegLogLevel(vsapi->mapGetIntSaturated(in, "level", 0, nullptr)), maReplace);
+    int err;
+    int level = vsapi->mapGetIntSaturated(in, "level", 0, &err);
+    if (err)
+        level = 32;
+    vsapi->mapSetInt(out, "level", SetFFmpegLogLevel(), maReplace);
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
