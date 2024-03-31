@@ -402,9 +402,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     vsapi->createAudioFilter(Out, "AudioSource", &D->AI, BestAudioSourceGetFrame, BestAudioSourceFree, fmUnordered, nullptr, 0, D, Core);
 }
 
-static void VS_CC GetLogLevel(const VSMap *, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
+static void VS_CC SetDebugOutput(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
     BSInit();
-    vsapi->mapSetInt(out, "level", GetFFmpegLogLevel(), maReplace);
+    SetBSDebugOutput(!!vsapi->mapGetInt(in, "enable", 0, nullptr));
 }
 
 static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
@@ -416,6 +416,6 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
-    vspapi->registerFunction("GetLogLevel", "", "level:int;", GetLogLevel, nullptr, plugin);
-    vspapi->registerFunction("SetLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
+    vspapi->registerFunction("SetDebugOutput", "", "enable:int;", SetDebugOutput, nullptr, plugin);
+    vspapi->registerFunction("SetFFmpegLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
 }

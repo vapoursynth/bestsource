@@ -40,9 +40,10 @@ ninja -C build install
 
 `bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, bint showprogress = True])`
 
-`bs.SetLogLevel(int level)`
+`bs.SetDebugOutput(bint enable = False)`
 
-`bs.GetLogLevel()`
+`bs.SetFFmpegLogLevel(int level)`
+
 
 ## Avisynth+ usage
 
@@ -50,9 +51,11 @@ ninja -C build install
 
 `BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes])`
 
-`BSSetLogLevel(int level)`
+`BSSetDebugOutput(bool enable = False)`
 
-`BSGetLogLevel()`
+`BSSetFFmpegLogLevel(int level)`
+
+
 
 ## Argument explanation
 
@@ -90,4 +93,4 @@ ninja -C build install
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages.
 
-*level*: The log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Both functions return the current/newly set level. Mostly useful for debugging purposes.
+*level*: The log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Mostly useful for debugging purposes.

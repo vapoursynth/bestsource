@@ -34,16 +34,6 @@ extern "C" {
 #include <libavutil/hash.h>
 }
 
-#undef NDEBUG
-
-#ifndef NDEBUG
-static void DebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1) {
-    printf("Req/Current: %" PRId64 "/%" PRId64 ", %s\n", RequestedN, CurrentN, Message.data());
-}
-#else
-#define DebugPrint(x, ...)
-#endif
-
 bool LWAudioDecoder::ReadPacket() {
     while (av_read_frame(FormatContext, Packet) >= 0) {
         if (Packet->stream_index == TrackNumber)
@@ -512,7 +502,7 @@ BestAudioFrame *BestAudioSource::GetFrame(int64_t N, bool Linear) {
 void BestAudioSource::SetLinearMode() {
     assert(!LinearMode);
     if (!LinearMode) {
-        DebugPrint("Linear mode is now forced");
+        BSDebugPrint("Linear mode is now forced");
         LinearMode = true;
         FrameCache.Clear();
         for (size_t i = 0; i < MaxVideoSources; i++)
@@ -571,7 +561,7 @@ namespace {
 
 BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std::unique_ptr<LWAudioDecoder> &Decoder, size_t Depth) {
     if (!Decoder->Seek(TrackIndex.Frames[SeekFrame].PTS)) {
-        DebugPrint("Unseekable file", N);
+        BSDebugPrint("Unseekable file", N);
         SetLinearMode();
         return GetFrameLinearInternal(N);
     }
@@ -584,10 +574,10 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
             BadSeekLocations.insert(SeekFrame);
-            DebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
+            BSDebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
             if (Depth < RetrySeekAttempts) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
                     Decoder.reset();
                     return GetFrameLinearInternal(N);
@@ -595,7 +585,7 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                     return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
-                DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                 SetLinearMode();
                 return GetFrameLinearInternal(N);
             }
@@ -632,21 +622,21 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
 #ifndef NDEBUG
         if (!SuitableCandidate && Matches.size() > 0)
-            DebugPrint("Seek location beyond destination, have to retry seeking", N, SeekFrame);
+            BSDebugPrint("Seek location beyond destination, have to retry seeking", N, SeekFrame);
         else if (!SuitableCandidate)
-            DebugPrint("Seek location yielded corrupt frame, have to retry seeking", N, SeekFrame);
+            BSDebugPrint("Seek location yielded corrupt frame, have to retry seeking", N, SeekFrame);
 
         if (UndeterminableLocation)
-            DebugPrint("Seek location cannot be unambiguosly identified, have to retry seeking", N, SeekFrame);
+            BSDebugPrint("Seek location cannot be unambiguosly identified, have to retry seeking", N, SeekFrame);
 #endif
 
         if (!SuitableCandidate || UndeterminableLocation) {
-            DebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
+            BSDebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
             BadSeekLocations.insert(SeekFrame);
             MatchFrames.clear();
             if (Depth < RetrySeekAttempts) {
                 int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
                 if (SeekFrameNext < 100) { // #2 again
                     Decoder.reset();
                     return GetFrameLinearInternal(N);
@@ -654,7 +644,7 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                     return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                 }
             } else {
-                DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                 // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
                 SetLinearMode();
                 return GetFrameLinearInternal(N);
@@ -666,7 +656,7 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
 #ifndef NDEBUG
             if (MatchedN < 100)
-                DebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
+                BSDebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
 #endif
 
             Decoder->SetFrameNumber(MatchedN + MatchFrames.size(), TrackIndex.Frames[MatchedN + MatchFrames.size()].Start);
@@ -779,12 +769,12 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                 av_frame_free(&Frame);
 
                 if (Decoder->HasSeeked()) {
-                    DebugPrint("Decoded frame does not match hash in GetFrameLinearInternal() or no frame produced at all, added as bad seek location", N, FrameNumber);
+                    BSDebugPrint("Decoded frame does not match hash in GetFrameLinearInternal() or no frame produced at all, added as bad seek location", N, FrameNumber);
                     assert(SeekFrame >= 0);
                     BadSeekLocations.insert(SeekFrame);
                     if (Depth < RetrySeekAttempts) {
                         int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                        DebugPrint("Retrying seeking with", N, SeekFrameNext);
+                        BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
                         if (SeekFrameNext < 100) { // #2 again
                             Decoder.reset();
                             return GetFrameLinearInternal(N);
@@ -792,12 +782,12 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                             return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
                         }
                     } else {
-                        DebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                        BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
                         SetLinearMode();
                         return GetFrameLinearInternal(N, -1, 0, true);
                     }
                 } else {
-                    DebugPrint("Linear decoding returned a bad frame, this should be impossible so I'll just return nothing now. Try deleting the index and using threads=1 if you haven't already done so.", N, SeekFrame);
+                    BSDebugPrint("Linear decoding returned a bad frame, this should be impossible so I'll just return nothing now. Try deleting the index and using threads=1 if you haven't already done so.", N, SeekFrame);
                     return nullptr;
                 }
             }

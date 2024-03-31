@@ -427,15 +427,15 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CachePath, CacheSize, Env);
 }
 
-static AVSValue __cdecl BSGetLogLevel(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
+static AVSValue __cdecl BSSetDebugOutput(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
-    return GetFFmpegLogLevel();
+    SetBSDebugOutput(Args[0].AsBool(false));
+    return AVSValue();
 }
 
-static AVSValue __cdecl BSSetLogLevel(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
+static AVSValue __cdecl BSSetFFmpegLogLevel(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
-    SetFFmpegLogLevel(Args[0].AsInt());
-    return GetFFmpegLogLevel();
+    return SetFFmpegLogLevel(Args[0].AsInt());
 }
 
 const AVS_Linkage *AVS_linkage = nullptr;
@@ -445,8 +445,8 @@ extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironme
 
     Env->AddFunction("BSVideoSource", "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[varprefix]s", CreateBSVideoSource, nullptr);
     Env->AddFunction("BSAudioSource", "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachepath]s[cachesize]i", CreateBSAudioSource, nullptr);
-    Env->AddFunction("BSGetLogLevel", "", BSGetLogLevel, nullptr);
-    Env->AddFunction("BSSetLogLevel", "i", BSSetLogLevel, nullptr);
+    Env->AddFunction("BSSetDebugOutput", "b[enable]", BSSetDebugOutput, nullptr);
+    Env->AddFunction("BSSetFFmpegLogLevel", "i[level]", BSSetFFmpegLogLevel, nullptr);
 
     return "Best Source (BS)";
 }

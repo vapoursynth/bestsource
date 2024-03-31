@@ -47,7 +47,9 @@ struct BSRational {
 };
 
 int SetFFmpegLogLevel(int Level);
-int GetFFmpegLogLevel();
+
+void SetBSDebugOutput(bool DebugOutput);
+void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1);
 
 file_ptr_t OpenFile(const std::string &Filename, bool Write);
 int64_t GetFileSize(const std::string &Filename);

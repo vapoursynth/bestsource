@@ -22,6 +22,7 @@
 #include "bsshared.h"
 #include "version.h"
 #include <string>
+#include <atomic>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -40,14 +41,24 @@ double BSRational::ToDouble() const {
     return Num / (double)Den;
 }
 
-
 int SetFFmpegLogLevel(int Level) {
     av_log_set_level(Level);
-    return GetFFmpegLogLevel();
+    return av_log_get_level();
 }
 
-int GetFFmpegLogLevel() {
-    return av_log_get_level();
+static std::atomic_bool PrintDebugInfo(false);
+
+void SetBSDebugOutput(bool DebugOutput) {
+    PrintDebugInfo = DebugOutput;
+}
+
+void BSDebugPrint(const std::string_view Message, int64_t RequestedN, int64_t CurrentN) {
+    if (PrintDebugInfo) {
+        if (RequestedN == -1 && CurrentN == -1)
+            fprintf(stderr, "%s\n", Message.data());
+        else
+            fprintf(stderr, "Req/Current: %" PRId64 "/%" PRId64 ", %s\n", RequestedN, CurrentN, Message.data());
+    }
 }
 
 #ifdef _WIN32
