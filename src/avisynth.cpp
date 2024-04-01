@@ -278,6 +278,7 @@ public:
         if (Src->InterlacedFrame)
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         Env->propSetInt(Props, "_FieldBased", FieldBased, 0);
+        Env->propSetInt(Props, "RepeatField", Src->RepeatPict, 0);
 
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {

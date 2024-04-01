@@ -136,6 +136,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (Src->InterlacedFrame)
             FieldBased = (Src->TopFieldFirst ? 2 : 1);
         vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
+        vsapi->mapSetInt(Props, "RepeatField", Src->RepeatPict, maAppend);
 
         // FIXME, use PTS difference between frames instead?
         if (Src->Duration > 0) {
