@@ -52,7 +52,6 @@ deps = [
     dependency('libavcodec', version: '>=60.31.0', static: link_static),
     dependency('libavformat', version: '>=60.16.0', static: link_static),
     dependency('libavutil', version: '>=58.29.0', static: link_static),
-    dependency('libswscale', version: '>=7.5.0', static: link_static)
 ]
 
 is_gnu_linker = meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']

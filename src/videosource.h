@@ -189,7 +189,7 @@ private:
             int RepeatPict;
             bool KeyFrame;
             bool TFF;
-            std::array<uint8_t, 16> Hash;
+            std::array<uint8_t, HashSize> Hash;
         };
 
         int64_t LastFrameDuration;

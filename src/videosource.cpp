@@ -27,16 +27,16 @@
 
 #include "../libp2p/p2p_api.h"
 
+#include <xxhash.h>
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/stereo3d.h>
 #include <libavutil/display.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/hdr_dynamic_metadata.h>
-#include <libavutil/hash.h>
 }
 
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
@@ -676,8 +676,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     return true;
 }
 
-static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
-    std::array<uint8_t, 16> Hash;
+static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
+    std::array<uint8_t, HashSize> Result;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     int NumPlanes = 0;
     int SampleSize[4] = {};
@@ -687,8 +687,8 @@ static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
         NumPlanes = std::max(NumPlanes, desc->comp[i].plane + 1);
     }
 
-    AVHashContext *hctx;
-    av_hash_alloc(&hctx, "md5");
+    XXH3_state_t *hctx = XXH3_createState();
+    XXH3_64bits_reset(hctx);
 
     for (int p = 0; p < NumPlanes; p++) {
         int Width = Frame->width;
@@ -701,14 +701,18 @@ static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
         assert(Width <= Frame->linesize[p]);
         const uint8_t *Data = Frame->data[p];
         for (int h = 0; h < Height; h++) {
-            av_hash_update(hctx, Data, Width);
+            XXH3_64bits_update(hctx, Data, Width);
             Data += Frame->linesize[p];
         }
     }
 
-    av_hash_final(hctx, Hash.data());
-    av_hash_freep(&hctx);
-    return Hash;
+    XXH64_hash_t FinalHash = XXH3_64bits_digest(hctx);
+    static_assert(sizeof(Result) == sizeof(FinalHash));
+    memcpy(Result.data(), &FinalHash, sizeof(FinalHash));
+    
+    // Free the state. Do not use free().
+    XXH3_freeState(hctx);
+    return Result;
 }
 
 BestVideoSource::Cache::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Frame) : FrameNumber(FrameNumber), Frame(Frame) {
@@ -912,7 +916,7 @@ int64_t BestVideoSource::GetSeekFrame(int64_t N) {
 namespace {
     class FrameHolder {
     private:
-        std::vector<std::pair<AVFrame *, std::array<uint8_t, 16>>> Data;
+        std::vector<std::pair<AVFrame *, std::array<uint8_t, HashSize>>> Data;
     public:
         void clear() {
             for (auto &iter : Data)
@@ -939,7 +943,7 @@ namespace {
             return Tmp;
         }
 
-        [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, 16> &Other) {
+        [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, HashSize> &Other) {
             return Data[Index].second == Other;
         }
 

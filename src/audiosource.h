@@ -115,7 +115,7 @@ private:
             int64_t PTS;
             int64_t Start;
             int64_t Length;
-            std::array<uint8_t, 16> Hash;
+            std::array<uint8_t, HashSize> Hash;
         };
 
         std::vector<FrameInfo> Frames;

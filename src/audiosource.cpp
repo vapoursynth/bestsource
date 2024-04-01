@@ -28,6 +28,8 @@
 
 #include "../libp2p/p2p_api.h"
 
+#include <xxhash.h>
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -293,26 +295,30 @@ const AVFrame *BestAudioFrame::GetAVFrame() const {
     return Frame;
 };
 
-static std::array<uint8_t, 16> GetHash(const AVFrame *Frame) {
-    std::array<uint8_t, 16> Hash;
+static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
+    std::array<uint8_t, HashSize> Result;
 
     bool IsPlanar = av_sample_fmt_is_planar(static_cast<AVSampleFormat>(Frame->format));
     int BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(Frame->format));
 
-    AVHashContext *hctx;
-    av_hash_alloc(&hctx, "md5");
+    XXH3_state_t *hctx = XXH3_createState();
+    XXH3_64bits_reset(hctx);
 
     if (IsPlanar) {
         int NumPlanes = Frame->ch_layout.nb_channels;
         for (int p = 0; p < NumPlanes; p++)
-            av_hash_update(hctx, Frame->extended_data[p], BytesPerSample * Frame->nb_samples);
+            XXH3_64bits_update(hctx, Frame->extended_data[p], BytesPerSample * Frame->nb_samples);
     } else {
-        av_hash_update(hctx, Frame->data[0], BytesPerSample * Frame->ch_layout.nb_channels * Frame->nb_samples);
+        XXH3_64bits_update(hctx, Frame->data[0], BytesPerSample * Frame->ch_layout.nb_channels * Frame->nb_samples);
     }
 
-    av_hash_final(hctx, Hash.data());
-    av_hash_freep(&hctx);
-    return Hash;
+    XXH64_hash_t FinalHash = XXH3_64bits_digest(hctx);
+    static_assert(sizeof(Result) == sizeof(FinalHash));
+    memcpy(Result.data(), &FinalHash, sizeof(FinalHash));
+
+    // Free the state. Do not use free().
+    XXH3_freeState(hctx);
+    return Result;
 }
 
 BestAudioSource::Cache::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Frame) : FrameNumber(FrameNumber), Frame(Frame) {
@@ -522,7 +528,7 @@ int64_t BestAudioSource::GetSeekFrame(int64_t N) {
 namespace {
     class FrameHolder {
     private:
-        std::vector<std::pair<AVFrame *, std::array<uint8_t, 16>>> Data;
+        std::vector<std::pair<AVFrame *, std::array<uint8_t, HashSize>>> Data;
     public:
         void clear() {
             for (auto &iter : Data)
@@ -549,7 +555,7 @@ namespace {
             return Tmp;
         }
 
-        [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, 16> &Other) {
+        [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, HashSize> &Other) {
             return Data[Index].second == Other;
         }
 

@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <string>
 
+constexpr size_t HashSize = 8;
+
 namespace std {
     template<>
     struct default_delete<FILE> {
@@ -34,9 +36,9 @@ namespace std {
     };
 }
 
-struct AVRational;
-
 typedef std::unique_ptr<FILE> file_ptr_t;
+
+struct AVRational;
 
 struct BSRational {
     int Num;
