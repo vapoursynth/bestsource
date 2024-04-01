@@ -52,6 +52,7 @@ deps = [
     dependency('libavcodec', version: '>=60.31.0', static: link_static),
     dependency('libavformat', version: '>=60.16.0', static: link_static),
     dependency('libavutil', version: '>=58.29.0', static: link_static),
+    dependency('libxxhash'),
 ]
 
 is_gnu_linker = meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
@@ -64,7 +65,7 @@ elif is_gnu_linker
 endif
 
 shared_module('bestsource', sources,
-    cpp_args: ['-D_FILE_OFFSET_BITS=64']
+    cpp_args: ['-D_FILE_OFFSET_BITS=64'],
     dependencies: deps,
     gnu_symbol_visibility: 'hidden',
     install: true,
