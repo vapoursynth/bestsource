@@ -166,10 +166,10 @@ public:
 
             // FIXME, does anyone use this?
             // Set AR variables
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_NUM"), VP.SAR.Num);
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR_DEN"), VP.SAR.Den);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR_NUM"), VP.SAR.Num);
+            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR_DEN"), VP.SAR.Den);
             if (VP.SAR.Num > 0 && VP.SAR.Den > 0)
-                Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSSAR"), VP.SAR.Num / static_cast<double>(VP.SAR.Den));
+                Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR"), VP.SAR.Num / static_cast<double>(VP.SAR.Den));
 
             /*
             FIXME, is this even relevant?
