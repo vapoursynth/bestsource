@@ -710,7 +710,6 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     static_assert(sizeof(Result) == sizeof(FinalHash));
     memcpy(Result.data(), &FinalHash, sizeof(FinalHash));
     
-    // Free the state. Do not use free().
     XXH3_freeState(hctx);
     return Result;
 }
@@ -1301,6 +1300,36 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
 
     WriteInt64(F, TrackIndex.Frames.size());
     WriteInt64(F, TrackIndex.LastFrameDuration);
+
+    std::map<int64_t, size_t> PTSFreq;
+    std::map<int, size_t> RepeatFreq;
+    std::map<int, size_t> FlagFreq;
+
+    
+
+    // FIXME, actual predictor has to be more complicated such as the diff between the two first
+    // not AV_NOPTS_VALUE frames
+    // If this can't be done simply set to 0
+    int64_t LastPTSValue = TrackIndex.Frames[1].PTS - 2 * (TrackIndex.Frames[1].PTS - TrackIndex.Frames[0].PTS);
+    for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
+        int64_t PTS = TrackIndex.Frames[i].PTS;
+        if (PTS == AV_NOPTS_VALUE) {
+            PTSFreq[AV_NOPTS_VALUE]++;
+        } else {
+            PTSFreq[PTS - LastPTSValue]++;
+            LastPTSValue = PTS;
+        }
+
+        RepeatFreq[TrackIndex.Frames[i].RepeatPict]++;
+
+        FlagFreq[static_cast<int>(TrackIndex.Frames[i].KeyFrame) | (static_cast<int>(TrackIndex.Frames[i].TFF) << 1)]++;
+    }
+
+    std::vector<std::pair<size_t, int>> SortVec;
+    for (const auto &Iter : FlagFreq)
+        SortVec.push_back(std::make_pair(Iter.second, Iter.first));
+    std::sort(SortVec.begin(), SortVec.end());
+
 
     for (const auto &Iter : TrackIndex.Frames) {
         fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());

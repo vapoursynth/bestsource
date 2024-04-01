@@ -316,7 +316,6 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     static_assert(sizeof(Result) == sizeof(FinalHash));
     memcpy(Result.data(), &FinalHash, sizeof(FinalHash));
 
-    // Free the state. Do not use free().
     XXH3_freeState(hctx);
     return Result;
 }
