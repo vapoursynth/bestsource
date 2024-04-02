@@ -62,7 +62,6 @@ void SetBSDebugOutput(bool DebugOutput);
 void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1);
 
 file_ptr_t OpenFile(const std::string &Filename, bool Write);
-int64_t GetFileSize(const std::string &Filename);
 file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write);
 void WriteByte(file_ptr_t &F, uint8_t Value);
 void WriteInt(file_ptr_t &F, int Value);

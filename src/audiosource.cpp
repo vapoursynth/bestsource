@@ -384,7 +384,8 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
 
     Decoder->GetAudioProperties(AP);
     AudioTrack = Decoder->GetTrack();
-    
+    FileSize = Decoder->GetSourceSize();
+
     if (!ReadAudioTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(AudioTrack) + " failed");
@@ -1115,7 +1116,7 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
         return false;
     if (!ReadBSHeader(F, false))
         return false;
-    if (!ReadCompareInt64(F, GetFileSize(Source)))
+    if (!ReadCompareInt64(F, FileSize))
         return false;
     if (!ReadCompareInt(F, AudioTrack))
         return false;

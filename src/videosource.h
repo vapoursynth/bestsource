@@ -240,6 +240,7 @@ private:
     uint64_t DecoderLastUse[MaxVideoSources] = {};
     std::unique_ptr<LWVideoDecoder> Decoders[MaxVideoSources];
     int64_t PreRoll = 20;
+    int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();

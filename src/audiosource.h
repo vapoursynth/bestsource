@@ -158,6 +158,7 @@ private:
     std::unique_ptr<LWAudioDecoder> Decoders[MaxVideoSources];
     int64_t PreRoll = 40;
     int64_t SampleDelay = 0;
+    int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();

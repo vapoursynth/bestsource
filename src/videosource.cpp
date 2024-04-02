@@ -787,6 +787,7 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
 
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
+    FileSize = Decoder->GetSourceSize();
     
     if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
@@ -1306,7 +1307,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
     if (!F)
         return false;
     WriteBSHeader(F, true);
-    WriteInt64(F, GetFileSize(Source));
+    WriteInt64(F, FileSize);
     WriteInt(F, VideoTrack);
     WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
@@ -1383,7 +1384,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
         return false;
     if (!ReadBSHeader(F, true))
         return false;
-    if (!ReadCompareInt64(F, GetFileSize(Source)))
+    if (!ReadCompareInt64(F, FileSize))
         return false;
     if (!ReadCompareInt(F, VideoTrack))
         return false;
