@@ -57,8 +57,7 @@ bool LWAudioDecoder::DecodeNextFrame(bool SkipOutput) {
             return true;
         } else if (Ret == AVERROR(EAGAIN)) {
             if (ReadPacket()) {
-                int SendRet = avcodec_send_packet(CodecContext, Packet);
-                assert(SendRet != AVERROR(EAGAIN));
+                avcodec_send_packet(CodecContext, Packet);
                 av_packet_unref(Packet);
             } else {
                 avcodec_send_packet(CodecContext, nullptr);
@@ -376,7 +375,7 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
 }
 
 BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
-    : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), Threads(Threads), DrcScale(DrcScale) {
+    : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
@@ -764,7 +763,6 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
 
     while (Decoder && Decoder->GetFrameNumber() <= N && Decoder->HasMoreFrames()) {
         int64_t FrameNumber = Decoder->GetFrameNumber();
-        int64_t SamplePos = Decoder->GetSamplePos();
         if (FrameNumber >= N - PreRoll) {
             AVFrame *Frame = Decoder->GetNextFrame();
 
@@ -1041,7 +1039,7 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     if (!F)
         return false;
     WriteBSHeader(F, false);
-    WriteInt64(F, GetFileSize(Source));
+    WriteInt64(F, FileSize);
     WriteInt(F, AudioTrack);
     WriteInt(F, VariableFormat);
     WriteDouble(F, DrcScale);
