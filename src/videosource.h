@@ -183,15 +183,15 @@ public:
 
 class BestVideoSource {
 private:
-    struct VideoTrackIndex {
-        struct FrameInfo {
-            int64_t PTS;
-            int RepeatPict;
-            bool KeyFrame;
-            bool TFF;
-            std::array<uint8_t, HashSize> Hash;
-        };
+    struct FrameInfo {
+        int64_t PTS;
+        int RepeatPict;
+        bool KeyFrame;
+        bool TFF;
+        std::array<uint8_t, HashSize> Hash;
+    };
 
+    struct VideoTrackIndex {
         int64_t LastFrameDuration;
         std::vector<FrameInfo> Frames;
     };
@@ -262,6 +262,7 @@ public:
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false);
     [[nodiscard]] bool GetFrameIsTFF(int64_t N, bool RFF = false);
     bool WriteTimecodes(const std::string &TimecodeFile) const;
+    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N);
 };
 
 #endif

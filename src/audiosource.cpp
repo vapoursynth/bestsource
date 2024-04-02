@@ -1140,16 +1140,16 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
 
     if (DictSize > 0) {
         int64_t LastPTSValue = ReadInt64(F);
-        std::map<uint8_t, AudioTrackIndex::FrameInfo> Dict;
+        std::map<uint8_t, FrameInfo> Dict;
         for (int i = 0; i < DictSize; i++) {
-            AudioTrackIndex::FrameInfo FI = {};
+            FrameInfo FI = {};
             FI.PTS = ReadInt64(F);
             FI.Length = ReadInt64(F);
             Dict[i] = FI;
         }
 
         for (int i = 0; i < NumFrames; i++) {
-            AudioTrackIndex::FrameInfo FI = Dict.at(ReadByte(F));
+            FrameInfo FI = Dict.at(ReadByte(F));
             if (FI.PTS != AV_NOPTS_VALUE) {
                 FI.PTS += LastPTSValue;
                 LastPTSValue = FI.PTS;
@@ -1162,7 +1162,7 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
         }
     } else {
         for (int i = 0; i < NumFrames; i++) {
-            AudioTrackIndex::FrameInfo FI = {};
+            FrameInfo FI = {};
             if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
                 return false;
             FI.PTS = ReadInt64(F);
@@ -1176,3 +1176,6 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
     return true;
 }
 
+const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) {
+    return TrackIndex.Frames[N];
+}

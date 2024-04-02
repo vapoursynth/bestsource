@@ -1271,9 +1271,9 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
 
 BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
     int64_t PTS = static_cast<int64_t>(((Time * 1000 * VP.TimeBase.Den) / VP.TimeBase.Num) + .001);
-    VideoTrackIndex::FrameInfo F{ PTS };
+    FrameInfo F{ PTS };
 
-    auto Pos = std::lower_bound(TrackIndex.Frames.begin(), TrackIndex.Frames.end(), F, [](const VideoTrackIndex::FrameInfo &FI1, const VideoTrackIndex::FrameInfo &FI2) { return FI1.PTS < FI2.PTS; });
+    auto Pos = std::lower_bound(TrackIndex.Frames.begin(), TrackIndex.Frames.end(), F, [](const FrameInfo &FI1, const FrameInfo &FI2) { return FI1.PTS < FI2.PTS; });
 
     if (Pos == TrackIndex.Frames.end())
         return GetFrame(TrackIndex.Frames.size() - 1, Linear);
@@ -1403,9 +1403,9 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
     
     if (DictSize > 0) {
         int64_t LastPTSValue = ReadInt64(F);
-        std::map<uint8_t, VideoTrackIndex::FrameInfo> Dict;
+        std::map<uint8_t, FrameInfo> Dict;
         for (int i = 0; i < DictSize; i++) {
-            VideoTrackIndex::FrameInfo FI = {};
+            FrameInfo FI = {};
             FI.PTS = ReadInt64(F);
             FI.RepeatPict = ReadInt(F);
             uint8_t Flags = ReadByte(F);
@@ -1415,7 +1415,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
         }
 
         for (int i = 0; i < NumFrames; i++) {
-            VideoTrackIndex::FrameInfo FI = Dict.at(ReadByte(F));
+            FrameInfo FI = Dict.at(ReadByte(F));
             if (FI.PTS != AV_NOPTS_VALUE) {
                 FI.PTS += LastPTSValue;
                 LastPTSValue = FI.PTS;
@@ -1426,7 +1426,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
         }
     } else {
         for (int i = 0; i < NumFrames; i++) {
-            VideoTrackIndex::FrameInfo FI = {};
+            FrameInfo FI = {};
             if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
                 return false;
             FI.PTS = ReadInt64(F);
@@ -1465,4 +1465,8 @@ bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
         fprintf(F.get(), "%.02f\n", (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den);
 
     return true;
+}
+
+const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) {
+    return TrackIndex.Frames[N];
 }

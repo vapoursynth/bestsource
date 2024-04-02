@@ -110,14 +110,14 @@ public:
 
 class BestAudioSource {
 private:
-    struct AudioTrackIndex {
-        struct FrameInfo {
-            int64_t PTS;
-            int64_t Start;
-            int64_t Length;
-            std::array<uint8_t, HashSize> Hash;
-        };
+    struct FrameInfo {
+        int64_t PTS;
+        int64_t Start;
+        int64_t Length;
+        std::array<uint8_t, HashSize> Hash;
+    };
 
+    struct AudioTrackIndex {
         std::vector<FrameInfo> Frames;
     };
 
@@ -195,6 +195,7 @@ public:
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;
     void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count);
     void GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count);
+    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N);
 };
 
 #endif
