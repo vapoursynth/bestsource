@@ -1467,6 +1467,10 @@ bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
     return true;
 }
 
-const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) {
+const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) const {
     return TrackIndex.Frames[N];
+}
+
+bool BestVideoSource::GetLinearDecodingState() const {
+    return LinearMode;
 }

@@ -195,7 +195,8 @@ public:
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;
     void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count);
     void GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count);
-    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N);
+    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;
+    [[nodiscard]] bool GetLinearDecodingState() const;
 };
 
 #endif

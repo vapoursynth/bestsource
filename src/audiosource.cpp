@@ -1176,6 +1176,10 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
     return true;
 }
 
-const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) {
+const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) const {
     return TrackIndex.Frames[N];
+}
+
+bool BestAudioSource::GetLinearDecodingState() const {
+    return LinearMode;
 }
