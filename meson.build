@@ -14,6 +14,7 @@ sources = [
     'src/audiosource.cpp',
     'src/avisynth.cpp',
     'src/bsshared.cpp',
+    'src/tracklist.cpp',
     'src/vapoursynth.cpp',
     'src/videosource.cpp'
 ]

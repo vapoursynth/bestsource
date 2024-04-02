@@ -80,7 +80,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     if (!DecodeFrame) {
         DecodeFrame = av_frame_alloc();
         if (!DecodeFrame)
-            throw VideoException("Couldn't allocate frame");
+            throw BestSourceException("Couldn't allocate frame");
     }
 
     while (true) {
@@ -116,7 +116,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     if (!HWDeviceName.empty()) {
         Type = av_hwdevice_find_type_by_name(HWDeviceName.c_str());
         if (Type == AV_HWDEVICE_TYPE_NONE)
-            throw VideoException("Unknown HW device: " + HWDeviceName);
+            throw BestSourceException("Unknown HW device: " + HWDeviceName);
     }
 
     HWMode = (Type != AV_HWDEVICE_TYPE_NONE);
@@ -126,14 +126,14 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
-        throw VideoException("Couldn't open '" + SourceFile + "'");
+        throw BestSourceException("Couldn't open '" + SourceFile + "'");
 
     av_dict_free(&Dict);
 
     if (avformat_find_stream_info(FormatContext, nullptr) < 0) {
         avformat_close_input(&FormatContext);
         FormatContext = nullptr;
-        throw VideoException("Couldn't find stream information");
+        throw BestSourceException("Couldn't find stream information");
     }
 
     if (TrackNumber < 0) {
@@ -150,10 +150,10 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     }
 
     if (TrackNumber < 0 || TrackNumber >= static_cast<int>(FormatContext->nb_streams))
-        throw VideoException("Invalid track index");
+        throw BestSourceException("Invalid track index");
 
     if (FormatContext->streams[TrackNumber]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
-        throw VideoException("Not a video track");
+        throw BestSourceException("Not a video track");
 
     for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++)
         if (i != TrackNumber)
@@ -166,14 +166,14 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         Codec = avcodec_find_decoder(FormatContext->streams[TrackNumber]->codecpar->codec_id);
 
     if (Codec == nullptr)
-        throw VideoException("Video codec not found");
+        throw BestSourceException("Video codec not found");
 
     AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
     if (HWMode) {
         for (int i = 0;; i++) {
             const AVCodecHWConfig *Config = avcodec_get_hw_config(Codec, i);
             if (!Config)
-                throw VideoException("Decoder " + std::string(Codec->name) + " does not support device type " + av_hwdevice_get_type_name(Type));
+                throw BestSourceException("Decoder " + std::string(Codec->name) + " does not support device type " + av_hwdevice_get_type_name(Type));
             if (Config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
                 Config->device_type == Type) {
                 hw_pix_fmt = Config->pix_fmt;
@@ -184,10 +184,10 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
 
     CodecContext = avcodec_alloc_context3(Codec);
     if (CodecContext == nullptr)
-        throw VideoException("Could not allocate video decoding context");
+        throw BestSourceException("Could not allocate video decoding context");
 
     if (avcodec_parameters_to_context(CodecContext, FormatContext->streams[TrackNumber]->codecpar) < 0)
-        throw VideoException("Could not copy video codec parameters");
+        throw BestSourceException("Could not copy video codec parameters");
 
     if (Threads < 1) {
         int HardwareConcurrency = std::thread::hardware_concurrency();
@@ -219,16 +219,16 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         CodecContext->extra_hw_frames = ExtraHWFrames;
         CodecContext->pix_fmt = hw_pix_fmt;
         if (av_hwdevice_ctx_create(&HWDeviceContext, Type, nullptr, nullptr, 0) < 0)
-            throw VideoException("Failed to create specified HW device");
+            throw BestSourceException("Failed to create specified HW device");
         CodecContext->hw_device_ctx = av_buffer_ref(HWDeviceContext);
 
         HWFrame = av_frame_alloc();
         if (!HWFrame)
-                throw VideoException("Couldn't allocate frame");
+                throw BestSourceException("Couldn't allocate frame");
     }
 
     if (avcodec_open2(CodecContext, Codec, nullptr) < 0)
-        throw VideoException("Could not open video codec");
+        throw BestSourceException("Could not open video codec");
 }
 
 LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
@@ -538,9 +538,9 @@ const AVFrame *BestVideoFrame::GetAVFrame() const {
 void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
     const AVFrame *FieldSrc = AFieldSrc->GetAVFrame();
     if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
-        throw VideoException("Merged frames must have same format");
+        throw BestSourceException("Merged frames must have same format");
     if (av_frame_make_writable(Frame) < 0)
-        throw VideoException("Failed to make AVFrame writable");
+        throw BestSourceException("Failed to make AVFrame writable");
 
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
 
@@ -779,7 +779,7 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
         LAVFOptions = *LAVFOpts;
 
     if (ExtraHWFrames < 0)
-        throw VideoException("ExtraHWFrames must be 0 or greater");
+        throw BestSourceException("ExtraHWFrames must be 0 or greater");
 
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
@@ -788,13 +788,13 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     
     if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
-            throw VideoException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
+            throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
 
         WriteVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath);
     }
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
-        throw VideoException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
+        throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
 
     VP.NumFrames = TrackIndex.Frames.size();
     VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + std::max<int64_t>(1, TrackIndex.LastFrameDuration);
@@ -822,7 +822,7 @@ void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
 
 void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
     if (Frames < 0 || Frames > 40)
-        throw VideoException("SeekPreRoll must be between 0 and 40");
+        throw BestSourceException("SeekPreRoll must be between 0 and 40");
     PreRoll = Frames;
 }
 
@@ -863,7 +863,7 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
         av_frame_free(&F);
         if (Progress) {
             if (!Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize))
-                throw VideoException("Indexing canceled by user");
+                throw BestSourceException("Indexing canceled by user");
         }
     };
 

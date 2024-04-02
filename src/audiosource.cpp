@@ -33,7 +33,6 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavutil/hash.h>
 }
 
 bool LWAudioDecoder::ReadPacket() {
@@ -49,7 +48,7 @@ bool LWAudioDecoder::DecodeNextFrame(bool SkipOutput) {
     if (!DecodeFrame) {
         DecodeFrame = av_frame_alloc();
         if (!DecodeFrame)
-            throw AudioException("Couldn't allocate frame");
+            throw BestSourceException("Couldn't allocate frame");
     }
 
     while (true) {
@@ -80,14 +79,14 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
     if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
-        throw AudioException("Couldn't open '" + SourceFile + "'");
+        throw BestSourceException("Couldn't open '" + SourceFile + "'");
 
     av_dict_free(&Dict);
 
     if (avformat_find_stream_info(FormatContext, nullptr) < 0) {
         avformat_close_input(&FormatContext);
         FormatContext = nullptr;
-        throw AudioException("Couldn't find stream information");
+        throw BestSourceException("Couldn't find stream information");
     }
 
     if (TrackNumber < 0) {
@@ -104,10 +103,10 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
     }
 
     if (TrackNumber < 0 || TrackNumber >= static_cast<int>(FormatContext->nb_streams))
-        throw AudioException("Invalid track index");
+        throw BestSourceException("Invalid track index");
 
     if (FormatContext->streams[TrackNumber]->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
-        throw AudioException("Not an audio track");
+        throw BestSourceException("Not an audio track");
 
     for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++)
         if (i != TrackNumber)
@@ -116,14 +115,14 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
     const AVCodec *Codec = avcodec_find_decoder(FormatContext->streams[TrackNumber]->codecpar->codec_id);
 
     if (Codec == nullptr)
-        throw AudioException("Audio codec not found");
+        throw BestSourceException("Audio codec not found");
 
     CodecContext = avcodec_alloc_context3(Codec);
     if (CodecContext == nullptr)
-        throw AudioException("Could not allocate video decoding context");
+        throw BestSourceException("Could not allocate video decoding context");
 
     if (avcodec_parameters_to_context(CodecContext, FormatContext->streams[TrackNumber]->codecpar) < 0)
-        throw AudioException("Could not copy video codec parameters");
+        throw BestSourceException("Could not copy video codec parameters");
 
     if (Threads < 1) {
         int HardwareConcurrency = std::thread::hardware_concurrency();
@@ -138,14 +137,14 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
     }
 
     if (DrcScale < 0)
-        throw AudioException("Invalid drc_scale value");
+        throw BestSourceException("Invalid drc_scale value");
 
     AVDictionary *CodecDict = nullptr;
     if (Codec->id == AV_CODEC_ID_AC3 || Codec->id == AV_CODEC_ID_EAC3)
         av_dict_set(&CodecDict, "drc_scale", std::to_string(DrcScale).c_str(), 0);
 
     if (avcodec_open2(CodecContext, Codec, nullptr) < 0)
-        throw AudioException("Could not open audio codec");
+        throw BestSourceException("Could not open audio codec");
 }
 
 LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
@@ -213,7 +212,7 @@ void LWAudioDecoder::GetAudioProperties(AudioProperties &AP) {
         av_channel_layout_default(&ch, PropFrame->ch_layout.nb_channels);
         AP.ChannelLayout = ch.u.mask;
     } else {
-        throw AudioException("Ambisonics and custom channel orders not supported");
+        throw BestSourceException("Ambisonics and custom channel orders not supported");
     }
 
     AP.NumSamples = (FormatContext->duration * PropFrame->sample_rate) / AV_TIME_BASE - FormatContext->streams[TrackNumber]->codecpar->initial_padding;
@@ -221,7 +220,7 @@ void LWAudioDecoder::GetAudioProperties(AudioProperties &AP) {
         AP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * PropFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
     if (AP.AF.Bits <= 0)
-        throw AudioException("Codec returned zero size audio");
+        throw BestSourceException("Codec returned zero size audio");
 }
 
 AVFrame *LWAudioDecoder::GetNextFrame() {
@@ -388,7 +387,7 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
     
     if (!ReadAudioTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
-            throw AudioException("Indexing of '" + SourceFile + "' track #" + std::to_string(AudioTrack) + " failed");
+            throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(AudioTrack) + " failed");
 
         WriteAudioTrackIndex(CachePath.empty() ? SourceFile : CachePath);
     }
@@ -442,7 +441,7 @@ bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
         av_frame_free(&F);
         if (Progress) {
             if (!Progress(AudioTrack, Decoder->GetSourcePostion(), FileSize))
-                throw AudioException("Indexing canceled by user");
+                throw BestSourceException("Indexing canceled by user");
         }
     };
 
@@ -459,7 +458,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
             VideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
-        } catch (VideoException &) {
+        } catch (BestSourceException &) {
         }
         return 0;
     } else {
@@ -468,14 +467,14 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
             VideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
-        } catch (VideoException &) {
+        } catch (BestSourceException &) {
             try {
                 std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, false, Track, Threads, LAVFOptions, 0));
                 AudioProperties AP2;
                 Dec->GetAudioProperties(AP2);
                 return AP.StartTime - AP2.StartTime;
-            } catch (AudioException &) {
-                throw AudioException("Can't get delay relative to track");
+            } catch (BestSourceException &) {
+                throw BestSourceException("Can't get delay relative to track");
             }
         }
     }
@@ -991,7 +990,7 @@ void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count
         return;
 
     if (Count != 0)
-        throw AudioException("Code error, failed to provide all samples");
+        throw BestSourceException("Code error, failed to provide all samples");
 }
 
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
@@ -1021,7 +1020,7 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
         return;
 
     if (Count != 0)
-        throw AudioException("Code error, failed to provide all samples");
+        throw BestSourceException("Code error, failed to provide all samples");
 }
 
 ////////////////////////////////////////

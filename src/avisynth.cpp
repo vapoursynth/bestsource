@@ -67,10 +67,10 @@ public:
 
         try {
             if (FPSDen < 1)
-                throw VideoException("FPS denominator needs to be 1 or greater");
+                throw BestSourceException("FPS denominator needs to be 1 or greater");
 
             if (FPSNum > 0 && RFF)
-                throw VideoException("Cannot combine CFR and RFF modes");
+                throw BestSourceException("Cannot combine CFR and RFF modes");
 
             std::map<std::string, std::string> Opts;
             if (EnableDrefs)
@@ -92,7 +92,7 @@ public:
             } else if (VP.VF.ColorFamily == cfRGB) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_RGBAP;
             } else {
-                throw VideoException("Unsupported output colorspace");
+                throw BestSourceException("Unsupported output colorspace");
             }
 
             if (VP.VF.SubSamplingH == 0) {
@@ -102,7 +102,7 @@ public:
             } else if (VP.VF.SubSamplingH == 2) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
             } else {
-                throw VideoException("Unsupported output subsampling");
+                throw BestSourceException("Unsupported output subsampling");
             }
 
             if (VP.VF.SubSamplingW == 0) {
@@ -112,7 +112,7 @@ public:
             } else if (VP.VF.SubSamplingW == 2) {
                 VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
             } else {
-                throw VideoException("Unsupported output subsampling");
+                throw BestSourceException("Unsupported output subsampling");
             }
 
             if (VP.VF.Bits == 32 && VP.VF.Float) {
@@ -128,7 +128,7 @@ public:
             } else if (VP.VF.Bits == 8 && !VP.VF.Float) {
                 VI.pixel_type |= VideoInfo::CS_Sample_Bits_8;
             } else {
-                throw VideoException("Unsupported output bitdepth");
+                throw BestSourceException("Unsupported output bitdepth");
             }
 
             // FIXME, set TFF flag too?
@@ -160,7 +160,7 @@ public:
             if (Timecodes)
                 V->WriteTimecodes(Timecodes);
 
-        } catch (VideoException &e) {
+        } catch (BestSourceException &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
     }
@@ -196,7 +196,7 @@ public:
             }
 
             if (!Src)
-                throw VideoException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
+                throw BestSourceException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
 
             Dst = Env->NewVideoFrame(VI);
 
@@ -227,10 +227,10 @@ public:
             }
 
             if (!Src->ExportAsPlanar(DstPtrs, DstStride, DestHasAlpha ? Dst->GetWritePtr(PLANAR_A) : nullptr, DestHasAlpha ? Dst->GetPitch(PLANAR_A) : 0)) {
-                throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
+                throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
-        } catch (VideoException &e) {
+        } catch (BestSourceException &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
 
@@ -355,7 +355,7 @@ public:
             if (AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
                 VI.SetChannelMask(true, static_cast<unsigned>(AP.ChannelLayout));
             
-        } catch (AudioException &e) {
+        } catch (BestSourceException &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
         }
 
@@ -378,7 +378,7 @@ public:
     void __stdcall GetAudio(void *Buf, int64_t Start, int64_t Count, IScriptEnvironment *Env) {
             try {
                 A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
-            } catch (AudioException &e) {
+            } catch (BestSourceException &e) {
                 Env->ThrowError("BestAudioSource: %s", e.what());
             }
     }

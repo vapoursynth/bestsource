@@ -39,10 +39,6 @@ struct AVFrame;
 struct AVPacket;
 struct AVPixFmtDescriptor;
 
-class VideoException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
-
 struct VideoFormat {
     int ColorFamily; /* Unknown = 0, Gray = 1, RGB = 2, YUV = 3 */
     bool Alpha;

@@ -24,9 +24,14 @@
 #include <memory>
 #include <cstdio>
 #include <string>
+#include <stdexcept>
 #include <functional>
 
 constexpr size_t HashSize = 8;
+
+class BestSourceException : public std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 
 namespace std {
     template<>

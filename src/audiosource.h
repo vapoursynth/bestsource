@@ -38,10 +38,6 @@ struct AVBufferRef;
 struct AVFrame;
 struct AVPacket;
 
-class AudioException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
-
 struct AudioFormat {
     bool Float;
     int Bits;

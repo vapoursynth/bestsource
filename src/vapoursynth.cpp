@@ -20,6 +20,7 @@
 
 #include "videosource.h"
 #include "audiosource.h"
+#include "tracklist.h"
 #include "bsshared.h"
 #include "version.h"
 #include <VapourSynth4.h>
@@ -74,7 +75,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             }
 
             if (!Src)
-                throw VideoException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
+                throw BestSourceException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
 
             VSVideoFormat VideoFormat = {};
             vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core);
@@ -98,10 +99,10 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             }
 
             if (!Src->ExportAsPlanar(DstPtrs, DstStride, AlphaDst ? vsapi->getWritePtr(AlphaDst, 0) : nullptr, AlphaStride)) {
-                throw VideoException("Cannot export to planar format for frame " + std::to_string(n));
+                throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
-        } catch (VideoException &e) {
+        } catch (BestSourceException &e) {
             vsapi->freeFrame(Dst);
             vsapi->freeFrame(AlphaDst);
             vsapi->setFilterError(("VideoSource: " + std::string(e.what())).c_str(), FrameCtx);
@@ -225,10 +226,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         D->RFF = !!vsapi->mapGetInt(In, "rff", 0, &err);
 
         if (D->FPSDen < 1)
-            throw VideoException("FPS denominator needs to be 1 or greater");
+            throw BestSourceException("FPS denominator needs to be 1 or greater");
 
         if (D->FPSNum > 0 && D->RFF)
-            throw VideoException("Cannot combine CFR and RFF modes");
+            throw BestSourceException("Cannot combine CFR and RFF modes");
 
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
@@ -256,7 +257,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
-            throw VideoException("Unsupported video format from decoder (probably less than 8 bit or palette)");
+            throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
         D->VI.width = VP.Width;
         D->VI.height = VP.Height;
         if (VariableFormat)
@@ -286,7 +287,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (Timecodes)
             D->V->WriteTimecodes(Timecodes);
-    } catch (VideoException &e) {
+    } catch (BestSourceException &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
@@ -317,7 +318,7 @@ static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason,
             Tmp.push_back(vsapi->getWritePtr(Dst, Channel));
         try {
             D->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
-        } catch (AudioException &e) {
+        } catch (BestSourceException &e) {
             vsapi->setFilterError(("AudioSource: " + std::string(e.what())).c_str(), FrameCtx);
             vsapi->freeFrame(Dst);
             return nullptr;
@@ -386,13 +387,13 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 
         const AudioProperties &AP = D->A->GetAudioProperties();
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, AP.AF.Bits, AP.ChannelLayout, Core))
-            throw AudioException("Unsupported audio format from decoder (probably 8-bit)");
+            throw BestSourceException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
         D->AI.numFrames = static_cast<int>((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES);
         if ((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES > std::numeric_limits<int>::max())
-            throw AudioException("Too many audio samples, cut file into smaller parts");
-    } catch (AudioException &e) {
+            throw BestSourceException("Too many audio samples, cut file into smaller parts");
+    } catch (BestSourceException &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("AudioSource: ") + e.what()).c_str());
         return;
@@ -405,24 +406,53 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     vsapi->createAudioFilter(Out, "AudioSource", &D->AI, BestAudioSourceGetFrame, BestAudioSourceFree, fmUnordered, nullptr, 0, D, Core);
 }
 
-static void VS_CC SetDebugOutput(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
+static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core, const VSAPI *vsapi) {
     BSInit();
-    SetBSDebugOutput(!!vsapi->mapGetInt(in, "enable", 0, nullptr));
+
+    int err;
+    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
+
+    std::map<std::string, std::string> Opts;
+    if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
+        Opts["enable_drefs"] = "1";
+    if (vsapi->mapGetInt(In, "use_absolute_path", 0, &err))
+        Opts["use_absolute_path"] = "1";
+
+    try {
+        std::unique_ptr<BestTrackList> TrackList(new BestTrackList(Source, &Opts));
+        for (int i = 0; i < TrackList->GetNumTracks(); i++) {
+            auto TI = TrackList->GetTrackInfo(i);
+            vsapi->mapSetInt(Out, "tracktype", TI.MediaType, maAppend);
+            vsapi->mapSetData(Out, "tracktypestr", TI.MediaTypeString.c_str(), TI.MediaTypeString.size(), dtUtf8, maAppend);
+            vsapi->mapSetInt(Out, "codec", TI.Codec, maAppend);
+            vsapi->mapSetData(Out, "codecstr", TI.CodecString.c_str(), TI.CodecString.size(), dtUtf8, maAppend);
+            vsapi->mapSetInt(Out, "disposition", TI.Disposition, maAppend);
+            vsapi->mapSetData(Out, "dispositionstr", TI.DispositionString.c_str(), TI.DispositionString.size(), dtUtf8, maAppend);
+        }
+    } catch (BestSourceException &e) {
+        vsapi->mapSetError(Out, (std::string("TrackInfo: ") + e.what()).c_str());
+    }
 }
 
-static void VS_CC SetLogLevel(const VSMap *in, VSMap *out, void *, VSCore *, const VSAPI *vsapi) {
+static void VS_CC SetDebugOutput(const VSMap *In, VSMap *, void *, VSCore *, const VSAPI *vsapi) {
+    BSInit();
+    SetBSDebugOutput(!!vsapi->mapGetInt(In, "enable", 0, nullptr));
+}
+
+static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, const VSAPI *vsapi) {
     BSInit();
     int err;
-    int level = vsapi->mapGetIntSaturated(in, "level", 0, &err);
+    int level = vsapi->mapGetIntSaturated(In, "level", 0, &err);
     if (err)
         level = 32;
-    vsapi->mapSetInt(out, "level", SetFFmpegLogLevel(level), maReplace);
+    vsapi->mapSetInt(Out, "level", SetFFmpegLogLevel(level), maReplace);
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("SetDebugOutput", "enable:int;", "", SetDebugOutput, nullptr, plugin);
     vspapi->registerFunction("SetFFmpegLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
 }
