@@ -26,19 +26,18 @@ jobs:
           git
           libtool
           mingw-w64-ucrt-x86_64-dav1d
-          mingw-w64-ucrt-x86_64-xxhash
           mingw-w64-ucrt-x86_64-meson
           mingw-w64-ucrt-x86_64-nasm
           mingw-w64-ucrt-x86_64-toolchain
           mingw-w64-ucrt-x86_64-vapoursynth
           mingw-w64-ucrt-x86_64-vulkan-headers
+          mingw-w64-ucrt-x86_64-xxhash
 
     - name: Install nv-codec-headers
       run: |
         git clone https://github.com/FFmpeg/nv-codec-headers.git --depth 1
         pushd nv-codec-headers
-        sed -e 's#/usr/local#/ucrt64#' -i Makefile
-        make install -j2
+        make install -j$(nproc) PREFIX=/ucrt64
         popd
         rm -rf nv-codec-headers
 
@@ -47,7 +46,7 @@ jobs:
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
         ./configure --prefix=/ucrt64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-postproc --disable-avfilter --disable-encoders --disable-muxers --enable-libdav1d --disable-nvenc --disable-debug
-        make install -j2
+        make install -j$(nproc)
         popd
         rm -rf ffmpeg
 
