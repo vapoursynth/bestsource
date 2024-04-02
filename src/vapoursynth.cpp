@@ -423,11 +423,11 @@ static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core
         for (int i = 0; i < TrackList->GetNumTracks(); i++) {
             auto TI = TrackList->GetTrackInfo(i);
             vsapi->mapSetInt(Out, "tracktype", TI.MediaType, maAppend);
-            vsapi->mapSetData(Out, "tracktypestr", TI.MediaTypeString.c_str(), TI.MediaTypeString.size(), dtUtf8, maAppend);
+            vsapi->mapSetData(Out, "tracktypestr", TI.MediaTypeString.c_str(), -1, dtUtf8, maAppend);
             vsapi->mapSetInt(Out, "codec", TI.Codec, maAppend);
-            vsapi->mapSetData(Out, "codecstr", TI.CodecString.c_str(), TI.CodecString.size(), dtUtf8, maAppend);
+            vsapi->mapSetData(Out, "codecstr", TI.CodecString.c_str(), -1, dtUtf8, maAppend);
             vsapi->mapSetInt(Out, "disposition", TI.Disposition, maAppend);
-            vsapi->mapSetData(Out, "dispositionstr", TI.DispositionString.c_str(), TI.DispositionString.size(), dtUtf8, maAppend);
+            vsapi->mapSetData(Out, "dispositionstr", TI.DispositionString.c_str(), -1, dtUtf8, maAppend);
         }
     } catch (BestSourceException &e) {
         vsapi->mapSetError(Out, (std::string("TrackInfo: ") + e.what()).c_str());

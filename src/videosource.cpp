@@ -282,6 +282,8 @@ void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
     if (!PropFrame)
         return;
 
+    VP.FieldBased = !!(PropFrame->flags & AV_FRAME_FLAG_INTERLACED);
+    VP.TFF = !!(PropFrame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
     VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
@@ -1343,7 +1345,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
         for (auto &Iter : Dict)
             Iter.second = PV++;
 
-        WriteInt(F, Dict.size());
+        WriteInt(F, static_cast<int>(Dict.size()));
         WriteInt64(F, PTSPredictor);
 
         for (const auto &Iter : Dict)

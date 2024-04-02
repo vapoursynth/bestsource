@@ -64,6 +64,9 @@ struct VideoProperties {
     int Width;
     int Height;
 
+    bool FieldBased;
+    bool TFF;
+
     /* Stereo 3D */
     int Stereo3DType;
     int Stereo3DFlags;

@@ -1078,7 +1078,7 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
         for (auto &Iter : Dict)
             Iter.second = PV++;
 
-        WriteInt(F, Dict.size());
+        WriteInt(F, static_cast<int>(Dict.size()));
         WriteInt64(F, PTSPredictor);
 
         for (const auto &Iter : Dict)

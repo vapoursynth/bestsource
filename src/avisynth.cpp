@@ -131,7 +131,9 @@ public:
                 throw BestSourceException("Unsupported output bitdepth");
             }
 
-            // FIXME, set TFF flag too?
+            if (VP.FieldBased)
+                VI.image_type |= VideoInfo::IT_FIELDBASED;
+            VI.image_type |= VP.TFF ? VideoInfo::IT_TFF : VideoInfo::IT_BFF;
 
             VI.width = VP.Width;
             VI.height = VP.Height;
@@ -281,11 +283,11 @@ public:
         }
 
         if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize > 0) {
-            Env->propSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), Src->DolbyVisionRPUSize, 0);
+            Env->propSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), 0);
         }
 
         if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
-            Env->propSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), Src->HDR10PlusSize, 0);
+            Env->propSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), static_cast<int>(Src->HDR10PlusSize), 0);
         }
 
         Env->propSetInt(Props, "FlipVertical", VP.FlipVerical, 0);

@@ -84,7 +84,7 @@ BestTrackList::~BestTrackList() {
 }
 
 int BestTrackList::GetNumTracks() const {
-    return TrackList.size();
+    return static_cast<int>(TrackList.size());
 }
 
 const BestTrackList::TrackInfo &BestTrackList::GetTrackInfo(int Track) const {
