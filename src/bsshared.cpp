@@ -99,6 +99,10 @@ file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
     return OpenFile(CachePath + "." + std::to_string(Track) + ".bsindex", Write);
 }
 
+void WriteByte(file_ptr_t &F, uint8_t Value) {
+    fwrite(&Value, 1, sizeof(Value), F.get());
+}
+
 void WriteInt(file_ptr_t &F, int Value) {
     fwrite(&Value, 1, sizeof(Value), F.get());
 }
@@ -124,6 +128,13 @@ void WriteBSHeader(file_ptr_t &F, bool Video) {
     WriteInt(F, avcodec_version());
 }
 
+uint8_t ReadByte(file_ptr_t &F) {
+    uint8_t Value;
+    if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
+        return Value;
+    else
+        return -1;
+}
 
 int ReadInt(file_ptr_t &F) {
     int Value;

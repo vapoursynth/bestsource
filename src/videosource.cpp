@@ -1286,6 +1286,17 @@ BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
 ////////////////////////////////////////
 // Index read/write
 
+typedef std::array<uint8_t, 13> VideoCompArray;
+
+static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, bool KeyFrame, bool TFF) {
+    VideoCompArray Result;
+    memcpy(Result.data(), &PTS, sizeof(PTS));
+    memcpy(Result.data() + sizeof(PTS), &RepeatPict, sizeof(RepeatPict));
+    uint8_t Flags = static_cast<uint8_t>(KeyFrame) | (static_cast<uint8_t>(TFF) << 1);
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict), &Flags, sizeof(Flags));
+    return Result;
+}
+
 bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
     file_ptr_t F = OpenCacheFile(CachePath, VideoTrack, true);
     if (!F)
@@ -1305,41 +1316,58 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
     WriteInt64(F, TrackIndex.Frames.size());
     WriteInt64(F, TrackIndex.LastFrameDuration);
 
-    std::map<int64_t, size_t> PTSFreq;
-    std::map<int, size_t> RepeatFreq;
-    std::map<int, size_t> FlagFreq;
+    std::map<VideoCompArray, uint8_t> Dict;
 
-    
-
-    // FIXME, actual predictor has to be more complicated such as the diff between the two first
-    // not AV_NOPTS_VALUE frames
-    // If this can't be done simply set to 0
-    int64_t LastPTSValue = TrackIndex.Frames[1].PTS - 2 * (TrackIndex.Frames[1].PTS - TrackIndex.Frames[0].PTS);
-    for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
-        int64_t PTS = TrackIndex.Frames[i].PTS;
-        if (PTS == AV_NOPTS_VALUE) {
-            PTSFreq[AV_NOPTS_VALUE]++;
-        } else {
-            PTSFreq[PTS - LastPTSValue]++;
-            LastPTSValue = PTS;
-        }
-
-        RepeatFreq[TrackIndex.Frames[i].RepeatPict]++;
-
-        FlagFreq[static_cast<int>(TrackIndex.Frames[i].KeyFrame) | (static_cast<int>(TrackIndex.Frames[i].TFF) << 1)]++;
-    }
-
-    std::vector<std::pair<size_t, int>> SortVec;
-    for (const auto &Iter : FlagFreq)
-        SortVec.push_back(std::make_pair(Iter.second, Iter.first));
-    std::sort(SortVec.begin(), SortVec.end());
-
+    int64_t PTSPredictor = 0;
+    if (TrackIndex.Frames.size() > 1 && TrackIndex.Frames[0].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[1].PTS != AV_NOPTS_VALUE)
+        PTSPredictor = TrackIndex.Frames[1].PTS - 2 * (TrackIndex.Frames[1].PTS - TrackIndex.Frames[0].PTS);
+    int64_t LastPTSValue = PTSPredictor;
 
     for (const auto &Iter : TrackIndex.Frames) {
-        fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
-        WriteInt64(F, Iter.PTS);
-        WriteInt(F, Iter.RepeatPict);
-        WriteInt(F, static_cast<int>(Iter.KeyFrame) | (static_cast<int>(Iter.TFF) << 1));
+        int64_t PTS = Iter.PTS;
+        if (PTS != AV_NOPTS_VALUE) {
+            int64_t OrigPTS = PTS;
+            PTS = PTS - LastPTSValue;
+            LastPTSValue = OrigPTS;
+        }
+  
+        Dict.insert(std::make_pair(GetVideoCompArray(PTS, Iter.RepeatPict, Iter.KeyFrame, Iter.TFF), 0));
+    }
+
+    // Only bother with a dictionary if it's not too big
+    // Most files have less than 64 entries and a surprisingly large number of files only 2-4 unique entries
+    if (Dict.size() <= 0xFF) {
+        uint8_t PV = 0;
+        for (auto &Iter : Dict)
+            Iter.second = PV++;
+
+        WriteInt(F, Dict.size());
+        WriteInt64(F, PTSPredictor);
+
+        for (const auto &Iter : Dict)
+            fwrite(Iter.first.data(), 1, Iter.first.size(), F.get());
+
+        LastPTSValue = PTSPredictor;
+        for (const auto &Iter : TrackIndex.Frames) {
+            int64_t PTS = Iter.PTS;
+            if (PTS != AV_NOPTS_VALUE) {
+                int64_t OrigPTS = PTS;
+                PTS = PTS - LastPTSValue;
+                LastPTSValue = OrigPTS;
+            }
+
+            WriteByte(F, Dict[GetVideoCompArray(PTS, Iter.RepeatPict, Iter.KeyFrame, Iter.TFF)]);
+            fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
+        }
+    } else {
+        WriteInt(F, 0);
+
+        for (const auto &Iter : TrackIndex.Frames) {
+            fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
+            WriteInt64(F, Iter.PTS);
+            WriteInt(F, Iter.RepeatPict);
+            WriteByte(F, static_cast<uint8_t>(Iter.KeyFrame) | (static_cast<uint8_t>(Iter.TFF) << 1));
+        }
     }
 
     return true;
@@ -1371,16 +1399,43 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
     TrackIndex.LastFrameDuration = ReadInt64(F);
     TrackIndex.Frames.reserve(NumFrames);
 
-    for (int i = 0; i < NumFrames; i++) {
-        VideoTrackIndex::FrameInfo FI = {};
-        if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-            return false;
-        FI.PTS = ReadInt64(F);
-        FI.RepeatPict = ReadInt(F);
-        int Flags = ReadInt(F);
-        FI.KeyFrame = !!(Flags & 1);
-        FI.TFF = !!(Flags & 2);
-        TrackIndex.Frames.push_back(FI);
+    int DictSize = ReadInt(F);
+    
+    if (DictSize > 0) {
+        int64_t LastPTSValue = ReadInt64(F);
+        std::map<uint8_t, VideoTrackIndex::FrameInfo> Dict;
+        for (int i = 0; i < DictSize; i++) {
+            VideoTrackIndex::FrameInfo FI = {};
+            FI.PTS = ReadInt64(F);
+            FI.RepeatPict = ReadInt(F);
+            uint8_t Flags = ReadByte(F);
+            FI.KeyFrame = !!(Flags & 1);
+            FI.TFF = !!(Flags & 2);
+            Dict[i] = FI;
+        }
+
+        for (int i = 0; i < NumFrames; i++) {
+            VideoTrackIndex::FrameInfo FI = Dict.at(ReadByte(F));
+            if (FI.PTS != AV_NOPTS_VALUE) {
+                FI.PTS += LastPTSValue;
+                LastPTSValue = FI.PTS;
+            }
+            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                return false;
+            TrackIndex.Frames.push_back(FI);
+        }
+    } else {
+        for (int i = 0; i < NumFrames; i++) {
+            VideoTrackIndex::FrameInfo FI = {};
+            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                return false;
+            FI.PTS = ReadInt64(F);
+            FI.RepeatPict = ReadInt(F);
+            uint8_t Flags = ReadByte(F);
+            FI.KeyFrame = !!(Flags & 1);
+            FI.TFF = !!(Flags & 2);
+            TrackIndex.Frames.push_back(FI);
+        }
     }
 
     return true;

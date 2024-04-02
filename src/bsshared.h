@@ -56,11 +56,13 @@ void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64
 file_ptr_t OpenFile(const std::string &Filename, bool Write);
 int64_t GetFileSize(const std::string &Filename);
 file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write);
+void WriteByte(file_ptr_t &F, uint8_t Value);
 void WriteInt(file_ptr_t &F, int Value);
 void WriteInt64(file_ptr_t &F, int64_t Value);
 void WriteDouble(file_ptr_t &F, double Value);
 void WriteString(file_ptr_t &F, const std::string &Value);
 void WriteBSHeader(file_ptr_t &F, bool Video);
+uint8_t ReadByte(file_ptr_t &F);
 int ReadInt(file_ptr_t &F);
 int64_t ReadInt64(file_ptr_t &F);
 double ReadDouble(file_ptr_t &F);

@@ -1025,6 +1025,15 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
 ////////////////////////////////////////
 // Index read/write
 
+typedef std::array<uint8_t, 16> AudioCompArray;
+
+static AudioCompArray GetAudioCompArray(int64_t PTS, int64_t Length) {
+    AudioCompArray Result;
+    memcpy(Result.data(), &PTS, sizeof(PTS));
+    memcpy(Result.data() + sizeof(PTS), &Length, sizeof(Length));
+    return Result;
+}
+
 bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     file_ptr_t F = OpenCacheFile(CachePath, AudioTrack, true);
     if (!F)
@@ -1043,10 +1052,57 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
 
     WriteInt64(F, TrackIndex.Frames.size());
 
+    std::map<AudioCompArray, uint8_t> Dict;
+
+    int64_t PTSPredictor = 0;
+    if (TrackIndex.Frames.size() > 1 && TrackIndex.Frames[0].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[1].PTS != AV_NOPTS_VALUE)
+        PTSPredictor = TrackIndex.Frames[1].PTS - 2 * (TrackIndex.Frames[1].PTS - TrackIndex.Frames[0].PTS);
+    int64_t LastPTSValue = PTSPredictor;
+
     for (const auto &Iter : TrackIndex.Frames) {
-        fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
-        WriteInt64(F, Iter.PTS);
-        WriteInt64(F, Iter.Length);
+        int64_t PTS = Iter.PTS;
+        if (PTS != AV_NOPTS_VALUE) {
+            int64_t OrigPTS = PTS;
+            PTS = PTS - LastPTSValue;
+            LastPTSValue = OrigPTS;
+        }
+
+        Dict.insert(std::make_pair(GetAudioCompArray(PTS, Iter.Length), 0));
+    }
+
+    // Only bother with a dictionary if it's not too big
+    // Most files have less than 64 entries and a surprisingly large number of files only 2-4 unique entries
+    if (Dict.size() <= 0xFF) {
+        uint8_t PV = 0;
+        for (auto &Iter : Dict)
+            Iter.second = PV++;
+
+        WriteInt(F, Dict.size());
+        WriteInt64(F, PTSPredictor);
+
+        for (const auto &Iter : Dict)
+            fwrite(Iter.first.data(), 1, Iter.first.size(), F.get());
+
+        LastPTSValue = PTSPredictor;
+        for (const auto &Iter : TrackIndex.Frames) {
+            int64_t PTS = Iter.PTS;
+            if (PTS != AV_NOPTS_VALUE) {
+                int64_t OrigPTS = PTS;
+                PTS = PTS - LastPTSValue;
+                LastPTSValue = OrigPTS;
+            }
+
+            WriteByte(F, Dict[GetAudioCompArray(PTS, Iter.Length)]);
+            fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
+        }
+    } else {
+        WriteInt(F, 0);
+
+        for (const auto &Iter : TrackIndex.Frames) {
+            fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
+            WriteInt64(F, Iter.PTS);
+            WriteInt64(F, Iter.Length);
+        }
     }
 
     return true;
@@ -1080,15 +1136,41 @@ bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
     TrackIndex.Frames.reserve(NumFrames);
     AP.NumSamples = 0;
 
-    for (int i = 0; i < NumFrames; i++) {
-        AudioTrackIndex::FrameInfo FI = {};
-        if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-            return false;
-        FI.PTS = ReadInt64(F);
-        FI.Start = AP.NumSamples;
-        FI.Length = ReadInt64(F);
-        AP.NumSamples += FI.Length;
-        TrackIndex.Frames.push_back(FI);
+    int DictSize = ReadInt(F);
+
+    if (DictSize > 0) {
+        int64_t LastPTSValue = ReadInt64(F);
+        std::map<uint8_t, AudioTrackIndex::FrameInfo> Dict;
+        for (int i = 0; i < DictSize; i++) {
+            AudioTrackIndex::FrameInfo FI = {};
+            FI.PTS = ReadInt64(F);
+            FI.Length = ReadInt64(F);
+            Dict[i] = FI;
+        }
+
+        for (int i = 0; i < NumFrames; i++) {
+            AudioTrackIndex::FrameInfo FI = Dict.at(ReadByte(F));
+            if (FI.PTS != AV_NOPTS_VALUE) {
+                FI.PTS += LastPTSValue;
+                LastPTSValue = FI.PTS;
+            }
+            FI.Start = AP.NumSamples;
+            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                return false;
+            AP.NumSamples += FI.Length;
+            TrackIndex.Frames.push_back(FI);
+        }
+    } else {
+        for (int i = 0; i < NumFrames; i++) {
+            AudioTrackIndex::FrameInfo FI = {};
+            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                return false;
+            FI.PTS = ReadInt64(F);
+            FI.Start = AP.NumSamples;
+            FI.Length = ReadInt64(F);
+            AP.NumSamples += FI.Length;
+            TrackIndex.Frames.push_back(FI);
+        }
     }
 
     return true;
