@@ -23,7 +23,6 @@
 
 #include "bsshared.h"
 #include <map>
-#include <stdexcept>
 #include <memory>
 
 struct AVFormatContext;
