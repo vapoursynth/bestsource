@@ -58,13 +58,12 @@ class AvisynthVideoSource : public IClip {
     int64_t FPSNum;
     int64_t FPSDen;
     bool RFF;
-    std::string VarPrefix;
 public:
     AvisynthVideoSource(const char *SourceFile, int Track,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
         const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
-        const char *Timecodes, const char *VarPrefix, IScriptEnvironment *Env)
-        : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF), VarPrefix(VarPrefix) {
+        const char *Timecodes, IScriptEnvironment *Env)
+        : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
 
         try {
             if (FPSDen < 1)
@@ -137,9 +136,6 @@ public:
             VI.width = VP.Width;
             VI.height = VP.Height;
 
-            // Crop to obey subsampling width/height requirements
-            VI.width -= VI.width % (1 << VP.VF.SubSamplingW);
-            VI.height -= VI.height % (1 << VP.VF.SubSamplingH);
             VI.num_frames = vsh::int64ToIntS(VP.NumFrames);
             VI.SetFPS(VP.FPS.Num, VP.FPS.Den);
 
@@ -164,21 +160,6 @@ public:
             if (Timecodes)
                 V->WriteTimecodes(Timecodes);
 
-            // FIXME, does anyone use this?
-            // Set AR variables
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR_NUM"), VP.SAR.Num);
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR_DEN"), VP.SAR.Den);
-            if (VP.SAR.Num > 0 && VP.SAR.Den > 0)
-                Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix.c_str(), "BSSAR"), VP.SAR.Num / static_cast<double>(VP.SAR.Den));
-
-            /*
-            FIXME, is this even relevant?
-            // Set crop variables
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_LEFT"), VP->CropLeft);
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_RIGHT"), VP->CropRight);
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_TOP"), VP->CropTop);
-            Env->SetVar(Env->Sprintf("%s%s", this->VarPrefix, "BSCROP_BOTTOM"), VP->CropBottom);
-            */
         } catch (VideoException &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
@@ -335,9 +316,8 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     const char *HWDevice = Args[11].AsString();
     int ExtraHWFrames = Args[12].AsInt(9);
     const char *Timecodes = Args[13].AsString(nullptr);
-    const char *VarPrefix = Args[14].AsString("");
 
-    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, VarPrefix, Env);
+    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, Env);
 }
 
 class AvisynthAudioSource : public IClip {

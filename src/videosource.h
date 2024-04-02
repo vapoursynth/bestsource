@@ -143,7 +143,7 @@ public:
     int Width;
     int Height;
 
-    int64_t Pts;
+    int64_t PTS;
     int64_t Duration;
     int Matrix;
     int Primaries;

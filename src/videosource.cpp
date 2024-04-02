@@ -455,9 +455,9 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
     Frame = av_frame_clone(F);
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
-    Pts = Frame->pts;
-    Width = Frame->width;
-    Height = Frame->height;
+    PTS = Frame->pts;
+    Width = Frame->width - (Frame->crop_left + Frame->crop_right);  
+    Height = Frame->height - (Frame->crop_top + Frame->crop_bottom);
     Duration = Frame->duration;
     KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
     PictType = av_get_picture_type_char(Frame->pict_type);
@@ -586,8 +586,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
 
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
-            int PlaneW = Frame->width;
-            int PlaneH = Frame->height;
+            int PlaneW = Frame->width - (Frame->crop_left + Frame->crop_right);
+            int PlaneH = Frame->height - (Frame->crop_top + Frame->crop_bottom);
             if (Plane > 0) {
                 PlaneW >>= Desc->log2_chroma_w;
                 PlaneH >>= Desc->log2_chroma_h;
@@ -602,7 +602,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             }
         }
 
-        if (::HasAlpha(Desc) && AlphaDst) {
+        if (HasAlpha(Desc) && AlphaDst) {
             const uint8_t *Src = Frame->data[3];
             uint8_t *Dst = AlphaDst;
             for (int h = 0; h < Frame->height; h++) {
@@ -613,8 +613,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
     } else {
         p2p_buffer_param Buf = {};
-        Buf.height = Frame->height;
-        Buf.width = Frame->width;
+        Buf.height = Frame->height - (Frame->crop_top + Frame->crop_bottom);
+        Buf.width = Frame->width - (Frame->crop_left + Frame->crop_right);
 
         switch (Frame->format) {
             case AV_PIX_FMT_YUYV422:
@@ -657,7 +657,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
 
         for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
-            Buf.src[Plane] = Frame->data[Plane];
+            Buf.src[Plane] = Frame->data[Plane] + Frame->crop_left * Desc->comp[Plane].step + Frame->crop_top * Frame->linesize[Plane];
             Buf.src_stride[Plane] = Frame->linesize[Plane];
         }
 
