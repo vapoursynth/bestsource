@@ -200,6 +200,10 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     }
     CodecContext->thread_count = Threads;
 
+    // Have FFmpeg apply all cropping exactly even if it results in unaligned memory because it doesn't matter
+    CodecContext->apply_cropping = 1;
+    CodecContext->flags |= AV_CODEC_FLAG_UNALIGNED;
+
     // FIXME, implement for newer ffmpeg versions
     if (!VariableFormat) {
         // Probably guard against mid-stream format changes
@@ -456,8 +460,8 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
     PTS = Frame->pts;
-    Width = Frame->width - (Frame->crop_left + Frame->crop_right);  
-    Height = Frame->height - (Frame->crop_top + Frame->crop_bottom);
+    Width = Frame->width;  
+    Height = Frame->height;
     Duration = Frame->duration;
     KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
     PictType = av_get_picture_type_char(Frame->pict_type);
@@ -586,8 +590,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
 
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
-            int PlaneW = Frame->width - (Frame->crop_left + Frame->crop_right);
-            int PlaneH = Frame->height - (Frame->crop_top + Frame->crop_bottom);
+            int PlaneW = Frame->width;
+            int PlaneH = Frame->height;
             if (Plane > 0) {
                 PlaneW >>= Desc->log2_chroma_w;
                 PlaneH >>= Desc->log2_chroma_h;
@@ -613,8 +617,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
     } else {
         p2p_buffer_param Buf = {};
-        Buf.height = Frame->height - (Frame->crop_top + Frame->crop_bottom);
-        Buf.width = Frame->width - (Frame->crop_left + Frame->crop_right);
+        Buf.height = Frame->height;
+        Buf.width = Frame->width;
 
         switch (Frame->format) {
             case AV_PIX_FMT_YUYV422:
@@ -657,14 +661,14 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         }
 
         for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
-            Buf.src[Plane] = Frame->data[Plane] + Frame->crop_left * Desc->comp[Plane].step + Frame->crop_top * Frame->linesize[Plane];
+            Buf.src[Plane] = Frame->data[Plane];
             Buf.src_stride[Plane] = Frame->linesize[Plane];
         }
 
         for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
             Buf.dst[plane] = Dsts[plane];
             Buf.dst_stride[plane] = Stride[plane];
-            if (::HasAlpha(Desc) && AlphaDst) {
+            if (HasAlpha(Desc) && AlphaDst) {
                 Buf.dst[3] = AlphaDst;
                 Buf.dst_stride[3] = AlphaStride;
             }
