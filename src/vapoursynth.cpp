@@ -247,6 +247,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                             }
                         }
                     }
+                    return true;
                     }));
             
         } else {
@@ -376,6 +377,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
                             }
                         }
                     }
+                    return true;
                 }));
 
         } else {

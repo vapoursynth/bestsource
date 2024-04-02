@@ -24,6 +24,7 @@
 #include <memory>
 #include <cstdio>
 #include <string>
+#include <functional>
 
 constexpr size_t HashSize = 8;
 
@@ -37,6 +38,8 @@ namespace std {
 }
 
 typedef std::unique_ptr<FILE> file_ptr_t;
+
+typedef std::function<bool(int Track, int64_t Current, int64_t Total)> ProgressFunction;
 
 struct AVRational;
 

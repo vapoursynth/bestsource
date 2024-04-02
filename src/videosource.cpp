@@ -773,7 +773,7 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress)
+BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
     : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
@@ -826,7 +826,7 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
     PreRoll = Frames;
 }
 
-bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress) {
+bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
@@ -861,8 +861,10 @@ bool BestVideoSource::IndexTrack(const std::function<void(int Track, int64_t Cur
         //}
 
         av_frame_free(&F);
-        if (Progress)
-            Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize);
+        if (Progress) {
+            if (!Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize))
+                throw VideoException("Indexing canceled by user");
+        }
     };
 
     if (Progress)

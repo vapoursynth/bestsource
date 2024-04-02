@@ -29,7 +29,6 @@
 #include <map>
 #include <set>
 #include <vector>
-#include <functional>
 #include <array>
 #include <memory>
 
@@ -170,7 +169,7 @@ private:
     [[nodiscard]] BestAudioFrame *SeekAndDecode(int64_t N, int64_t SeekFrame, std::unique_ptr<LWAudioDecoder> &Decoder, size_t Depth = 0);
     [[nodiscard]] BestAudioFrame *GetFrameInternal(int64_t N);
     [[nodiscard]] BestAudioFrame *GetFrameLinearInternal(int64_t N, int64_t SeekFrame = -1, size_t Depth = 0, bool ForceUnseeked = false);
-    [[nodiscard]] bool IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
+    [[nodiscard]] bool IndexTrack(const ProgressFunction &Progress = nullptr);
     bool InitializeRFF();
     void ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_t &Count);
     void ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count);
@@ -185,7 +184,7 @@ public:
         int64_t FirstSamplePos;
     };
 
-    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress = nullptr);
+    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */

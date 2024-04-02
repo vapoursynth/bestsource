@@ -376,7 +376,7 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress)
+BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
     : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), Threads(Threads), DrcScale(DrcScale) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
@@ -416,7 +416,7 @@ void BestAudioSource::SetSeekPreRoll(int64_t Frames) {
     PreRoll = std::max<int64_t>(Frames, 0);
 }
 
-bool BestAudioSource::IndexTrack(const std::function<void(int Track, int64_t Current, int64_t Total)> &Progress) {
+bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
     std::unique_ptr<LWAudioDecoder> Decoder(new LWAudioDecoder(Source, AudioTrack, VariableFormat, Threads, LAVFOptions, DrcScale));
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
@@ -440,8 +440,10 @@ bool BestAudioSource::IndexTrack(const std::function<void(int Track, int64_t Cur
         NumSamples += F->nb_samples;
 
         av_frame_free(&F);
-        if (Progress)
-            Progress(AudioTrack, Decoder->GetSourcePostion(), FileSize);
+        if (Progress) {
+            if (!Progress(AudioTrack, Decoder->GetSourcePostion(), FileSize))
+                throw AudioException("Indexing canceled by user");
+        }
     };
 
     if (Progress)
