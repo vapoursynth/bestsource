@@ -40,6 +40,8 @@ ninja -C build install
 
 `bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, bint showprogress = True])`
 
+`bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
+
 `bs.SetDebugOutput(bint enable = False)`
 
 `bs.SetFFmpegLogLevel(int level = <quiet log level>)`
