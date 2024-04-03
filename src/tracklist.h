@@ -28,7 +28,7 @@
 struct AVFormatContext;
 
 struct BestTrackList {
-private:
+public:
     struct TrackInfo {
         int MediaType;
         std::string MediaTypeString;
@@ -37,7 +37,7 @@ private:
         int Disposition;
         std::string DispositionString;
     };
-
+private:
     AVFormatContext *FormatContext = nullptr;
 
     std::vector<TrackInfo> TrackList;
