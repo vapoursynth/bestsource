@@ -370,7 +370,7 @@ static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnv
     static_assert((sizeof(FFVArgs) / sizeof(FFVArgs[0])) == (sizeof(FFVArgNames) / sizeof(FFVArgNames[0])), "Arg error");
     AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(FFVArgs, sizeof(FFVArgs) / sizeof(FFVArgs[0])), FFVArgNames);
 
-    bool WithAudio = (Args[1].AsInt(INT_MIN) != INT_MIN);
+    bool WithAudio = Args[1].Defined();
 
     if (WithAudio) {
         AVSValue FFAArgs[] = { Args[0], Args[1], Args[16], Args[6], Args[8], Args[9], Args[10], Args[11], Args[17] };
