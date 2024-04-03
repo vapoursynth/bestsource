@@ -356,7 +356,7 @@ public:
             VI.nchannels = AP.Channels;
             if (AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
                 VI.SetChannelMask(true, static_cast<unsigned>(AP.ChannelLayout));
-            
+
         } catch (BestSourceException &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
         }
@@ -378,11 +378,11 @@ public:
     }
 
     void __stdcall GetAudio(void *Buf, int64_t Start, int64_t Count, IScriptEnvironment *Env) {
-            try {
-                A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
-            } catch (BestSourceException &e) {
-                Env->ThrowError("BestAudioSource: %s", e.what());
-            }
+        try {
+            A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
+        } catch (BestSourceException &e) {
+            Env->ThrowError("BestAudioSource: %s", e.what());
+        }
     }
 
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *Env) {

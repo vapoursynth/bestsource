@@ -223,7 +223,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
 
         HWFrame = av_frame_alloc();
         if (!HWFrame)
-                throw BestSourceException("Couldn't allocate frame");
+            throw BestSourceException("Couldn't allocate frame");
     }
 
     if (avcodec_open2(CodecContext, Codec, nullptr) < 0)
@@ -408,7 +408,7 @@ AVFrame *LWVideoDecoder::GetNextFrame() {
             DecodeFrame = nullptr;
             return Tmp;
         }
-    } 
+    }
     return nullptr;
 }
 
@@ -461,7 +461,7 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
     VF.Set(Desc);
     PTS = Frame->pts;
-    Width = Frame->width;  
+    Width = Frame->width;
     Height = Frame->height;
     Duration = Frame->duration;
     KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
@@ -622,43 +622,43 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         Buf.width = Frame->width;
 
         switch (Frame->format) {
-            case AV_PIX_FMT_YUYV422:
-                Buf.packing = p2p_yuy2;
-                break;
-            case AV_PIX_FMT_RGB24:
-                Buf.packing = p2p_rgb24;
-                break;
-            case AV_PIX_FMT_UYVY422:
-                Buf.packing = p2p_uyvy;
-                break;
-            case AV_PIX_FMT_NV12:
-                Buf.packing = p2p_nv12;
-                break;
-            case AV_PIX_FMT_P010:
-                Buf.packing = p2p_p010;
-                break;
-            case AV_PIX_FMT_ARGB:
-            case AV_PIX_FMT_0RGB:
-                Buf.packing = p2p_argb32;
-                break;
-            case AV_PIX_FMT_RGBA:
-            case AV_PIX_FMT_RGB0:
-                Buf.packing = p2p_rgba32;
-                break;
-            case AV_PIX_FMT_0BGR:
-                Buf.packing = p2p_rgba32_le;
-                break;
-            case AV_PIX_FMT_BGR0:
-                Buf.packing = p2p_argb32_le;
-                break;
-            case AV_PIX_FMT_RGB48:
-                Buf.packing = p2p_rgb48;
-                break;
-            case AV_PIX_FMT_RGBA64:
-                Buf.packing = p2p_rgba64;
-                break;
-            default:
-                return false;
+        case AV_PIX_FMT_YUYV422:
+            Buf.packing = p2p_yuy2;
+            break;
+        case AV_PIX_FMT_RGB24:
+            Buf.packing = p2p_rgb24;
+            break;
+        case AV_PIX_FMT_UYVY422:
+            Buf.packing = p2p_uyvy;
+            break;
+        case AV_PIX_FMT_NV12:
+            Buf.packing = p2p_nv12;
+            break;
+        case AV_PIX_FMT_P010:
+            Buf.packing = p2p_p010;
+            break;
+        case AV_PIX_FMT_ARGB:
+        case AV_PIX_FMT_0RGB:
+            Buf.packing = p2p_argb32;
+            break;
+        case AV_PIX_FMT_RGBA:
+        case AV_PIX_FMT_RGB0:
+            Buf.packing = p2p_rgba32;
+            break;
+        case AV_PIX_FMT_0BGR:
+            Buf.packing = p2p_rgba32_le;
+            break;
+        case AV_PIX_FMT_BGR0:
+            Buf.packing = p2p_argb32_le;
+            break;
+        case AV_PIX_FMT_RGB48:
+            Buf.packing = p2p_rgb48;
+            break;
+        case AV_PIX_FMT_RGBA64:
+            Buf.packing = p2p_rgba64;
+            break;
+        default:
+            return false;
         }
 
         for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
@@ -714,7 +714,7 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     XXH64_hash_t FinalHash = XXH3_64bits_digest(hctx);
     static_assert(sizeof(Result) == sizeof(FinalHash));
     memcpy(Result.data(), &FinalHash, sizeof(FinalHash));
-    
+
     XXH3_freeState(hctx);
     return Result;
 }
@@ -787,7 +787,7 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
-    
+
     if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
@@ -1334,7 +1334,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
             PTS = PTS - LastPTSValue;
             LastPTSValue = OrigPTS;
         }
-  
+
         Dict.insert(std::make_pair(GetVideoCompArray(PTS, Iter.RepeatPict, Iter.KeyFrame, Iter.TFF), 0));
     }
 
@@ -1404,7 +1404,7 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
     TrackIndex.Frames.reserve(NumFrames);
 
     int DictSize = ReadInt(F);
-    
+
     if (DictSize > 0) {
         int64_t LastPTSValue = ReadInt64(F);
         std::map<uint8_t, FrameInfo> Dict;

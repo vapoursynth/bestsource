@@ -232,7 +232,7 @@ AVFrame *LWAudioDecoder::GetNextFrame() {
             DecodeFrame = nullptr;
             return Tmp;
         }
-    } 
+    }
     return nullptr;
 }
 
@@ -278,7 +278,7 @@ void AudioFormat::Set(int Format, int BitsPerRawSample) {
 BestAudioFrame::BestAudioFrame(AVFrame *F) {
     assert(F);
     Frame = av_frame_clone(F);
-    
+
     AF.Set(F->format, 0); // FIXME, number of used bits is wrong for individual frames
     NumChannels = F->ch_layout.nb_channels;
     Pts = Frame->pts;

@@ -179,7 +179,7 @@ public:
 };
 
 class BestVideoSource {
-private:
+public:
     struct FrameInfo {
         int64_t PTS;
         int RepeatPict;
@@ -187,7 +187,7 @@ private:
         bool TFF;
         std::array<uint8_t, HashSize> Hash;
     };
-
+private:
     struct VideoTrackIndex {
         int64_t LastFrameDuration;
         std::vector<FrameInfo> Frames;
@@ -221,7 +221,9 @@ private:
     VideoTrackIndex TrackIndex;
     Cache FrameCache;
 
-    enum RFFStateEnum { rffUninitialized, rffReady, rffUnused };
+    enum RFFStateEnum {
+        rffUninitialized, rffReady, rffUnused
+    };
     RFFStateEnum RFFState = rffUninitialized;
     std::vector<std::pair<int64_t, int64_t>> RFFFields;
 

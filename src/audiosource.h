@@ -100,17 +100,18 @@ public:
     int NumChannels;
 
     int64_t Pts;
-    int64_t NumSamples;};
+    int64_t NumSamples;
+};
 
 class BestAudioSource {
-private:
+public:
     struct FrameInfo {
         int64_t PTS;
         int64_t Start;
         int64_t Length;
         std::array<uint8_t, HashSize> Hash;
     };
-
+private:
     struct AudioTrackIndex {
         std::vector<FrameInfo> Frames;
     };

@@ -54,8 +54,6 @@ struct BestVideoSourceData {
     bool RFF;
 };
 
-
-
 static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
     BestVideoSourceData *D = reinterpret_cast<BestVideoSourceData *>(InstanceData);
 
@@ -234,7 +232,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
             int LastValue = -1;
-            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts, 
+            D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts,
                 [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Total == INT64_MAX && Cur == Total) {
@@ -249,8 +247,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                         }
                     }
                     return true;
-                    }));
-            
+                }));
+
         } else {
             D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CachePath ? CachePath : "", &Opts));
         }

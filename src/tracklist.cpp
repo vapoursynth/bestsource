@@ -58,7 +58,7 @@ void BestTrackList::OpenFile(const std::string &SourceFile, const std::map<std::
             TI.DispositionString += DispPart;
             Disposition = Disposition & (Disposition - 1);
         }
-        
+
         TrackList.push_back(TI);
     }
 }
