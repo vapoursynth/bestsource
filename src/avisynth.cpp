@@ -22,6 +22,7 @@
 #include "audiosource.h"
 #include "bsshared.h"
 #include "version.h"
+#include "synthshared.h"
 #include "../AviSynthPlus/avs_core/include/avisynth.h"
 #include <VSHelper4.h>
 #include <vector>
@@ -239,63 +240,10 @@ public:
         const VideoProperties &VP = V->GetVideoProperties();
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
-            Env->propSetInt(Props, "_SARNum", VP.SAR.Num, 0);
-            Env->propSetInt(Props, "_SARDen", VP.SAR.Den, 0);
-        }
-
-        Env->propSetInt(Props, "_Matrix", Src->Matrix, 0);
-        Env->propSetInt(Props, "_Primaries", Src->Primaries, 0);
-        Env->propSetInt(Props, "_Transfer", Src->Transfer, 0);
-        if (Src->ChromaLocation > 0)
-            Env->propSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, 0);
-
-        if (Src->ColorRange == 1) // Hardcoded ffmpeg constants, nothing to see here
-            Env->propSetInt(Props, "_ColorRange", 1, 0);
-        else if (Src->ColorRange == 2)
-            Env->propSetInt(Props, "_ColorRange", 0, 0);
-
-        if (!RFF) {
-            Env->propSetData(Props, "_PictType", &Src->PictType, 1, 0);
-
-            // Set field information
-            int FieldBased = 0;
-            if (Src->InterlacedFrame)
-                FieldBased = (Src->TopFieldFirst ? 2 : 1);
-            Env->propSetInt(Props, "_FieldBased", FieldBased, 0);
-            Env->propSetInt(Props, "RepeatField", Src->RepeatPict, 0);
-        }
-
-        if (Src->HasMasteringDisplayPrimaries) {
-            for (int i = 0; i < 3; i++) {
-                Env->propSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), 1);
-                Env->propSetFloat(Props, "MasteringDisplayPrimariesY", Src->MasteringDisplayPrimaries[i][1].ToDouble(), 1);
-            }
-            Env->propSetFloat(Props, "MasteringDisplayWhitePointX", Src->MasteringDisplayWhitePoint[0].ToDouble(), 0);
-            Env->propSetFloat(Props, "MasteringDisplayWhitePointY", Src->MasteringDisplayWhitePoint[1].ToDouble(), 0);
-        }
-
-        if (Src->HasMasteringDisplayLuminance) {
-            Env->propSetFloat(Props, "MasteringDisplayMinLuminance", Src->MasteringDisplayMinLuminance.ToDouble(), 0);
-            Env->propSetFloat(Props, "MasteringDisplayMaxLuminance", Src->MasteringDisplayMaxLuminance.ToDouble(), 0);
-        }
-
-        if (Src->HasContentLightLevel) {
-            Env->propSetFloat(Props, "ContentLightLevelMax", Src->ContentLightLevelMax, 0);
-            Env->propSetFloat(Props, "ContentLightLevelAverage", Src->ContentLightLevelAverage, 0);
-        }
-
-        if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize > 0) {
-            Env->propSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), 0);
-        }
-
-        if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
-            Env->propSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), static_cast<int>(Src->HDR10PlusSize), 0);
-        }
-
-        Env->propSetInt(Props, "FlipVertical", VP.FlipVerical, 0);
-        Env->propSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, 0);
-        Env->propSetInt(Props, "Rotation", VP.Rotation, 0);
+        SetSynthFrameProperties(Src, VP, RFF,
+            [Props, Env](const char *Name, int64_t V) { Env->propSetInt(Props, Name, V, 1); },
+            [Props, Env](const char *Name, double V) { Env->propSetFloat(Props, Name, V, 1); },
+            [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetData(Props, Name, V, Size, 1); });
 
         return Dst;
     }

@@ -23,6 +23,7 @@
 #include "tracklist.h"
 #include "bsshared.h"
 #include "version.h"
+#include "synthshared.h"
 #include <VapourSynth4.h>
 #include <VSHelper4.h>
 #include <vector>
@@ -112,73 +113,10 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
-        // Set AR variables
-        if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
-            vsapi->mapSetInt(Props, "_SARNum", VP.SAR.Num, maAppend);
-            vsapi->mapSetInt(Props, "_SARDen", VP.SAR.Den, maAppend);
-        }
-
-        vsapi->mapSetInt(Props, "_Matrix", Src->Matrix, maAppend);
-        vsapi->mapSetInt(Props, "_Primaries", Src->Primaries, maAppend);
-        vsapi->mapSetInt(Props, "_Transfer", Src->Transfer, maAppend);
-        if (Src->ChromaLocation > 0)
-            vsapi->mapSetInt(Props, "_ChromaLocation", Src->ChromaLocation - 1, maAppend);
-
-        if (Src->ColorRange == 1) // Hardcoded ffmpeg constants, nothing to see here
-            vsapi->mapSetInt(Props, "_ColorRange", 1, maAppend);
-        else if (Src->ColorRange == 2)
-            vsapi->mapSetInt(Props, "_ColorRange", 0, maAppend);
-
-        if (!D->RFF) {
-            vsapi->mapSetData(Props, "_PictType", &Src->PictType, 1, dtUtf8, maAppend);
-
-            // Set field information
-            int FieldBased = 0;
-            if (Src->InterlacedFrame)
-                FieldBased = (Src->TopFieldFirst ? 2 : 1);
-            vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
-            vsapi->mapSetInt(Props, "RepeatField", Src->RepeatPict, maAppend);
-
-            // FIXME, use PTS difference between frames instead?
-            if (Src->Duration > 0) {
-                int64_t DurNum = VP.TimeBase.Num;
-                int64_t DurDen = VP.TimeBase.Den;
-                vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
-                vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
-                vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
-            }
-        }
-
-        if (Src->HasMasteringDisplayPrimaries) {
-            for (int i = 0; i < 3; i++) {
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesX", Src->MasteringDisplayPrimaries[i][0].ToDouble(), maAppend);
-                vsapi->mapSetFloat(Props, "MasteringDisplayPrimariesY", Src->MasteringDisplayPrimaries[i][1].ToDouble(), maAppend);
-            }
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointX", Src->MasteringDisplayWhitePoint[0].ToDouble(), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayWhitePointY", Src->MasteringDisplayWhitePoint[1].ToDouble(), maAppend);
-        }
-
-        if (Src->HasMasteringDisplayLuminance) {
-            vsapi->mapSetFloat(Props, "MasteringDisplayMinLuminance", Src->MasteringDisplayMinLuminance.ToDouble(), maAppend);
-            vsapi->mapSetFloat(Props, "MasteringDisplayMaxLuminance", Src->MasteringDisplayMaxLuminance.ToDouble(), maAppend);
-        }
-
-        if (Src->HasContentLightLevel) {
-            vsapi->mapSetInt(Props, "ContentLightLevelMax", Src->ContentLightLevelMax, maAppend);
-            vsapi->mapSetInt(Props, "ContentLightLevelAverage", Src->ContentLightLevelAverage, maAppend);
-        }
-
-        if (Src->DolbyVisionRPU && Src->DolbyVisionRPUSize) {
-            vsapi->mapSetData(Props, "DolbyVisionRPU", reinterpret_cast<const char *>(Src->DolbyVisionRPU), static_cast<int>(Src->DolbyVisionRPUSize), dtBinary, maAppend);
-        }
-
-        if (Src->HDR10Plus && Src->HDR10PlusSize > 0) {
-            vsapi->mapSetData(Props, "HDR10Plus", reinterpret_cast<const char *>(Src->HDR10Plus), static_cast<int>(Src->HDR10PlusSize), dtBinary, maReplace);
-        }
-
-        vsapi->mapSetInt(Props, "FlipVertical", VP.FlipVerical, maAppend);
-        vsapi->mapSetInt(Props, "FlipHorizontal", VP.FlipHorizontal, maAppend);
-        vsapi->mapSetInt(Props, "Rotation", VP.Rotation, maAppend);
+        SetSynthFrameProperties(Src, VP, D->RFF,
+            [Props, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(Props, Name, V, maAppend); },
+            [Props, vsapi](const char *Name, double V) { vsapi->mapSetFloat(Props, Name, V, maAppend); },
+            [Props, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(Props, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
 
         return Dst;
     }
