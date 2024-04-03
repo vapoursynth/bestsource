@@ -43,10 +43,7 @@ void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const V
         mapSetData("_PictType", &Src->PictType, 1, true);
 
         // Set field information
-        int FieldBased = 0;
-        if (Src->InterlacedFrame)
-            FieldBased = (Src->TopFieldFirst ? 2 : 1);
-        mapSetInt("_FieldBased", FieldBased);
+        mapSetInt("_FieldBased", Src->TopFieldFirst ? 2 : 1);
         mapSetInt("RepeatField", Src->RepeatPict);
 
         // FIXME, use PTS difference between frames instead?
