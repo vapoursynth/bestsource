@@ -128,22 +128,25 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             vsapi->mapSetInt(Props, "_ColorRange", 1, maAppend);
         else if (Src->ColorRange == 2)
             vsapi->mapSetInt(Props, "_ColorRange", 0, maAppend);
-        vsapi->mapSetData(Props, "_PictType", &Src->PictType, 1, dtUtf8, maAppend);
 
-        // Set field information
-        int FieldBased = 0;
-        if (Src->InterlacedFrame)
-            FieldBased = (Src->TopFieldFirst ? 2 : 1);
-        vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
-        vsapi->mapSetInt(Props, "RepeatField", Src->RepeatPict, maAppend);
+        if (!D->RFF) {
+            vsapi->mapSetData(Props, "_PictType", &Src->PictType, 1, dtUtf8, maAppend);
 
-        // FIXME, use PTS difference between frames instead?
-        if (Src->Duration > 0) {
-            int64_t DurNum = VP.TimeBase.Num;
-            int64_t DurDen = VP.TimeBase.Den;
-            vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
-            vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
-            vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
+            // Set field information
+            int FieldBased = 0;
+            if (Src->InterlacedFrame)
+                FieldBased = (Src->TopFieldFirst ? 2 : 1);
+            vsapi->mapSetInt(Props, "_FieldBased", FieldBased, maAppend);
+            vsapi->mapSetInt(Props, "RepeatField", Src->RepeatPict, maAppend);
+
+            // FIXME, use PTS difference between frames instead?
+            if (Src->Duration > 0) {
+                int64_t DurNum = VP.TimeBase.Num;
+                int64_t DurDen = VP.TimeBase.Den;
+                vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
+                vsapi->mapSetInt(Props, "_DurationNum", DurNum, maAppend);
+                vsapi->mapSetInt(Props, "_DurationDen", DurDen, maAppend);
+            }
         }
 
         if (Src->HasMasteringDisplayPrimaries) {

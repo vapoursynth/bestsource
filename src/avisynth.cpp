@@ -254,14 +254,17 @@ public:
             Env->propSetInt(Props, "_ColorRange", 1, 0);
         else if (Src->ColorRange == 2)
             Env->propSetInt(Props, "_ColorRange", 0, 0);
-        Env->propSetData(Props, "_PictType", &Src->PictType, 1, 0);
 
-        // Set field information
-        int FieldBased = 0;
-        if (Src->InterlacedFrame)
-            FieldBased = (Src->TopFieldFirst ? 2 : 1);
-        Env->propSetInt(Props, "_FieldBased", FieldBased, 0);
-        Env->propSetInt(Props, "RepeatField", Src->RepeatPict, 0);
+        if (!RFF) {
+            Env->propSetData(Props, "_PictType", &Src->PictType, 1, 0);
+
+            // Set field information
+            int FieldBased = 0;
+            if (Src->InterlacedFrame)
+                FieldBased = (Src->TopFieldFirst ? 2 : 1);
+            Env->propSetInt(Props, "_FieldBased", FieldBased, 0);
+            Env->propSetInt(Props, "RepeatField", Src->RepeatPict, 0);
+        }
 
         if (Src->HasMasteringDisplayPrimaries) {
             for (int i = 0; i < 3; i++) {
