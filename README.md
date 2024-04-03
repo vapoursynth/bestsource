@@ -52,6 +52,8 @@ ninja -C build install
 
 `BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes])`
 
+`BSSource(string source[, int atrack, int vtrack = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int adjustdelay = -1, float drc_scale = 0])`
+
 `BSSetDebugOutput(bool enable = False)`
 
 `BSSetFFmpegLogLevel(int level = <quiet log level>)`
