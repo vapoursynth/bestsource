@@ -52,11 +52,11 @@ jobs:
 
     - name: Build
       run: |
-        meson setup -Dlink_static=true build
+        meson setup -Ddefault_library=static -Dprefer_static=true -Db_lto=true -Dcpp_link_args=-static -Denable_plugin=true build
         ninja -C build
-        strip build/libbestsource.dll
+        strip build/bestsource.dll
 
     - uses: actions/upload-artifact@v4
       with:
-        name: libbestsource
-        path: build/libbestsource.dll
+        name: bestsource
+        path: build/bestsource.dll
