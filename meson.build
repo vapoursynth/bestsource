@@ -82,6 +82,14 @@ install_headers(api_headers,
     subdir: 'bestsource',
 )
 
+pkg = import('pkgconfig')
+pkg.generate(libbestsource,
+    description: 'A super great audio/video source and FFmpeg wrapper',
+    filebase: 'bestsource',
+    name: 'bestsource',
+    subdirs: 'bestsource',
+)
+
 bestsource_dep = declare_dependency(
     include_directories: include_directories('src'),
     link_with: libbestsource,
