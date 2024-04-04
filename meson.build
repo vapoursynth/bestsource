@@ -1,5 +1,5 @@
 project('BestSource', 'cpp',
-    default_options: ['buildtype=release', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++17'],
+    default_options: ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
     meson_version: '>=0.53.0',
     version: '.'.join([

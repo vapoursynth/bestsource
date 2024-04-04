@@ -52,7 +52,7 @@ jobs:
 
     - name: Build
       run: |
-        meson setup -Dlink_static=true build
+        meson setup -Db_lto=true -Dlink_static=true build
         ninja -C build
         strip build/libbestsource.dll
 
