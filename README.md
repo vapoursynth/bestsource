@@ -60,6 +60,8 @@ ninja -C build install
 
 ## Argument explanation
 
+*source*: The source filename. Note that image sequences also can be opened by using %d or %03d for zero padded numbers. Sequences may start at any number between 0 and 4.
+
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
 *adjustdelay*: Adjust audio start time relative to track number. Pass -2 to disable and -1 to be relative to the first video track if one exists.
