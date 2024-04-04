@@ -3,9 +3,3 @@ option('enable_plugin',
     value: false,
     description: 'Enable AviSynth and VapourSynth plugin',
 )
-
-option('link_static',
-    type: 'boolean',
-    value: false,
-    description: 'Use static linking',
-)

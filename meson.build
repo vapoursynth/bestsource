@@ -8,8 +8,6 @@ project('BestSource', 'cpp',
     ])
 )
 
-link_static = get_option('link_static')
-
 api_sources = files(
     'src/audiosource.cpp',
     'src/bsshared.cpp',
@@ -59,18 +57,15 @@ if host_machine.cpu_family().startswith('x86')
 endif
 
 deps = [
-    dependency('libavcodec', version: '>=60.31.0', static: link_static),
-    dependency('libavformat', version: '>=60.16.0', static: link_static),
-    dependency('libavutil', version: '>=58.29.0', static: link_static),
-    dependency('libxxhash', static: link_static),
+    dependency('libavcodec', version: '>=60.31.0'),
+    dependency('libavformat', version: '>=60.16.0'),
+    dependency('libavutil', version: '>=58.29.0'),
+    dependency('libxxhash'),
 ]
 
-is_gnu_linker = meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
 link_args = []
 
-if host_machine.system() == 'windows' and is_gnu_linker and link_static
-    link_args += ['-static']
-elif is_gnu_linker
+if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
     link_args += ['-Wl,-Bsymbolic']
 endif
 
