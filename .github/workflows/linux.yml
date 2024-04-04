@@ -63,5 +63,5 @@ jobs:
 
     - name: Build
       run: |
-        meson setup build
+        meson setup -Denable_plugin=true build
         ninja -C build
