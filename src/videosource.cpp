@@ -199,6 +199,9 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     }
     CodecContext->thread_count = Threads;
 
+    // Read icc profiles
+    CodecContext->flags2 |= AV_CODEC_FLAG2_ICC_PROFILES;
+
     // Have FFmpeg apply all cropping exactly even if it results in unaligned memory because it doesn't matter
     CodecContext->apply_cropping = 1;
     CodecContext->flags |= AV_CODEC_FLAG_UNALIGNED;
@@ -651,8 +654,11 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         case AV_PIX_FMT_BGR0:
             Buf.packing = p2p_argb32_le;
             break;
-        case AV_PIX_FMT_RGB48:
-            Buf.packing = p2p_rgb48;
+        case AV_PIX_FMT_RGB48BE:
+            Buf.packing = p2p_rgb48_be;
+            break;
+        case AV_PIX_FMT_RGB48LE:
+            Buf.packing = p2p_rgb48_le;
             break;
         case AV_PIX_FMT_RGBA64:
             Buf.packing = p2p_rgba64;
