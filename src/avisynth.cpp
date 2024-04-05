@@ -364,23 +364,22 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CachePath, CacheSize, Env);
 }
 
-
 static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
-    const char *FFVArgNames[] = { "source", "track", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachepath", "cachesize", "hwdevice", "extrahwframes", "timecodes", "start_number" };
-    const char *FFAArgNames[] = { "source", "track", "adjustdelay", "threads", "enable_drefs", "use_absolute_path", "drc_scale", "cachepath", "cachesize" };
+    const char *BSVArgNames[] = { "source", "track", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachepath", "cachesize", "hwdevice", "extrahwframes", "timecodes", "start_number" };
+    const char *BSAArgNames[] = { "source", "track", "adjustdelay", "threads", "enable_drefs", "use_absolute_path", "drc_scale", "cachepath", "cachesize" };
 
-    AVSValue FFVArgs[] = { Args[0], Args[2], Args[3], Args[4], Args[5], Args[6], Args[7], Args[8], Args[9], Args[10], Args[11], Args[13], Args[14], Args[15], Args[16] };
-    static_assert((sizeof(FFVArgs) / sizeof(FFVArgs[0])) == (sizeof(FFVArgNames) / sizeof(FFVArgNames[0])), "Arg error");
-    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(FFVArgs, sizeof(FFVArgs) / sizeof(FFVArgs[0])), FFVArgNames);
+    AVSValue BSVArgs[] = { Args[0], Args[2], Args[3], Args[4], Args[5], Args[6], Args[7], Args[8], Args[9], Args[10], Args[11], Args[13], Args[14], Args[15], Args[16] };
+    static_assert((sizeof(BSVArgs) / sizeof(BSVArgs[0])) == (sizeof(BSVArgNames) / sizeof(BSVArgNames[0])), "Arg error");
+    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs, sizeof(BSVArgs) / sizeof(BSVArgs[0])), BSVArgNames);
 
     bool WithAudio = Args[1].Defined();
 
     if (WithAudio) {
-        AVSValue FFAArgs[] = { Args[0], Args[1], Args[17], Args[6], Args[8], Args[9], Args[10], Args[11], Args[18] };
-        static_assert((sizeof(FFAArgs) / sizeof(FFAArgs[0])) == (sizeof(FFAArgNames) / sizeof(FFAArgNames[0])), "Arg error");
-        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(FFAArgs, sizeof(FFAArgs) / sizeof(FFAArgs[0])), FFAArgNames);
-        AVSValue ADArgs[] = { Video, Audio };
-        return Env->Invoke("AudioDubEx", AVSValue(ADArgs, sizeof(ADArgs) / sizeof(ADArgs[0])));
+        AVSValue BSAArgs[] = { Args[0], Args[1], Args[17], Args[6], Args[8], Args[9], Args[10], Args[11], Args[18] };
+        static_assert((sizeof(BSAArgs) / sizeof(BSAArgs[0])) == (sizeof(BSAArgNames) / sizeof(BSAArgNames[0])), "Arg error");
+        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs, sizeof(BSAArgs) / sizeof(BSAArgs[0])), BSAArgNames);
+        AVSValue AudioDubArgs[] = { Video, Audio };
+        return Env->Invoke("AudioDubEx", AVSValue(AudioDubArgs, sizeof(AudioDubArgs) / sizeof(AudioDubArgs[0])));
     } else {
         return Video;
     }
