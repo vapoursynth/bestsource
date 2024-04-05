@@ -81,7 +81,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             VSVideoFormat AlphaFormat = {};
             vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, Core);
 
-            Dst = vsapi->newVideoFrame(&VideoFormat, Src->Width, Src->Height, nullptr, Core);
+            Dst = vsapi->newVideoFrame(&VideoFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
             uint8_t *DstPtrs[3] = {};
             ptrdiff_t DstStride[3] = {};
 
@@ -92,7 +92,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
 
             ptrdiff_t AlphaStride = 0;
             if (Src->VF.Alpha) {
-                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->Width, Src->Height, nullptr, Core);
+                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
                 AlphaStride = vsapi->getStride(AlphaDst, 0);
                 vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
             }
@@ -202,8 +202,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         const VideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
-        D->VI.width = VP.Width;
-        D->VI.height = VP.Height;
+        D->VI.width = VP.SSModWidth;
+        D->VI.height = VP.SSModHeight;
         if (VariableFormat)
             D->VI = {};
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);

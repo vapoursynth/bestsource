@@ -284,11 +284,13 @@ void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
     if (!PropFrame)
         return;
 
+    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
     VP.FieldBased = !!(PropFrame->flags & AV_FRAME_FLAG_INTERLACED);
     VP.TFF = !!(PropFrame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
     VP.Width = CodecContext->width;
     VP.Height = CodecContext->height;
-    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
+    VP.SSModWidth = VP.Width - (VP.Width % (1 << VP.VF.SubSamplingW));
+    VP.SSModHeight = VP.Height - (VP.Height % (1 << VP.VF.SubSamplingH));
 
     VP.FPS = CodecContext->framerate;
     // Set the framerate from the container if the codec framerate is invalid
@@ -466,6 +468,8 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
     PTS = Frame->pts;
     Width = Frame->width;
     Height = Frame->height;
+    SSModWidth = Width - (Width % (1 << VF.SubSamplingW));
+    SSModHeight = Height - (Height % (1 << VF.SubSamplingH));
     Duration = Frame->duration;
     KeyFrame = !!(Frame->flags & AV_FRAME_FLAG_KEY);
     PictType = av_get_picture_type_char(Frame->pict_type);
@@ -582,6 +586,11 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     if (VF.ColorFamily == 0)
         return false;
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
+
+    // Keep it simple until someone complains
+    int SourceWidth = SSModWidth;
+    int SourceHeight = SSModHeight;
+
     if (IsRealPlanar(Desc)) {
 
         size_t BytesPerSample = 0;
@@ -600,8 +609,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
 
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
-            int PlaneW = Frame->width;
-            int PlaneH = Frame->height;
+            int PlaneW = SourceWidth;
+            int PlaneH = SourceHeight;
             if (Plane > 0) {
                 PlaneW >>= Desc->log2_chroma_w;
                 PlaneH >>= Desc->log2_chroma_h;
@@ -619,16 +628,16 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         if (HasAlpha(Desc) && AlphaDst) {
             const uint8_t *Src = Frame->data[3];
             uint8_t *Dst = AlphaDst;
-            for (int h = 0; h < Frame->height; h++) {
-                memcpy(Dst, Src, BytesPerSample * Frame->width);
+            for (int h = 0; h < SourceHeight; h++) {
+                memcpy(Dst, Src, BytesPerSample * SourceWidth);
                 Src += Frame->linesize[3];
                 Dst += AlphaStride;
             }
         }
     } else {
         p2p_buffer_param Buf = {};
-        Buf.height = Frame->height;
-        Buf.width = Frame->width;
+        Buf.height = SourceHeight;
+        Buf.width = SourceWidth;
 
         switch (Frame->format) {
         case AV_PIX_FMT_YUYV422:

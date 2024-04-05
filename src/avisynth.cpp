@@ -138,8 +138,8 @@ public:
                 VI.image_type |= VideoInfo::IT_FIELDBASED;
             VI.image_type |= VP.TFF ? VideoInfo::IT_TFF : VideoInfo::IT_BFF;
 
-            VI.width = VP.Width;
-            VI.height = VP.Height;
+            VI.width = VP.SSModWidth;
+            VI.height = VP.SSModHeight;
 
             VI.num_frames = vsh::int64ToIntS(VP.NumFrames);
             VI.SetFPS(VP.FPS.Num, VP.FPS.Den);

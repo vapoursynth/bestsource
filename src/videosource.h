@@ -63,6 +63,10 @@ struct VideoProperties {
     int Width;
     int Height;
 
+    /* Height and width but largest possible size where it's a multiple of the subsampling */
+    int SSModWidth;
+    int SSModHeight; 
+
     bool FieldBased;
     bool TFF;
 
@@ -139,6 +143,10 @@ public:
     VideoFormat VF;
     int Width;
     int Height;
+
+    /* Height and width but largest possible size where it's a multiple of the subsampling */
+    int SSModWidth;
+    int SSModHeight;
 
     int64_t PTS;
     int64_t Duration;
