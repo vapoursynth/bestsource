@@ -528,6 +528,12 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
             // report error here "HDR10+ dynamic metadata could not be serialized."
         }
     }
+
+    AVFrameSideData *ICCProfileSideData = av_frame_get_side_data(Frame, AV_FRAME_DATA_ICC_PROFILE);
+    if (ICCProfileSideData) {
+        ICCProfile = ICCProfileSideData->data;
+        ICCProfileSize = ICCProfileSideData->size;
+    }
 }
 
 BestVideoFrame::~BestVideoFrame() {

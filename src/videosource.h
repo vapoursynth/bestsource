@@ -176,6 +176,10 @@ public:
     /* HDR10Plus */
     uint8_t *HDR10Plus = nullptr;
     size_t HDR10PlusSize = 0;
+
+    /* ICC Profile */
+    uint8_t *ICCProfile = nullptr;
+    size_t ICCProfileSize = 0;
 };
 
 class BestVideoSource {
