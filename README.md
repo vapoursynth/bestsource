@@ -38,7 +38,7 @@ ninja -C build install
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100, bint showprogress = True])`
 
-`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, bint showprogress = True])`
+`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, string cachepath , int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, bint showprogress = True])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -50,9 +50,9 @@ ninja -C build install
 
 `BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, string cachepath, int cachesize = 100])`
 
-`BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number])`
+`BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number])`
 
-`BSSource(string source[, int atrack, int vtrack = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath = source, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int adjustdelay = -1, float drc_scale = 0])`
+`BSSource(string source[, int atrack, int vtrack = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, string cachepath, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int adjustdelay = -1, float drc_scale = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 
@@ -84,7 +84,7 @@ ninja -C build install
 
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
-*cachepath*: The full path to of the cache file. Defaults to `source.<track>.bsindex`. Current ignored for AudioSource.
+*cachepath*: The full base path and filename of the cache file. Defaults to `source.<track>.bsindex`.
 
 *cachesize*: Maximum internal cache size in MB.
 
