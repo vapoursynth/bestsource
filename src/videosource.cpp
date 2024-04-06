@@ -675,8 +675,11 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         case AV_PIX_FMT_RGB48LE:
             Buf.packing = p2p_rgb48_le;
             break;
-        case AV_PIX_FMT_RGBA64:
-            Buf.packing = p2p_rgba64;
+        case AV_PIX_FMT_RGBA64LE:
+            Buf.packing = p2p_rgba64_le;
+            break;
+        case AV_PIX_FMT_RGBA64BE:
+            Buf.packing = p2p_rgba64_be;
             break;
         default:
             return false;
