@@ -1476,7 +1476,10 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
     if (!RFF || RFFState == rffUnused) {
         return TrackIndex.Frames[N].TFF;
     } else {
-        return (RFFFields[N].first < RFFFields[N].second);
+        if (RFFFields[N].first == RFFFields[N].second)
+            return TrackIndex.Frames[RFFFields[N].first].TFF;
+        else
+            return (RFFFields[N].first < RFFFields[N].second);
     }
 }
 
