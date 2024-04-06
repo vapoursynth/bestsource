@@ -145,8 +145,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         StartNumber = -1;
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
-    if (err)
-        ShowProgress = true;
     int ExtraHWFrames = vsapi->mapGetIntSaturated(In, "extrahwframes", 0, &err);
     if (err)
         ExtraHWFrames = 9;
@@ -291,8 +289,6 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         AdjustDelay = -1;
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
-    if (err)
-        ShowProgress = true;
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
