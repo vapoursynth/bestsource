@@ -591,21 +591,21 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     int SourceWidth = SSModWidth;
     int SourceHeight = SSModHeight;
 
+    size_t BytesPerSample = 0;
+
+    if (VF.Bits <= 8)
+        BytesPerSample = 1;
+    if (VF.Bits > 8 && VF.Bits <= 16)
+        BytesPerSample = 2;
+    else if (VF.Bits > 16 && VF.Bits <= 32)
+        BytesPerSample = 4;
+    else if (VF.Bits > 32 && VF.Bits <= 64)
+        BytesPerSample = 8;
+
+    if (!BytesPerSample)
+        return false;
+
     if (IsRealPlanar(Desc)) {
-
-        size_t BytesPerSample = 0;
-
-        if (VF.Bits <= 8)
-            BytesPerSample = 1;
-        if (VF.Bits > 8 && VF.Bits <= 16)
-            BytesPerSample = 2;
-        else if (VF.Bits > 16 && VF.Bits <= 32)
-            BytesPerSample = 4;
-        else if (VF.Bits > 32 && VF.Bits <= 64)
-            BytesPerSample = 8;
-
-        if (!BytesPerSample)
-            return false;
 
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
@@ -639,6 +639,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         Buf.height = SourceHeight;
         Buf.width = SourceWidth;
 
+        bool HasFastPath = true;
+
         switch (Frame->format) {
         case AV_PIX_FMT_YUYV422:
             Buf.packing = p2p_yuy2;
@@ -648,12 +650,6 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             break;
         case AV_PIX_FMT_UYVY422:
             Buf.packing = p2p_uyvy;
-            break;
-        case AV_PIX_FMT_NV12:
-            Buf.packing = p2p_nv12;
-            break;
-        case AV_PIX_FMT_P010:
-            Buf.packing = p2p_p010;
             break;
         case AV_PIX_FMT_ARGB:
         case AV_PIX_FMT_0RGB:
@@ -682,24 +678,63 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             Buf.packing = p2p_rgba64_be;
             break;
         default:
-            return false;
+            HasFastPath = false;
         }
 
-        for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
-            Buf.src[Plane] = Frame->data[Plane];
-            Buf.src_stride[Plane] = Frame->linesize[Plane];
-        }
+        if (HasFastPath) {
+            for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
+                Buf.src[Plane] = Frame->data[Plane];
+                Buf.src_stride[Plane] = Frame->linesize[Plane];
+            }
 
-        for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
-            Buf.dst[plane] = Dsts[plane];
-            Buf.dst_stride[plane] = Stride[plane];
+            for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+                Buf.dst[plane] = Dsts[plane];
+                Buf.dst_stride[plane] = Stride[plane];
+            }
+
             if (HasAlpha(Desc) && AlphaDst) {
                 Buf.dst[3] = AlphaDst;
                 Buf.dst_stride[3] = AlphaStride;
             }
-        }
 
-        p2p_unpack_frame(&Buf, 0);
+            p2p_unpack_frame(&Buf, 0);
+        } else {
+            int HasPalette = !!(Desc->flags & AV_PIX_FMT_FLAG_PAL);
+            if (BytesPerSample == 2 || BytesPerSample == 4) {
+                for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+                    for (int y = 0; y < SSModHeight; y++)
+                        av_read_image_line2(Dsts[plane] + y * Stride[plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, plane, SSModWidth, HasPalette, BytesPerSample);
+                }
+
+                if (HasAlpha(Desc) && AlphaDst) {
+                    for (int y = 0; y < SSModHeight; y++)
+                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, BytesPerSample);
+                }
+            } else if (BytesPerSample == 1) {
+                std::vector<uint16_t> TempSpace;
+                TempSpace.resize(SSModWidth);
+                for (int plane = 0; plane < (VF.ColorFamily == 1 ? 1 : 3); plane++) {
+                    uint8_t *RealDst = Dsts[plane];
+                    for (int y = 0; y < SSModHeight; y++) {
+                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, plane, SSModWidth, HasPalette, 2);
+                        for (int x = 0; x < SSModWidth; x++)
+                            RealDst[x] = static_cast<uint8_t>(TempSpace[x]);
+                        RealDst += Stride[plane];
+                    }
+                }
+
+                if (HasAlpha(Desc) && AlphaDst) {
+                    for (int y = 0; y < SSModHeight; y++) {
+                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, 2);
+                        for (int x = 0; x < SSModWidth; x++)
+                            AlphaDst[x] = static_cast<uint8_t>(TempSpace[x]);
+                        AlphaDst += AlphaStride;
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
     }
 
     return true;
