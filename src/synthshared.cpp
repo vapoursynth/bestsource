@@ -21,7 +21,7 @@
 #include "synthshared.h"
 #include "VSHelper4.h"
 
-void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const VideoProperties &VP, bool RFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
+void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const VideoProperties &VP, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
     // Set AR variables
     if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
         mapSetInt("_SARNum", VP.SAR.Num);
@@ -45,10 +45,9 @@ void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const V
         // Set field information
         int FieldBased = 0;
         if (Src->InterlacedFrame)
-            FieldBased = (Src->TopFieldFirst ? 2 : 1);
+            FieldBased = (TFF ? 2 : 1);
         mapSetInt("_FieldBased", FieldBased);
         mapSetInt("RepeatField", Src->RepeatPict);
-        mapSetInt("TopFieldFirst", Src->TopFieldFirst);
 
         // FIXME, use PTS difference between frames instead?
         if (Src->Duration > 0) {
@@ -59,6 +58,8 @@ void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const V
             mapSetInt("_DurationDen", DurDen);
         }
     }
+
+    mapSetInt("TopFieldFirst", TFF);
 
     if (Src->HasMasteringDisplayPrimaries) {
         for (int i = 0; i < 3; i++) {

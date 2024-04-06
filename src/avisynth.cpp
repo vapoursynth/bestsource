@@ -242,7 +242,7 @@ public:
         const VideoProperties &VP = V->GetVideoProperties();
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        SetSynthFrameProperties(Src, VP, RFF,
+        SetSynthFrameProperties(Src, VP, RFF, V->GetFrameIsTFF(n, RFF),
             [Props, Env](const char *Name, int64_t V) { Env->propSetInt(Props, Name, V, 1); },
             [Props, Env](const char *Name, double V) { Env->propSetFloat(Props, Name, V, 1); },
             [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetData(Props, Name, V, Size, 1); });

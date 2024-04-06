@@ -113,7 +113,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
-        SetSynthFrameProperties(Src, VP, D->RFF,
+        SetSynthFrameProperties(Src, VP, D->RFF, D->V->GetFrameIsTFF(n, D->RFF),
             [Props, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, double V) { vsapi->mapSetFloat(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(Props, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
