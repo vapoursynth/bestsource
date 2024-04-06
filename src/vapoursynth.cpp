@@ -244,6 +244,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
 struct BestAudioSourceData {
     VSAudioInfo AI = {};
+    bool Is8Bit = false;
     std::unique_ptr<BestAudioSource> A;
 };
 
@@ -265,6 +266,16 @@ static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason,
             vsapi->freeFrame(Dst);
             return nullptr;
         }
+        if (D->Is8Bit) {
+            // Ugly hack to unpack 8 bit audio inplace
+            for (int Channel = 0; Channel < D->AI.format.numChannels; Channel++) {
+                uint16_t *WritePtr = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(Dst, Channel));
+                const uint8_t *ReadPtr = vsapi->getWritePtr(Dst, Channel);
+                for (int64_t i = SamplesOut - 1; i >= 0; i--)
+                    WritePtr[i] = (ReadPtr[i] - 0x80U) << 8;
+            }
+        }
+
         return Dst;
     }
 
@@ -326,7 +337,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         }
 
         const AudioProperties &AP = D->A->GetAudioProperties();
-        if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, AP.AF.Bits, AP.ChannelLayout, Core))
+        D->Is8Bit = (AP.AF.Bits <= 8);
+        if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, D->Is8Bit ? 16 : AP.AF.Bits, AP.ChannelLayout, Core))
             throw BestSourceException("Unsupported audio format from decoder (probably 8-bit)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
