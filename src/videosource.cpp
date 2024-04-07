@@ -625,7 +625,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             }
         }
 
-        if (HasAlpha(Desc) && AlphaDst) {
+        if (VF.Alpha && AlphaDst) {
             const uint8_t *Src = Frame->data[3];
             uint8_t *Dst = AlphaDst;
             for (int h = 0; h < SourceHeight; h++) {
@@ -698,7 +698,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                 Buf.dst_stride[plane] = Stride[plane];
             }
 
-            if (HasAlpha(Desc) && AlphaDst) {
+            if (VF.Alpha && AlphaDst) {
                 Buf.dst[3] = AlphaDst;
                 Buf.dst_stride[3] = AlphaStride;
             }
@@ -719,7 +719,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                         av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, BytesPerSample);
                 }
 
-                if (HasAlpha(Desc) && AlphaDst) {
+                if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++)
                         av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, BytesPerSample);
                 }
@@ -743,7 +743,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                     }
                 }
 
-                if (HasAlpha(Desc) && AlphaDst) {
+                if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++) {
                         av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, 2);
                         for (int x = 0; x < SSModWidth; x++)
