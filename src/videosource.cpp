@@ -888,7 +888,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     VP.NumRFFFrames = (NumFields + 1) / 2;
 
     if (VP.NumFrames == VP.NumRFFFrames)
-        RFFState = rffUnused;
+        RFFState = RFFStateEnum::Unused;
 
     Decoders[0] = std::move(Decoder);
 }
@@ -1285,7 +1285,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
 }
 
 bool BestVideoSource::InitializeRFF() {
-    assert(RFFState == rffUninitialized);
+    assert(RFFState == RFFStateEnum::Uninitialized);
 
     int64_t DestFieldTop = 0;
     int64_t DestFieldBottom = 0;
@@ -1324,9 +1324,9 @@ bool BestVideoSource::InitializeRFF() {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
-    if (RFFState == rffUninitialized)
+    if (RFFState == RFFStateEnum::Uninitialized)
         InitializeRFF();
-    if (RFFState == rffUnused) {
+    if (RFFState == RFFStateEnum::Unused) {
         return GetFrame(N, Linear);
     } else {
         const auto &Fields = RFFFields[N];
@@ -1528,10 +1528,10 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
     if (N < 0 || (N >= VP.NumFrames && !RFF) || (N >= VP.NumRFFFrames && RFF))
         return false;
 
-    if (RFF && RFFState == rffUninitialized)
+    if (RFF && RFFState == RFFStateEnum::Uninitialized)
         InitializeRFF();
 
-    if (!RFF || RFFState == rffUnused) {
+    if (!RFF || RFFState == RFFStateEnum::Unused) {
         return TrackIndex.Frames[N].TFF;
     } else {
         if (RFFFields[N].first == RFFFields[N].second)

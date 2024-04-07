@@ -233,10 +233,11 @@ private:
     VideoTrackIndex TrackIndex;
     Cache FrameCache;
 
-    enum RFFStateEnum {
-        rffUninitialized, rffReady, rffUnused
+    enum class RFFStateEnum {
+        Uninitialized, Ready, Unused
     };
-    RFFStateEnum RFFState = rffUninitialized;
+
+    RFFStateEnum RFFState = RFFStateEnum::Uninitialized;
     std::vector<std::pair<int64_t, int64_t>> RFFFields;
 
     static constexpr int MaxVideoSources = 4;
