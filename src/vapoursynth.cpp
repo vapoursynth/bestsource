@@ -290,7 +290,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BSInit();
 
     int err;
-    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
+    std::filesystem::path Source = std::filesystem::u8path(vsapi->mapGetData(In, "source", 0, nullptr));
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
@@ -362,7 +362,7 @@ static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core
     BSInit();
 
     int err;
-    const char *Source = vsapi->mapGetData(In, "source", 0, nullptr);
+    std::filesystem::path Source = std::filesystem::u8path(vsapi->mapGetData(In, "source", 0, nullptr));
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))

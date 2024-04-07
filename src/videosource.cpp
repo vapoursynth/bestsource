@@ -108,7 +108,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
@@ -124,8 +124,8 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
     for (const auto &Iter : LAVFOpts)
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
-    if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
-        throw BestSourceException("Couldn't open '" + SourceFile + "'");
+    if (avformat_open_input(&FormatContext, SourceFile.u8string().c_str(), nullptr, &Dict) != 0)
+        throw BestSourceException("Couldn't open '" + SourceFile.u8string() + "'");
 
     av_dict_free(&Dict);
 
@@ -233,7 +233,7 @@ void LWVideoDecoder::OpenFile(const std::string &SourceFile, const std::string &
         throw BestSourceException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
         OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, VariableFormat, Threads, LAVFOpts);
@@ -853,8 +853,8 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+    : Source(std::filesystem::absolute(SourceFile)), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
@@ -867,11 +867,11 @@ BestVideoSource::BestVideoSource(const std::string &SourceFile, const std::strin
     VideoTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
 
-    if (!ReadVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
+    if (!ReadVideoTrackIndex(CachePath)) {
         if (!IndexTrack(Progress))
-            throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(VideoTrack) + " failed");
+            throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed");
 
-        WriteVideoTrackIndex(CachePath.empty() ? SourceFile : CachePath);
+        WriteVideoTrackIndex(CachePath);
     }
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
@@ -1380,8 +1380,8 @@ static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, bool KeyFra
     return Result;
 }
 
-bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, VideoTrack, true);
+bool BestVideoSource::WriteVideoTrackIndex(const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, Source, VideoTrack, true);
     if (!F)
         return false;
     WriteBSHeader(F, true);
@@ -1456,8 +1456,8 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::string &CachePath) {
     return true;
 }
 
-bool BestVideoSource::ReadVideoTrackIndex(const std::string &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, VideoTrack, false);
+bool BestVideoSource::ReadVideoTrackIndex(const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, Source, VideoTrack, false);
     if (!F)
         return false;
     if (!ReadBSHeader(F, true))
@@ -1542,7 +1542,7 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
 }
 
 bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
-    file_ptr_t F(OpenFile(TimecodeFile, true));
+    file_ptr_t F(OpenNormalFile(std::filesystem::u8path(TimecodeFile), true));
     if (!F)
         return false;
 

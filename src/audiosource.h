@@ -67,12 +67,12 @@ private:
     AVPacket *Packet = nullptr;
     bool Seeked = false;
 
-    void OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
+    void OpenFile(const std::filesystem::path &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
 public:
-    LWAudioDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWAudioDecoder(const std::filesystem::path &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     [[nodiscard]] int64_t GetSourceSize() const;
     [[nodiscard]] int64_t GetSourcePostion() const;
@@ -116,8 +116,8 @@ private:
         std::vector<FrameInfo> Frames;
     };
 
-    bool WriteAudioTrackIndex(const std::string &CachePath);
-    bool ReadAudioTrackIndex(const std::string &CachePath);
+    bool WriteAudioTrackIndex(const std::filesystem::path &CachePath);
+    bool ReadAudioTrackIndex(const std::filesystem::path &CachePath);
 
     class Cache {
     private:
@@ -148,7 +148,7 @@ private:
     std::map<std::string, std::string> LAVFOptions;
     double DrcScale;
     AudioProperties AP = {};
-    std::string Source;
+    std::filesystem::path Source;
     int AudioTrack;
     bool VariableFormat;
     int Threads;
@@ -181,7 +181,7 @@ public:
         int64_t FirstSamplePos;
     };
 
-    BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
+    BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */

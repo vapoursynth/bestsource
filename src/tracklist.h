@@ -42,10 +42,10 @@ private:
 
     std::vector<TrackInfo> TrackList;
 
-    void OpenFile(const std::string &SourceFile, const std::map<std::string, std::string> &LAVFOpts);
+    void OpenFile(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> &LAVFOpts);
     void Free();
 public:
-    BestTrackList(const std::string &SourceFile, const std::map<std::string, std::string> *LAVFOpts);
+    BestTrackList(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> *LAVFOpts);
     ~BestTrackList();
     [[nodiscard]] int GetNumTracks() const;
     [[nodiscard]] const TrackInfo &GetTrackInfo(int Track) const;

@@ -23,6 +23,7 @@
 #include "version.h"
 #include <string>
 #include <atomic>
+#include <cassert>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -31,6 +32,10 @@ extern "C" {
 #include <libavutil/log.h>
 #include <libavutil/rational.h>
 }
+
+#ifdef _WIN32
+#include <ShlObj.h>
+#endif
 
 BSRational::BSRational(const AVRational &r) {
     Num = r.num;
@@ -61,29 +66,50 @@ void BSDebugPrint(const std::string_view Message, int64_t RequestedN, int64_t Cu
     }
 }
 
+static std::filesystem::path GetDefaultCachePath() {
 #ifdef _WIN32
-#include <windows.h>
-
-static std::wstring Utf16FromUtf8(const std::string &Str) {
-    int RequiredSize = MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), -1, nullptr, 0);
-    std::wstring Buffer;
-    Buffer.resize(RequiredSize - 1);
-    MultiByteToWideChar(CP_UTF8, 0, Str.c_str(), static_cast<int>(Str.size()), &Buffer[0], RequiredSize);
-    return Buffer;
-}
+    std::vector<wchar_t> appDataBuffer(MAX_PATH + 1);
+    if (SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, appDataBuffer.data()) != S_OK)
+        SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_DEFAULT, appDataBuffer.data());
+    std::filesystem::path IndexPath = appDataBuffer.data();
+#else
+    const char *home = getenv("HOME");
+    const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+    std::filesystem::path IndexPath;
+    if (xdg_config_home) {
+        IndexPath = xdg_config_home;
+    } else if (home) {
+        IndexPath = home;
+    }
 #endif
 
-file_ptr_t OpenFile(const std::string &Filename, bool Write) {
+    assert(!IndexPath.empty());
+
+    IndexPath /= "bsindex";
+    return IndexPath;
+}
+
+static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
+    std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
+    CachePath /= Source.relative_path();
+    return CachePath.make_preferred();
+}
+
+file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
 #ifdef _WIN32
-    file_ptr_t F(_wfopen(Utf16FromUtf8(Filename).c_str(), Write ? L"wb" : L"rb"));
+    file_ptr_t F(_wfopen(Filename.c_str(), Write ? L"wb" : L"rb"));
 #else
     file_ptr_t F(fopen(Filename.c_str(), Write ? "wb" : "rb"));
 #endif
     return F;
 }
 
-file_ptr_t OpenCacheFile(const std::string &CachePath, int Track, bool Write) {
-    return OpenFile(CachePath + "." + std::to_string(Track) + ".bsindex", Write);
+file_ptr_t OpenCacheFile(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write) {
+    std::filesystem::path CacheFile = MangleCachePath(CacheBasePath.empty() ? GetDefaultCachePath() : CacheBasePath, Source);
+    CacheFile += "." + std::to_string(Track) + ".bsindex";
+    std::error_code ec;
+    std::filesystem::create_directories(CacheFile.parent_path(), ec);
+    return OpenNormalFile(CacheFile, Write);
 }
 
 void WriteByte(file_ptr_t &F, uint8_t Value) {

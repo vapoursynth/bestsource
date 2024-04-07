@@ -70,15 +70,15 @@ bool LWAudioDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+void LWAudioDecoder::OpenFile(const std::filesystem::path &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     TrackNumber = Track;
 
     AVDictionary *Dict = nullptr;
     for (const auto &Iter : LAVFOpts)
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
-    if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
-        throw BestSourceException("Couldn't open '" + SourceFile + "'");
+    if (avformat_open_input(&FormatContext, SourceFile.u8string().c_str(), nullptr, &Dict) != 0)
+        throw BestSourceException("Couldn't open '" + SourceFile.u8string() + "'");
 
     av_dict_free(&Dict);
 
@@ -146,7 +146,7 @@ void LWAudioDecoder::OpenFile(const std::string &SourceFile, int Track, bool Var
         throw BestSourceException("Could not open audio codec");
 }
 
-LWAudioDecoder::LWAudioDecoder(const std::string &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
+LWAudioDecoder::LWAudioDecoder(const std::filesystem::path &SourceFile, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale) {
     try {
         Packet = av_packet_alloc();
         OpenFile(SourceFile, Track, VariableFormat, Threads, LAVFOpts, DrcScale);
@@ -374,8 +374,8 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::string &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
-    : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
+BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
+    : Source(std::filesystem::absolute(SourceFile)), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
@@ -385,11 +385,11 @@ BestAudioSource::BestAudioSource(const std::string &SourceFile, int Track, int A
     AudioTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
 
-    if (!ReadAudioTrackIndex(CachePath.empty() ? SourceFile : CachePath)) {
+    if (!ReadAudioTrackIndex(CachePath)) {
         if (!IndexTrack(Progress))
-            throw BestSourceException("Indexing of '" + SourceFile + "' track #" + std::to_string(AudioTrack) + " failed");
+            throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(AudioTrack) + " failed");
 
-        WriteAudioTrackIndex(CachePath.empty() ? SourceFile : CachePath);
+        WriteAudioTrackIndex(CachePath);
     }
 
     AP.NumFrames = TrackIndex.Frames.size();
@@ -1034,8 +1034,8 @@ static AudioCompArray GetAudioCompArray(int64_t PTS, int64_t Length) {
     return Result;
 }
 
-bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, AudioTrack, true);
+bool BestAudioSource::WriteAudioTrackIndex(const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, Source, AudioTrack, true);
     if (!F)
         return false;
     WriteBSHeader(F, false);
@@ -1108,8 +1108,8 @@ bool BestAudioSource::WriteAudioTrackIndex(const std::string &CachePath) {
     return true;
 }
 
-bool BestAudioSource::ReadAudioTrackIndex(const std::string &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, AudioTrack, false);
+bool BestAudioSource::ReadAudioTrackIndex(const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(CachePath, Source, AudioTrack, false);
     if (!F)
         return false;
     if (!ReadBSHeader(F, false))

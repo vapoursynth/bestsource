@@ -60,7 +60,7 @@ class AvisynthVideoSource : public IClip {
     int64_t FPSDen;
     bool RFF;
 public:
-    AvisynthVideoSource(const char *SourceFile, int Track,
+    AvisynthVideoSource(const char *Source, int Track,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
         const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
         const char *Timecodes, int StartNumber, IScriptEnvironment *Env)
@@ -81,7 +81,7 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(SourceFile, HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CachePath, &Opts));
+            V.reset(new BestVideoSource(std::filesystem::u8path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CachePath, &Opts));
 
             const VideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {
@@ -290,7 +290,7 @@ public:
             Opts["use_absolute_path"] = "1";
 
         try {
-            A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
+            A.reset(new BestAudioSource(std::filesystem::u8path(Source), Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
 
             const AudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {

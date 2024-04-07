@@ -26,13 +26,13 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 }
 
-void BestTrackList::OpenFile(const std::string &SourceFile, const std::map<std::string, std::string> &LAVFOpts) {
+void BestTrackList::OpenFile(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> &LAVFOpts) {
     AVDictionary *Dict = nullptr;
     for (const auto &Iter : LAVFOpts)
         av_dict_set(&Dict, Iter.first.c_str(), Iter.second.c_str(), 0);
 
-    if (avformat_open_input(&FormatContext, SourceFile.c_str(), nullptr, &Dict) != 0)
-        throw BestSourceException("Couldn't open '" + SourceFile + "'");
+    if (avformat_open_input(&FormatContext, SourceFile.u8string().c_str(), nullptr, &Dict) != 0)
+        throw BestSourceException("Couldn't open '" + SourceFile.u8string() + "'");
 
     av_dict_free(&Dict);
 
@@ -63,7 +63,7 @@ void BestTrackList::OpenFile(const std::string &SourceFile, const std::map<std::
     }
 }
 
-BestTrackList::BestTrackList(const std::string &SourceFile, const std::map<std::string, std::string> *LAVFOpts) {
+BestTrackList::BestTrackList(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> *LAVFOpts) {
     std::map<std::string, std::string> LAVFOptions;
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
