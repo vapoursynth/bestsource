@@ -62,7 +62,7 @@ class AvisynthVideoSource : public IClip {
 public:
     AvisynthVideoSource(const char *Source, int Track,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
-        const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
+        int CacheMode, const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
         const char *Timecodes, int StartNumber, IScriptEnvironment *Env)
         : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
 
@@ -81,7 +81,7 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(std::filesystem::u8path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CachePath, &Opts));
+            V.reset(new BestVideoSource(std::filesystem::u8path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CacheMode, CachePath, &Opts));
 
             const VideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {
@@ -266,14 +266,15 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int SeekPreroll = Args[6].AsInt(1);
     bool EnableDrefs = Args[7].AsBool(false);
     bool UseAbsolutePath = Args[8].AsBool(false);
-    const char *CachePath = Args[9].AsString("");
-    int CacheSize = Args[10].AsInt(-1);
-    const char *HWDevice = Args[11].AsString();
-    int ExtraHWFrames = Args[12].AsInt(9);
-    const char *Timecodes = Args[13].AsString(nullptr);
-    int StartNumber = Args[12].AsInt(-1);
+    int CacheMode = Args[9].AsInt(1);
+    const char *CachePath = Args[10].AsString("");
+    int CacheSize = Args[11].AsInt(-1);
+    const char *HWDevice = Args[12].AsString();
+    int ExtraHWFrames = Args[13].AsInt(9);
+    const char *Timecodes = Args[14].AsString(nullptr);
+    int StartNumber = Args[15].AsInt(-1);
 
-    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, Env);
+    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, Env);
 }
 
 class AvisynthAudioSource : public IClip {
@@ -281,7 +282,7 @@ class AvisynthAudioSource : public IClip {
     std::unique_ptr<BestAudioSource> A;
 public:
     AvisynthAudioSource(const char *Source, int Track,
-        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, const char *CachePath, int CacheSize, IScriptEnvironment *Env) {
+        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, int CacheMode, const char *CachePath, int CacheSize, IScriptEnvironment *Env) {
 
         std::map<std::string, std::string> Opts;
         if (EnableDrefs)
@@ -290,7 +291,7 @@ public:
             Opts["use_absolute_path"] = "1";
 
         try {
-            A.reset(new BestAudioSource(std::filesystem::u8path(Source), Track, AdjustDelay, false, Threads, CachePath ? CachePath : "", &Opts, DrcScale));
+            A.reset(new BestAudioSource(std::filesystem::u8path(Source), Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
 
             const AudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {
@@ -358,24 +359,25 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     bool EnableDrefs = Args[4].AsBool(false);
     bool UseAbsolutePath = Args[5].AsBool(false);
     double DrcScale = Args[6].AsFloat(0);
-    const char *CachePath = Args[7].AsString("");
-    int CacheSize = Args[8].AsInt(-1);
+    int CacheMode = Args[7].AsInt(1);
+    const char *CachePath = Args[8].AsString("");
+    int CacheSize = Args[9].AsInt(-1);
 
-    return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CachePath, CacheSize, Env);
+    return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CacheMode, CachePath, CacheSize, Env);
 }
 
 static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
-    const char *BSVArgNames[] = { "source", "track", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachepath", "cachesize", "hwdevice", "extrahwframes", "timecodes", "start_number" };
-    const char *BSAArgNames[] = { "source", "track", "adjustdelay", "threads", "enable_drefs", "use_absolute_path", "drc_scale", "cachepath", "cachesize" };
+    const char *BSVArgNames[] = { "source", "track", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachemode", "cachepath", "cachesize", "hwdevice", "extrahwframes", "timecodes", "start_number" };
+    const char *BSAArgNames[] = { "source", "track", "adjustdelay", "threads", "enable_drefs", "use_absolute_path", "drc_scale", "cachemode", "cachepath", "cachesize" };
 
-    AVSValue BSVArgs[] = { Args[0], Args[2], Args[3], Args[4], Args[5], Args[6], Args[7], Args[8], Args[9], Args[10], Args[11], Args[13], Args[14], Args[15], Args[16] };
+    AVSValue BSVArgs[] = { Args[0], Args[2], Args[3], Args[4], Args[5], Args[6], Args[7], Args[8], Args[9], Args[10], Args[11], Args[12], Args[14], Args[15], Args[16], Args[17] };
     static_assert((sizeof(BSVArgs) / sizeof(BSVArgs[0])) == (sizeof(BSVArgNames) / sizeof(BSVArgNames[0])), "Arg error");
     AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs, sizeof(BSVArgs) / sizeof(BSVArgs[0])), BSVArgNames);
 
     bool WithAudio = Args[1].Defined();
 
     if (WithAudio) {
-        AVSValue BSAArgs[] = { Args[0], Args[1], Args[17], Args[6], Args[8], Args[9], Args[10], Args[11], Args[18] };
+        AVSValue BSAArgs[] = { Args[0], Args[1], Args[18], Args[6], Args[8], Args[9], Args[10], Args[11], Args[12], Args[19] };
         static_assert((sizeof(BSAArgs) / sizeof(BSAArgs[0])) == (sizeof(BSAArgNames) / sizeof(BSAArgNames[0])), "Arg error");
         AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs, sizeof(BSAArgs) / sizeof(BSAArgs[0])), BSAArgNames);
         AVSValue AudioDubArgs[] = { Video, Audio };
@@ -403,7 +405,7 @@ extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironme
 
     Env->AddFunction("BSVideoSource", "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i", CreateBSVideoSource, nullptr);
     Env->AddFunction("BSAudioSource", "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachepath]s[cachesize]i", CreateBSAudioSource, nullptr);
-    Env->AddFunction("BSSource", "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f", CreateBSSource, nullptr);
+    Env->AddFunction("BSSource", "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f", CreateBSSource, nullptr);
     Env->AddFunction("BSSetDebugOutput", "[enable]b", BSSetDebugOutput, nullptr);
     Env->AddFunction("BSSetFFmpegLogLevel", "[level]i", BSSetFFmpegLogLevel, nullptr);
 

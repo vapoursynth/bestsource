@@ -853,13 +853,16 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
     : Source(std::filesystem::absolute(SourceFile)), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
     if (ExtraHWFrames < 0)
         throw BestSourceException("ExtraHWFrames must be 0 or greater");
+    
+    if (CacheMode < 0 || CacheMode > 2)
+        throw BestSourceException("CacheMode must be between 0 and 2");
 
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
@@ -867,11 +870,12 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     VideoTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
 
-    if (!ReadVideoTrackIndex(CachePath)) {
+    if (CacheMode == bcmDisable || !ReadVideoTrackIndex(CachePath)) {
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed");
 
-        WriteVideoTrackIndex(CachePath);
+        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100))
+            WriteVideoTrackIndex(CachePath);
     }
 
     if (TrackIndex.Frames[0].RepeatPict < 0)

@@ -181,7 +181,7 @@ public:
         int64_t FirstSamplePos;
     };
 
-    BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
+    BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */

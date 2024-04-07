@@ -374,10 +374,13 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
+BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
     : Source(std::filesystem::absolute(SourceFile)), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
+
+    if (CacheMode < 0 || CacheMode > 2)
+        throw BestSourceException("CacheMode must be between 0 and 2");
 
     std::unique_ptr<LWAudioDecoder> Decoder(new LWAudioDecoder(Source, AudioTrack, VariableFormat, Threads, LAVFOptions, DrcScale));
 
@@ -385,11 +388,12 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
     AudioTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
 
-    if (!ReadAudioTrackIndex(CachePath)) {
+    if (CacheMode == bcmDisable || !ReadAudioTrackIndex(CachePath)) {
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(AudioTrack) + " failed");
 
-        WriteAudioTrackIndex(CachePath);
+        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100))
+            WriteAudioTrackIndex(CachePath);
     }
 
     AP.NumFrames = TrackIndex.Frames.size();
