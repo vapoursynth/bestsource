@@ -1545,16 +1545,18 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
     }
 }
 
-bool BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) const {
+void BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) const {
+    for (const auto &Iter : TrackIndex.Frames)
+        if (Iter.PTS == AV_NOPTS_VALUE)
+            throw BestSourceException("Cannot write valid timecode file, track contains frames with unknown timestamp");
+
     file_ptr_t F(OpenNormalFile(TimecodeFile, true));
     if (!F)
-        return false;
+        throw BestSourceException("Couldn't open timecode file for writing");
 
     fprintf(F.get(), "# timecode format v2\n");
     for (const auto &Iter : TrackIndex.Frames)
         fprintf(F.get(), "%.02f\n", (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den);
-
-    return true;
 }
 
 const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) const {
