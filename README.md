@@ -84,7 +84,7 @@ ninja -C build install
 
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
-*cachemode*: 0 = Never read or write index to disk, 1 = Always try to read index but only write index to disk when it will make a noticable difference on subsequent runs, 2 = Always try to read and write index to disk
+*cachemode*: 0 = Never read or write index to disk, 1 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs, 2 = Always try to read and write index to disk
 
 *cachepath*: The path where cache files are written. Note that the actual index files are written into subdirectories using based on the source location. Defaults to %LOCALAPPDATA% on Windows and ~/bsindex elsewhere.
 
