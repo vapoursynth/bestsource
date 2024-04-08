@@ -274,7 +274,7 @@ public:
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false);
     [[nodiscard]] bool GetFrameIsTFF(int64_t N, bool RFF = false);
-    bool WriteTimecodes(const std::string &TimecodeFile) const;
+    bool WriteTimecodes(const std::filesystem::path &TimecodeFile) const;
     [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;
     [[nodiscard]] bool GetLinearDecodingState() const;
 };

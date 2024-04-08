@@ -1545,8 +1545,8 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
     }
 }
 
-bool BestVideoSource::WriteTimecodes(const std::string &TimecodeFile) const {
-    file_ptr_t F(OpenNormalFile(std::filesystem::u8path(TimecodeFile), true));
+bool BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) const {
+    file_ptr_t F(OpenNormalFile(TimecodeFile, true));
     if (!F)
         return false;
 

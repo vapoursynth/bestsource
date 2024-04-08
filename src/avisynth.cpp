@@ -163,7 +163,7 @@ public:
                 V->SetMaxCacheSize(CacheSize * 1024 * 1024);
 
             if (Timecodes)
-                V->WriteTimecodes(Timecodes);
+                V->WriteTimecodes(std::filesystem::u8path(Timecodes));
 
         } catch (BestSourceException &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
