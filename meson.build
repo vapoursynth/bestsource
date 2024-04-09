@@ -71,7 +71,6 @@ endif
 
 libbestsource = library('libbestsource', api_sources,
     dependencies: deps,
-    gnu_symbol_visibility: 'hidden',
     install: true,
     link_args: link_args,
     link_with: libs,
