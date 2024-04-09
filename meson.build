@@ -97,11 +97,17 @@ bestsource_dep = declare_dependency(
 if get_option('enable_plugin')
     vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
 
+    install_rpath = ''
+    if get_option('default_library') != 'static'
+        install_rpath = get_option('prefix') / get_option('libdir')
+    endif
+
     shared_module('bestsource', plugin_sources,
         dependencies: [bestsource_dep, vapoursynth_dep],
         gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth',
+        install_rpath: install_rpath,
         link_args: link_args,
         name_prefix: '',
     )
