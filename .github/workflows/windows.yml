@@ -65,7 +65,7 @@ jobs:
 
     - name: Build
       run: |
-        meson setup -Ddefault_library=static -Dprefer_static=true -Db_lto=true -Dcpp_link_args=-static -Denable_plugin=true build
+        meson setup -Ddefault_library=static -Dprefer_static=true -Db_lto=true -Dcpp_link_args=-static build
         ninja -C build
         strip build/bestsource.dll
 

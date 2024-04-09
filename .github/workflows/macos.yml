@@ -31,5 +31,5 @@ jobs:
 
     - name: Build
       run: |
-        meson setup -Dcpp_link_args=-fuse-ld=lld -Denable_plugin=true build
+        meson setup -Dcpp_link_args=-fuse-ld=lld build
         ninja -C build
