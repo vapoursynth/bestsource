@@ -1,5 +1,5 @@
 option('enable_plugin',
     type: 'boolean',
-    value: false,
+    value: true,
     description: 'Enable AviSynth and VapourSynth plugin',
 )
