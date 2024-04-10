@@ -132,7 +132,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     BSInit();
 
     int err;
-    std::filesystem::path Source = std::filesystem::u8path(vsapi->mapGetData(In, "source", 0, nullptr));
+    std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
     const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
     const char *Timecodes = vsapi->mapGetData(In, "timecodes", 0, &err);
@@ -232,7 +232,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V->SetSeekPreRoll(SeekPreRoll);
 
         if (Timecodes)
-            D->V->WriteTimecodes(std::filesystem::u8path(Timecodes));
+            D->V->WriteTimecodes(CreateProbablyUTF8Path(Timecodes));
     } catch (BestSourceException &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
@@ -294,7 +294,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BSInit();
 
     int err;
-    std::filesystem::path Source = std::filesystem::u8path(vsapi->mapGetData(In, "source", 0, nullptr));
+    std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
@@ -369,7 +369,7 @@ static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core
     BSInit();
 
     int err;
-    std::filesystem::path Source = std::filesystem::u8path(vsapi->mapGetData(In, "source", 0, nullptr));
+    std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))

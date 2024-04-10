@@ -46,6 +46,15 @@ double BSRational::ToDouble() const {
     return Num / (double)Den;
 }
 
+std::filesystem::path CreateProbablyUTF8Path(const char *Filename) {
+    assert(Filename);
+    try {
+        return std::filesystem::u8path(Filename);
+    } catch (...) { // exceptions are "implementation defined" so this is what you get
+        return std::filesystem::path(Filename);
+    }
+}
+
 int SetFFmpegLogLevel(int Level) {
     av_log_set_level(Level);
     return av_log_get_level();

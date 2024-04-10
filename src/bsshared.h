@@ -63,6 +63,8 @@ struct BSRational {
     double ToDouble() const;
 };
 
+std::filesystem::path CreateProbablyUTF8Path(const char *Filename);
+
 int SetFFmpegLogLevel(int Level);
 
 void SetBSDebugOutput(bool DebugOutput);

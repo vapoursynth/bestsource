@@ -81,7 +81,7 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(std::filesystem::u8path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CacheMode, CachePath, &Opts));
+            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CacheMode, CachePath, &Opts));
 
             const VideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {
@@ -166,7 +166,7 @@ public:
                 V->SetMaxCacheSize(CacheSize * 1024 * 1024);
 
             if (Timecodes)
-                V->WriteTimecodes(std::filesystem::u8path(Timecodes));
+                V->WriteTimecodes(CreateProbablyUTF8Path(Timecodes));
 
         } catch (BestSourceException &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
@@ -294,7 +294,7 @@ public:
             Opts["use_absolute_path"] = "1";
 
         try {
-            A.reset(new BestAudioSource(std::filesystem::u8path(Source), Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+            A.reset(new BestAudioSource(CreateProbablyUTF8Path(Source), Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
 
             const AudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {
