@@ -91,31 +91,34 @@ public:
             } else if (VP.VF.ColorFamily == cfYUV) {
                 VI.pixel_type = VideoInfo::CS_PLANAR | VideoInfo::CS_YUV | VideoInfo::CS_VPlaneFirst; // Why is there no generic YUV constant?
             } else if (VP.VF.ColorFamily == cfRGB && VP.VF.Alpha) {
-                VI.pixel_type = VideoInfo::CS_GENERIC_RGBP;
-            } else if (VP.VF.ColorFamily == cfRGB) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_RGBAP;
+            } else if (VP.VF.ColorFamily == cfRGB) {
+                VI.pixel_type = VideoInfo::CS_GENERIC_RGBP;
             } else {
                 throw BestSourceException("Unsupported output colorspace");
             }
 
-            if (VP.VF.SubSamplingH == 0) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
-            } else if (VP.VF.SubSamplingH == 1) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
-            } else if (VP.VF.SubSamplingH == 2) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
-            } else {
-                throw BestSourceException("Unsupported output subsampling");
-            }
+            // Settings subsampling for non-yuv will error out
+            if (VP.VF.ColorFamily == cfYUV) {
+                if (VP.VF.SubSamplingH == 0) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
+                } else if (VP.VF.SubSamplingH == 1) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
+                } else if (VP.VF.SubSamplingH == 2) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
+                } else {
+                    throw BestSourceException("Unsupported output subsampling");
+                }
 
-            if (VP.VF.SubSamplingW == 0) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
-            } else if (VP.VF.SubSamplingW == 1) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Width_2;
-            } else if (VP.VF.SubSamplingW == 2) {
-                VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
-            } else {
-                throw BestSourceException("Unsupported output subsampling");
+                if (VP.VF.SubSamplingW == 0) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
+                } else if (VP.VF.SubSamplingW == 1) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Width_2;
+                } else if (VP.VF.SubSamplingW == 2) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
+                } else {
+                    throw BestSourceException("Unsupported output subsampling");
+                }
             }
 
             if (VP.VF.Bits == 32 && VP.VF.Float) {
