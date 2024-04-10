@@ -369,17 +369,9 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CacheMode, CachePath, CacheSize, Env);
 }
 
+// Now some fun magic to parse things from Avisynth arg strings at compile time
 
-// FIXME, basically this needs C++20 and consteval/constinit to be evaluated at compile time without being too annoying to write
-static constexpr std::array BSArgNames = { "source", "atrack", "vtrack", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachemode", "cachepath", "acachesize", "vcachesize", "hwdevice", "extrahwframes", "timecodes", "start_number", "adjustdelay", "drc_scale" };
-static constexpr std::array BSVArgNames = { "source", "track", "fpsnum", "fpsden", "rff", "threads", "seekpreroll", "enable_drefs", "use_absolute_path", "cachemode", "cachepath", "cachesize", "hwdevice", "extrahwframes", "timecodes", "start_number" };
-static constexpr std::array BSAArgNames = { "source", "track", "adjustdelay", "threads", "enable_drefs", "use_absolute_path", "drc_scale", "cachemode", "cachepath", "cachesize" };
-
-static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i";
-static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f";
-
-static constexpr size_t CountNumArguments(const char *Args) {
+static constexpr size_t GetNumAvsArgs(const char *Args) {
     size_t NumArgs = 0;
     while (*Args) {
         if (*Args == '[')
@@ -389,46 +381,83 @@ static constexpr size_t CountNumArguments(const char *Args) {
     return NumArgs;
 }
 
-static constexpr int GetVideoArgPos(size_t Position) {
-    for (size_t i = 0; i < BSArgNames.size(); i++)
-        if (!strcmp(BSVArgNames[Position], BSArgNames[i]) || BSArgNames[i][0] == 'v' && !strcmp(BSVArgNames[Position], BSArgNames[i] + 1))
-            return static_cast<int>(i);
-    return -1;
+template<const char Args[], size_t Size>
+static constexpr std::array<std::string_view, GetNumAvsArgs(Args)> PopulateArgNames() {
+    std::array<std::string_view, GetNumAvsArgs(Args)> Result;
+    size_t Arg = 0;
+    const char *Start = Args + 1;
+    const char *Cur = Start;
+    while (Cur < (Args + Size)) {
+        if (*Cur == ']') {
+            Result[Arg++] = std::string_view(Start, Cur - Start);
+            Start = Cur + 3;
+            Cur = Start;
+        } else {
+            ++Cur;
+        }
+    }
+    return Result;
 }
 
-static constexpr int GetAudioArgPos(size_t Position) {
-    for (size_t i = 0; i < BSArgNames.size(); i++)
-        if (!strcmp(BSAArgNames[Position], BSArgNames[i]) || BSArgNames[i][0] == 'a' && !strcmp(BSAArgNames[Position], BSArgNames[i] + 1))
-            return static_cast<int>(i);
-    return -1;
+static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i";
+static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f";
+
+static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs, sizeof(BSVideoSourceAvsArgs)>();
+static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs, sizeof(BSAudioSourceAvsArgs)>();
+static constexpr std::array BSArgNames = PopulateArgNames<BSSourceAvsArgs, sizeof(BSSourceAvsArgs)>();
+
+static_assert(BSVArgNames.size() + 4 == BSArgNames.size()); //avtrack, avcachesize, adjustdelay and drc_scale
+
+static constexpr std::array<int, BSVArgNames.size()> GetVideoArgMapping() {
+    auto GetArgPos = [](size_t Position) {
+        for (size_t i = 0; i < BSArgNames.size(); i++)
+            if (BSVArgNames[Position] == BSArgNames[i] || (BSArgNames[i].substr(0, 1) == "v" && BSVArgNames[Position] == BSArgNames[i].substr(1)))
+                return static_cast<int>(i);
+        return -1;
+        };
+    std::array<int, BSVArgNames.size()> Result{};
+    for (size_t i = 0; i < BSVArgNames.size(); i++)
+        Result[i] = GetArgPos(i);
+    return Result;
+}
+
+static constexpr std::array<int, BSAArgNames.size()> GetAudioArgMapping() {
+    auto GetArgPos = [](size_t Position) {
+        for (size_t i = 0; i < BSArgNames.size(); i++)
+            if (BSAArgNames[Position] == BSArgNames[i] || (BSArgNames[i].substr(0, 1) == "a" && BSAArgNames[Position] == BSArgNames[i].substr(1)))
+                return static_cast<int>(i);
+        return -1;
+        };
+    std::array<int, BSAArgNames.size()> Result{};
+    for (size_t i = 0; i < BSAArgNames.size(); i++)
+        Result[i] = GetArgPos(i);
+    return Result;
 }
 
 static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
-    static_assert(BSArgNames.size() == CountNumArguments(BSSourceAvsArgs), "Arg error");
+    static constexpr std::array VideoArgMapping = GetVideoArgMapping();
+    static constexpr std::array AudioArgMapping = GetAudioArgMapping();
 
-    AVSValue BSVArgs[] = { Args[GetVideoArgPos(0)], Args[GetVideoArgPos(1)], Args[GetVideoArgPos(2)], Args[GetVideoArgPos(3)], 
-        Args[GetVideoArgPos(4)], Args[GetVideoArgPos(5)], Args[GetVideoArgPos(6)], Args[GetVideoArgPos(7)], Args[GetVideoArgPos(8)],
-        Args[GetVideoArgPos(9)], Args[GetVideoArgPos(10)], Args[GetVideoArgPos(11)], Args[GetVideoArgPos(12)], Args[GetVideoArgPos(13)],
-        Args[GetVideoArgPos(14)], Args[15] };
-    static_assert((sizeof(BSVArgs) / sizeof(BSVArgs[0])) == CountNumArguments(BSVideoSourceAvsArgs), "Arg error");
+    AVSValue BSVArgs[] = { Args[VideoArgMapping[0]], Args[VideoArgMapping[1]], Args[VideoArgMapping[2]], Args[VideoArgMapping[3]],
+        Args[VideoArgMapping[4]], Args[VideoArgMapping[5]], Args[VideoArgMapping[6]], Args[VideoArgMapping[7]], Args[VideoArgMapping[8]],
+        Args[VideoArgMapping[9]], Args[VideoArgMapping[10]], Args[VideoArgMapping[11]], Args[VideoArgMapping[12]], Args[VideoArgMapping[13]],
+        Args[VideoArgMapping[14]], Args[VideoArgMapping[15]] };
     static_assert((sizeof(BSVArgs) / sizeof(BSVArgs[0])) == BSVArgNames.size(), "Arg error");
 
-    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs, sizeof(BSVArgs) / sizeof(BSVArgs[0])), BSVArgNames.data());
+    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs, sizeof(BSVArgs) / sizeof(BSVArgs[0])));
 
-    bool WithAudio = Args[1].Defined();
+    try {
+        AVSValue BSAArgs[] = { Args[AudioArgMapping[0]], Args[AudioArgMapping[1]], Args[AudioArgMapping[2]], Args[AudioArgMapping[3]],
+            Args[AudioArgMapping[4]], Args[AudioArgMapping[5]], Args[AudioArgMapping[6]], Args[AudioArgMapping[7]], Args[AudioArgMapping[8]], Args[AudioArgMapping[9]] };
 
-    if (WithAudio) {
-        AVSValue BSAArgs[] = { Args[GetAudioArgPos(0)], Args[GetAudioArgPos(1)], Args[GetAudioArgPos(2)], Args[GetAudioArgPos(3)],
-            Args[GetAudioArgPos(4)], Args[GetAudioArgPos(5)], Args[GetAudioArgPos(6)], Args[GetAudioArgPos(7)], Args[GetAudioArgPos(8)], Args[GetAudioArgPos(9)]};
-
-        static_assert((sizeof(BSAArgs) / sizeof(BSAArgs[0])) == CountNumArguments(BSAudioSourceAvsArgs), "Arg error");
         static_assert((sizeof(BSAArgs) / sizeof(BSAArgs[0])) == BSAArgNames.size(), "Arg error");
 
-        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs, sizeof(BSAArgs) / sizeof(BSAArgs[0])), BSAArgNames.data());
+        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs, sizeof(BSAArgs) / sizeof(BSAArgs[0])));
 
         AVSValue AudioDubArgs[] = { Video, Audio };
         return Env->Invoke("AudioDubEx", AVSValue(AudioDubArgs, sizeof(AudioDubArgs) / sizeof(AudioDubArgs[0])));
-    } else {
+    } catch(...) {
         return Video;
     }
 }
