@@ -409,7 +409,7 @@ static constexpr std::array BSArgNames = PopulateArgNames<BSSourceAvsArgs, sizeo
 
 static_assert(BSVArgNames.size() + 4 == BSArgNames.size()); //avtrack, avcachesize, adjustdelay and drc_scale
 
-static constexpr std::array<int, BSVArgNames.size()> GetVideoArgMapping() {
+static constexpr auto GetVideoArgMapping() {
     auto GetArgPos = [](size_t Position) {
         for (size_t i = 0; i < BSArgNames.size(); i++)
             if (BSVArgNames[Position] == BSArgNames[i] || (BSArgNames[i].substr(0, 1) == "v" && BSVArgNames[Position] == BSArgNames[i].substr(1)))
@@ -422,7 +422,7 @@ static constexpr std::array<int, BSVArgNames.size()> GetVideoArgMapping() {
     return Result;
 }
 
-static constexpr std::array<int, BSAArgNames.size()> GetAudioArgMapping() {
+static constexpr auto GetAudioArgMapping() {
     auto GetArgPos = [](size_t Position) {
         for (size_t i = 0; i < BSArgNames.size(); i++)
             if (BSAArgNames[Position] == BSArgNames[i] || (BSArgNames[i].substr(0, 1) == "a" && BSAArgNames[Position] == BSArgNames[i].substr(1)))
