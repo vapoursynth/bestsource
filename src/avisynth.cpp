@@ -150,7 +150,7 @@ public:
             if (FPSNum > 0) {
                 vsh::reduceRational(&FPSNum, &FPSDen);
                 if (VP.FPS.Den != FPSDen || VP.FPS.Num != FPSNum) {
-                    VI.SetFPS(FPSNum, FPSDen);
+                    VI.SetFPS(static_cast<int>(FPSNum), static_cast<int>(FPSDen));
                     VI.num_frames = std::max(1, static_cast<int>((VP.Duration * VI.fps_numerator) / VI.fps_denominator));
                 } else {
                     FPSNum = -1;
@@ -439,25 +439,26 @@ static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnv
     static constexpr std::array VideoArgMapping = GetVideoArgMapping();
     static constexpr std::array AudioArgMapping = GetAudioArgMapping();
 
-    AVSValue BSVArgs[] = { Args[VideoArgMapping[0]], Args[VideoArgMapping[1]], Args[VideoArgMapping[2]], Args[VideoArgMapping[3]],
-        Args[VideoArgMapping[4]], Args[VideoArgMapping[5]], Args[VideoArgMapping[6]], Args[VideoArgMapping[7]], Args[VideoArgMapping[8]],
-        Args[VideoArgMapping[9]], Args[VideoArgMapping[10]], Args[VideoArgMapping[11]], Args[VideoArgMapping[12]], Args[VideoArgMapping[13]],
-        Args[VideoArgMapping[14]], Args[VideoArgMapping[15]] };
-    static_assert((sizeof(BSVArgs) / sizeof(BSVArgs[0])) == BSVArgNames.size(), "Arg error");
+    std::array<AVSValue, VideoArgMapping.size()> BSVArgs;
+    for (size_t i = 0; i < VideoArgMapping.size(); i++)
+        BSVArgs[i] = Args[VideoArgMapping[i]];
 
-    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs, sizeof(BSVArgs) / sizeof(BSVArgs[0])));
+    AVSValue Video = Env->Invoke("BSVideoSource", AVSValue(BSVArgs.data(), static_cast<int>(BSVArgs.size())));
 
     try {
-        AVSValue BSAArgs[] = { Args[AudioArgMapping[0]], Args[AudioArgMapping[1]], Args[AudioArgMapping[2]], Args[AudioArgMapping[3]],
-            Args[AudioArgMapping[4]], Args[AudioArgMapping[5]], Args[AudioArgMapping[6]], Args[AudioArgMapping[7]], Args[AudioArgMapping[8]], Args[AudioArgMapping[9]] };
+        // FIXME, adjustdelay should probably be set to vtrack by default to make more sense here but I doubt anyone will ever notice
+        std::array<AVSValue, AudioArgMapping.size()> BSAArgs;
+        for (size_t i = 0; i < AudioArgMapping.size(); i++)
+            BSAArgs[i] = Args[AudioArgMapping[i]];
 
-        static_assert((sizeof(BSAArgs) / sizeof(BSAArgs[0])) == BSAArgNames.size(), "Arg error");
-
-        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs, sizeof(BSAArgs) / sizeof(BSAArgs[0])));
+        AVSValue Audio = Env->Invoke("BSAudioSource", AVSValue(BSAArgs.data(), static_cast<int>(BSAArgs.size())));
 
         AVSValue AudioDubArgs[] = { Video, Audio };
-        return Env->Invoke("AudioDubEx", AVSValue(AudioDubArgs, sizeof(AudioDubArgs) / sizeof(AudioDubArgs[0])));
+        return Env->Invoke("AudioDubEx", AVSValue(AudioDubArgs, 2));
     } catch(...) {
+        // Only fail on audio errors when atrack is explicitly set
+        if (Args[AudioArgMapping[1]].Defined())
+            throw;
         return Video;
     }
 }

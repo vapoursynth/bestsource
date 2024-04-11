@@ -52,11 +52,13 @@ ninja -C build install
 
 `BSVideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number])`
 
-`BSSource(string source[, int atrack, int vtrack = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int adjustdelay = -1, float drc_scale = 0])`
+`BSSource(string source[, int atrack = -1, int vtrack = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int adjustdelay = -1, float drc_scale = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 
 `BSSetFFmpegLogLevel(int level = <quiet log level>)`
+
+Note that the *BSSource* function by default will silently ignore errors when opening audio and in that case only return the video track. However if *atrack* is explicitly set failure to open the audio track will return an error.
 
 ## Argument explanation
 

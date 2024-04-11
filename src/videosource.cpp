@@ -719,12 +719,12 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                     }
 
                     for (int y = 0; y < PlaneHeight; y++)
-                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, BytesPerSample);
+                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, static_cast<int>(BytesPerSample));
                 }
 
                 if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++)
-                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, BytesPerSample);
+                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, static_cast<int>(BytesPerSample));
                 }
             } else if (BytesPerSample == 1) {
                 std::vector<uint16_t> TempSpace;
