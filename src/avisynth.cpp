@@ -382,7 +382,7 @@ static constexpr size_t GetNumAvsArgs(const char *Args) {
 }
 
 template<const char Args[], size_t Size>
-static constexpr std::array<std::string_view, GetNumAvsArgs(Args)> PopulateArgNames() {
+static constexpr auto PopulateArgNames() {
     std::array<std::string_view, GetNumAvsArgs(Args)> Result;
     size_t Arg = 0;
     const char *Start = Args + 1;
