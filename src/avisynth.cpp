@@ -381,16 +381,18 @@ static constexpr size_t GetNumAvsArgs(const char *Args) {
     return NumArgs;
 }
 
-template<const char Args[], size_t Size>
+template<const char Args[]>
 static constexpr auto PopulateArgNames() {
     std::array<std::string_view, GetNumAvsArgs(Args)> Result;
     size_t Arg = 0;
     const char *Start = Args + 1;
     const char *Cur = Start;
-    while (Cur < (Args + Size)) {
+    while (*Cur) {
         if (*Cur == ']') {
             Result[Arg++] = std::string_view(Start, Cur - Start);
-            Start = Cur + 3;
+            Start = Cur + 2;
+            if (*Start)
+                ++Start;
             Cur = Start;
         } else {
             ++Cur;
@@ -403,9 +405,9 @@ static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsde
 static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i";
 static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f";
 
-static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs, sizeof(BSVideoSourceAvsArgs)>();
-static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs, sizeof(BSAudioSourceAvsArgs)>();
-static constexpr std::array BSArgNames = PopulateArgNames<BSSourceAvsArgs, sizeof(BSSourceAvsArgs)>();
+static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
+static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();
+static constexpr std::array BSArgNames = PopulateArgNames<BSSourceAvsArgs>();
 
 static_assert(BSVArgNames.size() + 4 == BSArgNames.size()); //avtrack, avcachesize, adjustdelay and drc_scale
 
