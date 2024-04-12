@@ -36,9 +36,9 @@ ninja -C build install
 
 ## VapourSynth usage
 
-`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True])`
+`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = False])`
 
-`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, bint showprogress = True])`
+`bs.VideoSource(string source[, int track = -1, bint variableformat = False, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, bint showprogress = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
