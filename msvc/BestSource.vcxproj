@@ -20,6 +20,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\libp2p\p2p_api.cpp" />
+    <ClCompile Include="..\libp2p\simd\cpuinfo_x86.cpp" />
+    <ClCompile Include="..\libp2p\simd\p2p_simd.cpp" />
+    <ClCompile Include="..\libp2p\simd\p2p_sse41.cpp" />
     <ClCompile Include="..\libp2p\v210.cpp" />
     <ClCompile Include="..\src\audiosource.cpp" />
     <ClCompile Include="..\src\avisynth.cpp" />
@@ -35,6 +38,10 @@
     <ClCompile Include="..\src\videosource.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\libp2p\p2p.h" />
+    <ClInclude Include="..\libp2p\p2p_api.h" />
+    <ClInclude Include="..\libp2p\simd\cpuinfo_x86.h" />
+    <ClInclude Include="..\libp2p\simd\p2p_simd.h" />
     <ClInclude Include="..\src\audiosource.h" />
     <ClInclude Include="..\src\bsshared.h" />
     <ClInclude Include="..\src\synthshared.h" />
@@ -153,7 +160,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DEBUG;BESTSOURCE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;P2P_SIMD;_DEBUG;BESTSOURCE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -171,7 +178,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NDEBUG;BESTSOURCE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;P2P_SIMD;NDEBUG;BESTSOURCE_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>

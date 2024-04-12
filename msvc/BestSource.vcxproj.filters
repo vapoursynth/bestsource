@@ -13,18 +13,21 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\libp2p">
+      <UniqueIdentifier>{2355c21a-06ad-4ba9-b480-85b1b21c3947}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\libp2p">
+      <UniqueIdentifier>{d8b16898-1c66-4384-84fa-da09fcfa80be}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\synths">
+      <UniqueIdentifier>{c1bcff9f-77bb-43cc-a298-2f33102b8c48}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\synths">
+      <UniqueIdentifier>{35044fb1-2c40-406d-873d-fb63b3204e90}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\videosource.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\vapoursynth.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\libp2p\p2p_api.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\libp2p\v210.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\audiosource.cpp">
@@ -33,14 +36,32 @@
     <ClCompile Include="..\src\bsshared.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\avisynth.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\tracklist.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\libp2p\v210.cpp">
+      <Filter>Source Files\libp2p</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libp2p\p2p_api.cpp">
+      <Filter>Source Files\libp2p</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libp2p\simd\cpuinfo_x86.cpp">
+      <Filter>Source Files\libp2p</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libp2p\simd\p2p_simd.cpp">
+      <Filter>Source Files\libp2p</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libp2p\simd\p2p_sse41.cpp">
+      <Filter>Source Files\libp2p</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\avisynth.cpp">
+      <Filter>Source Files\synths</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\vapoursynth.cpp">
+      <Filter>Source Files\synths</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\synthshared.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\synths</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -60,7 +81,19 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\synthshared.h">
-      <Filter>Header Files</Filter>
+      <Filter>Header Files\synths</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libp2p\p2p.h">
+      <Filter>Header Files\libp2p</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libp2p\p2p_api.h">
+      <Filter>Header Files\libp2p</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libp2p\simd\cpuinfo_x86.h">
+      <Filter>Header Files\libp2p</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libp2p\simd\p2p_simd.h">
+      <Filter>Header Files\libp2p</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
