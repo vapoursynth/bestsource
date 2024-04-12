@@ -100,7 +100,15 @@ static std::filesystem::path GetDefaultCachePath() {
 
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
     std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
-    CachePath /= Source.relative_path();
+    // Since it's possible to pass in urls, ffmpeg protocols and other things with characters not allowed on disk we now have to remove them from the path
+    std::string Tmp = Source.relative_path().u8string();
+    for (auto &iter : Tmp) {
+        if (iter == '?' || iter == '*' || iter == '<' || iter == '>' || iter == '|' || iter == '"')
+            iter = '_';
+        else if (iter == ':')
+            iter = '/';
+    }
+    CachePath /= std::filesystem::u8path(Tmp);
     return CachePath.make_preferred();
 }
 

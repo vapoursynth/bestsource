@@ -857,7 +857,12 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
 }
 
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(std::filesystem::absolute(SourceFile)), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    // Only make file path absolute if it exists to pass through special protocol paths
+    std::error_code ec;
+    if (std::filesystem::exists(SourceFile, ec))
+        Source = std::filesystem::absolute(SourceFile);
+
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 

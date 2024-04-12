@@ -375,7 +375,12 @@ BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
 }
 
 BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)
-    : Source(std::filesystem::absolute(SourceFile)), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
+    : Source(SourceFile), AudioTrack(Track), VariableFormat(VariableFormat), DrcScale(DrcScale), Threads(Threads) {
+    // Only make file path absolute if it exists to pass through special protocol paths
+    std::error_code ec;
+    if (std::filesystem::exists(SourceFile, ec))
+        Source = std::filesystem::absolute(SourceFile);
+
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
