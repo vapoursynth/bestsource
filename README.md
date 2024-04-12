@@ -96,7 +96,7 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *extrahwframes*: The number of additional frames to allocate when *hwdevice* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
 
-*timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option can produce EXTREMELY INVALID TIMECODE FILES due to performing no additional processing or check on the timestamps reported by FFmpeg. It is common for transport streams and other containers to have unknown values (shows up as large negative values) and discontinuous timestamps.
+*timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option will produce an error if any frame has an unknown timestamp which would result in an invalid timecode file.
 
 *start_number*: The first number of image sequences.
 
