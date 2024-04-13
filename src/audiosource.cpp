@@ -88,6 +88,9 @@ void LWAudioDecoder::OpenFile(const std::filesystem::path &SourceFile, int Track
         throw BestSourceException("Couldn't find stream information");
     }
 
+    if (!strcmp(FormatContext->iformat->name, "libmodplug"))
+        throw BestSourceException("Opening files with libmodplug demuxer is not supported");
+
     if (TrackNumber < 0) {
         for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++) {
             if (FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
