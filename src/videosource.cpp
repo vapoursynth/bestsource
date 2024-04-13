@@ -591,7 +591,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     int SourceWidth = SSModWidth;
     int SourceHeight = SSModHeight;
 
-    size_t BytesPerSample = 0;
+    int BytesPerSample = 0;
 
     if (VF.Bits <= 8)
         BytesPerSample = 1;
@@ -606,7 +606,6 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         return false;
 
     if (IsRealPlanar(Desc)) {
-
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
             int PlaneW = SourceWidth;
@@ -635,62 +634,43 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             }
         }
     } else {
-        p2p_buffer_param Buf = {};
-        Buf.height = SourceHeight;
-        Buf.width = SourceWidth;
+        static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
+            { AV_PIX_FMT_YUYV422, p2p_yuy2 },
+            { AV_PIX_FMT_UYVY422, p2p_uyvy },
 
-        bool HasFastPath = true;
+            { AV_PIX_FMT_RGB24, p2p_rgb24_be },
 
-        switch (Frame->format) {
-        case AV_PIX_FMT_YUYV422:
-            Buf.packing = p2p_yuy2;
-            break;
-        case AV_PIX_FMT_RGB24:
-            Buf.packing = p2p_rgb24_be;
-            break;
-        case AV_PIX_FMT_UYVY422:
-            Buf.packing = p2p_uyvy;
-            break;
-        case AV_PIX_FMT_NV12:
-            Buf.packing = p2p_nv12;
-            break;
-        case AV_PIX_FMT_P010:
-            Buf.packing = p2p_p010;
-            break;
-        case AV_PIX_FMT_Y210:
-            Buf.packing = p2p_y210;
-            break;
-        case AV_PIX_FMT_ARGB:
-        case AV_PIX_FMT_0RGB:
-            Buf.packing = p2p_argb32_be;
-            break;
-        case AV_PIX_FMT_RGBA:
-        case AV_PIX_FMT_RGB0:
-            Buf.packing = p2p_rgba32_be;
-            break;
-        case AV_PIX_FMT_0BGR:
-            Buf.packing = p2p_rgba32_le;
-            break;
-        case AV_PIX_FMT_BGR0:
-            Buf.packing = p2p_argb32_le;
-            break;
-        case AV_PIX_FMT_RGB48BE:
-            Buf.packing = p2p_rgb48_be;
-            break;
-        case AV_PIX_FMT_RGB48LE:
-            Buf.packing = p2p_rgb48_le;
-            break;
-        case AV_PIX_FMT_RGBA64LE:
-            Buf.packing = p2p_rgba64_le;
-            break;
-        case AV_PIX_FMT_RGBA64BE:
-            Buf.packing = p2p_rgba64_be;
-            break;
-        default:
-            HasFastPath = false;
-        }
+            { AV_PIX_FMT_ARGB, p2p_argb32_be },
+            { AV_PIX_FMT_0RGB, p2p_argb32_be },
+            { AV_PIX_FMT_RGBA, p2p_rgba32_be },
+            { AV_PIX_FMT_RGB0, p2p_rgba32_be },
+            { AV_PIX_FMT_0BGR, p2p_rgba32_le },
+            { AV_PIX_FMT_BGR0, p2p_argb32_le },
 
-        if (HasFastPath) {
+            { AV_PIX_FMT_RGB48BE, p2p_rgb48_be },
+            { AV_PIX_FMT_RGB48LE, p2p_rgb48_le },
+
+            { AV_PIX_FMT_RGBA64LE, p2p_rgba64_le },
+            { AV_PIX_FMT_RGBA64BE, p2p_rgba64_be },
+
+            // The somewhat more esoteric formats below are primarily used by hardware decoders
+            { AV_PIX_FMT_NV12, p2p_nv12_le },
+            { AV_PIX_FMT_NV16, p2p_nv16_le },
+            { AV_PIX_FMT_P010, p2p_p010 },
+            { AV_PIX_FMT_P012, p2p_p012 },
+            { AV_PIX_FMT_P210, p2p_p210 },
+            { AV_PIX_FMT_P212, p2p_p212 },
+            { AV_PIX_FMT_Y210, p2p_y210 },
+            { AV_PIX_FMT_Y212, p2p_y212 },
+            { AV_PIX_FMT_XV36, p2p_y412_le },
+        };
+
+        try {
+            p2p_buffer_param Buf = {};
+            Buf.packing = FormatMap.at(static_cast<AVPixelFormat>(Frame->format));
+            Buf.height = SourceHeight;
+            Buf.width = SourceWidth;
+
             for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
                 Buf.src[Plane] = Frame->data[Plane];
                 Buf.src_stride[Plane] = Frame->linesize[Plane];
@@ -707,7 +687,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             }
 
             p2p_unpack_frame(&Buf, 0);
-        } else {
+        } catch (std::out_of_range &) {
             int HasPalette = !!(Desc->flags & AV_PIX_FMT_FLAG_PAL);
             if (BytesPerSample == 2 || BytesPerSample == 4) {
                 for (int Plane = 0; Plane < (VF.ColorFamily == 1 ? 1 : 3); Plane++) {
@@ -719,12 +699,12 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                     }
 
                     for (int y = 0; y < PlaneHeight; y++)
-                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, static_cast<int>(BytesPerSample));
+                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, BytesPerSample);
                 }
 
                 if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++)
-                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, static_cast<int>(BytesPerSample));
+                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, BytesPerSample);
                 }
             } else if (BytesPerSample == 1) {
                 std::vector<uint16_t> TempSpace;

@@ -1018,6 +1018,8 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
 
     for (int64_t i = Range.First; i <= Range.Last; i++) {
         std::unique_ptr<BestAudioFrame> F(GetFrame(i));
+        if (!F)
+            throw BestSourceException("Audio decoding error, failed to get frame " + std::to_string(i));
         FillInFramePlanar(F.get(), Range.FirstSamplePos, DataV.data(), Start, Count);
         Range.FirstSamplePos += F->NumSamples;
     }

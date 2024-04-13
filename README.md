@@ -18,7 +18,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ### Windows Compilation
 
-On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,bzip2,core,dav1d,gpl,lzma,nvcodec,swresample,swscale,zlib]:x64-windows-static` and `xxhash:x64-windows-static`.
+On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,lcms,gpl,version3,lzma,nvcodec,qsv,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`.
 
 Use the latest version of Visual Studio. It should automatically find all the required libraries if you used vcpkg.
 
@@ -33,6 +33,11 @@ meson setup build
 ninja -C build
 ninja -C build install
 ```
+
+### Known issues and limitations
+
+- Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
+- Mod files can't be decoded correctly using libmodplug due to the library not having repeatble bitexact output
 
 ## VapourSynth usage
 
