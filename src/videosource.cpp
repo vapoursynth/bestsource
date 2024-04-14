@@ -582,6 +582,37 @@ void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
     }
 }
 
+static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
+    { AV_PIX_FMT_YUYV422, p2p_yuy2 },
+    { AV_PIX_FMT_UYVY422, p2p_uyvy },
+
+    { AV_PIX_FMT_RGB24, p2p_rgb24_be },
+
+    { AV_PIX_FMT_ARGB, p2p_argb32_be },
+    { AV_PIX_FMT_0RGB, p2p_argb32_be },
+    { AV_PIX_FMT_RGBA, p2p_rgba32_be },
+    { AV_PIX_FMT_RGB0, p2p_rgba32_be },
+    { AV_PIX_FMT_0BGR, p2p_rgba32_le },
+    { AV_PIX_FMT_BGR0, p2p_argb32_le },
+
+    { AV_PIX_FMT_RGB48BE, p2p_rgb48_be },
+    { AV_PIX_FMT_RGB48LE, p2p_rgb48_le },
+
+    { AV_PIX_FMT_RGBA64LE, p2p_rgba64_le },
+    { AV_PIX_FMT_RGBA64BE, p2p_rgba64_be },
+
+    // The somewhat more esoteric formats below are primarily used by hardware decoders
+    { AV_PIX_FMT_NV12, p2p_nv12_le },
+    { AV_PIX_FMT_NV16, p2p_nv16_le },
+    { AV_PIX_FMT_P010, p2p_p010 },
+    { AV_PIX_FMT_P012, p2p_p012 },
+    { AV_PIX_FMT_P210, p2p_p210 },
+    { AV_PIX_FMT_P212, p2p_p212 },
+    { AV_PIX_FMT_Y210, p2p_y210 },
+    { AV_PIX_FMT_Y212, p2p_y212 },
+    { AV_PIX_FMT_XV36, p2p_y412_le },
+};
+
 bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
@@ -634,37 +665,6 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
             }
         }
     } else {
-        static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
-            { AV_PIX_FMT_YUYV422, p2p_yuy2 },
-            { AV_PIX_FMT_UYVY422, p2p_uyvy },
-
-            { AV_PIX_FMT_RGB24, p2p_rgb24_be },
-
-            { AV_PIX_FMT_ARGB, p2p_argb32_be },
-            { AV_PIX_FMT_0RGB, p2p_argb32_be },
-            { AV_PIX_FMT_RGBA, p2p_rgba32_be },
-            { AV_PIX_FMT_RGB0, p2p_rgba32_be },
-            { AV_PIX_FMT_0BGR, p2p_rgba32_le },
-            { AV_PIX_FMT_BGR0, p2p_argb32_le },
-
-            { AV_PIX_FMT_RGB48BE, p2p_rgb48_be },
-            { AV_PIX_FMT_RGB48LE, p2p_rgb48_le },
-
-            { AV_PIX_FMT_RGBA64LE, p2p_rgba64_le },
-            { AV_PIX_FMT_RGBA64BE, p2p_rgba64_be },
-
-            // The somewhat more esoteric formats below are primarily used by hardware decoders
-            { AV_PIX_FMT_NV12, p2p_nv12_le },
-            { AV_PIX_FMT_NV16, p2p_nv16_le },
-            { AV_PIX_FMT_P010, p2p_p010 },
-            { AV_PIX_FMT_P012, p2p_p012 },
-            { AV_PIX_FMT_P210, p2p_p210 },
-            { AV_PIX_FMT_P212, p2p_p212 },
-            { AV_PIX_FMT_Y210, p2p_y210 },
-            { AV_PIX_FMT_Y212, p2p_y212 },
-            { AV_PIX_FMT_XV36, p2p_y412_le },
-        };
-
         try {
             p2p_buffer_param Buf = {};
             Buf.packing = FormatMap.at(static_cast<AVPixelFormat>(Frame->format));
