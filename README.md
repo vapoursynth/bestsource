@@ -27,7 +27,7 @@ Use the latest version of Visual Studio. It should automatically find all the re
 Requires `pkg-config`, `meson` and `ninja-build`.
 
 ```
-git clone https://github.com/vapoursynth/bestsource.git --depth 1 --recurse-submodules --shallow-submodules
+git clone https://github.com/vapoursynth/bestsource.git --depth 1 --recurse-submodules --shallow-submodules --remote-submodules
 cd bestsource
 meson setup build
 ninja -C build

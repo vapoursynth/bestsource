@@ -3,4 +3,4 @@
 	url = https://bitbucket.org/the-sekrit-twc/libp2p.git
 [submodule "AviSynthPlus"]
 	path = AviSynthPlus
-	url = https://github.com/AviSynth/AviSynthPlus
+	url = https://github.com/AviSynth/AviSynthPlus.git
