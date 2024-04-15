@@ -204,7 +204,7 @@ public:
             }
 
             if (!Src)
-                throw BestSourceException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Delete index and retry with threads=1.");
+                throw BestSourceException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Retry with threads=1 if not already set.");
 
             Dst = Env->NewVideoFrame(VI);
 
