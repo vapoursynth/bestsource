@@ -18,8 +18,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ### Windows Compilation
 
-On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,lcms,gpl,version3,lzma,nvcodec,qsv,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`.
-
+On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`. Do however note that this is without Little CMS2 support.
 Use the latest version of Visual Studio. It should automatically find all the required libraries if you used vcpkg.
 
 ### Linux and MacOS Compilation
@@ -36,8 +35,9 @@ ninja -C build install
 
 ### Known issues and limitations
 
+- Seeking performance in mpeg/ts/vob files can be quite poor due to the FFmpeg demuxer
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
-- Mod files can't be decoded correctly using libmodplug due to the library not having repeatble bitexact output
+- Mod files can't be decoded correctly using libmodplug due to the library not having repeatable bitexact output
 - Gray+alpha format isn't supported in Avisynth+ and as a result only the Y component is returned
 
 ## VapourSynth usage
