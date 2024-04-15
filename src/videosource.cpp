@@ -837,7 +837,7 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
 }
 
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(ExtraHWFrames), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -1381,6 +1381,7 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::filesystem::path &CachePat
     WriteInt(F, VideoTrack);
     WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
+    WriteInt(F, ExtraHWFrames);
 
     WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
@@ -1462,6 +1463,9 @@ bool BestVideoSource::ReadVideoTrackIndex(const std::filesystem::path &CachePath
         return false;
     if (!ReadCompareString(F, HWDevice))
         return false;
+    if (!ReadCompareInt(F, ExtraHWFrames))
+        return false;
+
     int LAVFOptCount = ReadInt(F);
     std::map<std::string, std::string> IndexLAVFOptions;
     for (int i = 0; i < LAVFOptCount; i++) {
