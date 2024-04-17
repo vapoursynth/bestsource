@@ -44,10 +44,12 @@ static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
 }
 
 static bool HasAlpha(const AVPixFmtDescriptor *Desc) {
-    return !!(Desc->flags & AV_PIX_FMT_FLAG_ALPHA);
+    return !!(Desc->flags & (AV_PIX_FMT_FLAG_ALPHA | AV_PIX_FMT_FLAG_PAL));
 }
 
 static int GetColorFamily(const AVPixFmtDescriptor *Desc) {
+    if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
+        return 2;
     if (Desc->nb_components <= 2)
         return 1;
     else if (Desc->flags & AV_PIX_FMT_FLAG_RGB)
@@ -57,10 +59,14 @@ static int GetColorFamily(const AVPixFmtDescriptor *Desc) {
 }
 
 static int GetBitDepth(const AVPixFmtDescriptor *Desc) {
+    if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
+        return 8;
     return Desc->comp[0].depth;
 }
 
 static int IsRealPlanar(const AVPixFmtDescriptor *Desc) {
+    if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
+        return false;
     int MaxPlane = 0;
     for (int i = 0; i < Desc->nb_components; i++)
         MaxPlane = std::max(MaxPlane, Desc->comp[i].plane);
@@ -616,12 +622,36 @@ static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
 bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
+
+    if (Frame->format == AV_PIX_FMT_PAL8) {
+        const uint8_t *Src = Frame->data[0];
+        const uint8_t *Palette = Frame->data[1];
+        for (int y = 0; y < SSModHeight; y++) {
+            for (int x = 0; x < SSModWidth; x++) {
+                uint8_t V = Src[x];
+                // So a palette is always BGRA order? Not really documented
+                Dsts[0][x] = Palette[V * 4 + 2];
+                Dsts[1][x] = Palette[V * 4 + 1];
+                Dsts[2][x] = Palette[V * 4 + 0];
+                if (AlphaDst)
+                    AlphaDst[x] = Palette[V * 4 + 3];
+            }
+            Src += Frame->linesize[0];
+            Dsts[0] += Stride[0];
+            Dsts[1] += Stride[1];
+            Dsts[2] += Stride[2];
+            AlphaDst += AlphaStride;
+        }   
+        return true;
+    }
+
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
 
-    // Keep it simple until someone complains
-    int SourceWidth = SSModWidth;
-    int SourceHeight = SSModHeight;
+    // This should never happen
+    if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
+        return false;
 
+    // Keep it simple until someone complains
     int BytesPerSample = 0;
 
     if (VF.Bits <= 8)
@@ -639,8 +669,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
     if (IsRealPlanar(Desc)) {
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
-            int PlaneW = SourceWidth;
-            int PlaneH = SourceHeight;
+            int PlaneW = SSModWidth;
+            int PlaneH = SSModHeight;
             if (Plane > 0) {
                 PlaneW >>= Desc->log2_chroma_w;
                 PlaneH >>= Desc->log2_chroma_h;
@@ -658,8 +688,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         if (VF.Alpha && AlphaDst) {
             const uint8_t *Src = Frame->data[3];
             uint8_t *Dst = AlphaDst;
-            for (int h = 0; h < SourceHeight; h++) {
-                memcpy(Dst, Src, BytesPerSample * SourceWidth);
+            for (int h = 0; h < SSModHeight; h++) {
+                memcpy(Dst, Src, BytesPerSample * SSModWidth);
                 Src += Frame->linesize[3];
                 Dst += AlphaStride;
             }
@@ -668,8 +698,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
         try {
             p2p_buffer_param Buf = {};
             Buf.packing = FormatMap.at(static_cast<AVPixelFormat>(Frame->format));
-            Buf.height = SourceHeight;
-            Buf.width = SourceWidth;
+            Buf.height = SSModHeight;
+            Buf.width = SSModWidth;
 
             for (int Plane = 0; Plane < Desc->nb_components; Plane++) {
                 Buf.src[Plane] = Frame->data[Plane];
@@ -688,7 +718,6 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
 
             p2p_unpack_frame(&Buf, 0);
         } catch (std::out_of_range &) {
-            int HasPalette = !!(Desc->flags & AV_PIX_FMT_FLAG_PAL);
             if (BytesPerSample == 2 || BytesPerSample == 4) {
                 for (int Plane = 0; Plane < (VF.ColorFamily == 1 ? 1 : 3); Plane++) {
                     int PlaneHeight = SSModHeight;
@@ -699,12 +728,12 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                     }
 
                     for (int y = 0; y < PlaneHeight; y++)
-                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, BytesPerSample);
+                        av_read_image_line2(Dsts[Plane] + y * Stride[Plane], const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, 0, BytesPerSample);
                 }
 
                 if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++)
-                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, BytesPerSample);
+                        av_read_image_line2(AlphaDst + y * AlphaStride, const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, 0, BytesPerSample);
                 }
             } else if (BytesPerSample == 1) {
                 std::vector<uint16_t> TempSpace;
@@ -719,8 +748,8 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
                     }
 
                     for (int y = 0; y < PlaneHeight; y++) {
-                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, HasPalette, 2);
-                        for (int x = 0; x < SSModWidth; x++)
+                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Plane, PlaneWidth, 0, 2);
+                        for (int x = 0; x < PlaneWidth; x++)
                             RealDst[x] = static_cast<uint8_t>(TempSpace[x]);
                         RealDst += Stride[Plane];
                     }
@@ -728,7 +757,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *
 
                 if (VF.Alpha && AlphaDst) {
                     for (int y = 0; y < SSModHeight; y++) {
-                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, HasPalette, 2);
+                        av_read_image_line2(TempSpace.data(), const_cast<const uint8_t **>(Frame->data), Frame->linesize, Desc, 0, y, Desc->nb_components - 1, SSModWidth, 0, 2);
                         for (int x = 0; x < SSModWidth; x++)
                             AlphaDst[x] = static_cast<uint8_t>(TempSpace[x]);
                         AlphaDst += AlphaStride;
