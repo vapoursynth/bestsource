@@ -601,8 +601,8 @@ static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
     { AV_PIX_FMT_0BGR, p2p_rgba32_le },
     { AV_PIX_FMT_BGR0, p2p_argb32_le },
 
-    { AV_PIX_FMT_RGB48BE, p2p_rgb48_be },
-    { AV_PIX_FMT_RGB48LE, p2p_rgb48_le },
+    { AV_PIX_FMT_RGB48BE, p2p_bgr48_be },
+    { AV_PIX_FMT_RGB48LE, p2p_bgr48_le },
 
     { AV_PIX_FMT_RGBA64LE, p2p_rgba64_le },
     { AV_PIX_FMT_RGBA64BE, p2p_rgba64_be },
