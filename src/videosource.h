@@ -138,7 +138,7 @@ public:
     ~BestVideoFrame();
     [[nodiscard]] const AVFrame *GetAVFrame() const;
     void MergeField(bool Top, const BestVideoFrame *FieldSrc); // Useful for RFF and other such things where fields from multiple decoded frames need to be combined, retains original frame's properties
-    bool ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
+    bool ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t *const Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
 
     VideoFormat VF;
     int Width;

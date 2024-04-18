@@ -208,8 +208,8 @@ public:
 
             Dst = Env->NewVideoFrame(VI);
 
-            uint8_t *DstPtrs[3] = { Dst->GetWritePtr() };
-            ptrdiff_t DstStride[3] = { Dst->GetPitch() };
+            uint8_t *DstPtrs[3] = {};
+            ptrdiff_t DstStride[3] = {};
 
             bool DestHasAlpha = (VI.IsYUVA() || VI.IsPlanarRGBA());
 

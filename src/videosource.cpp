@@ -619,9 +619,11 @@ static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
     { AV_PIX_FMT_XV36, p2p_y412_le },
 };
 
-bool BestVideoFrame::ExportAsPlanar(uint8_t **Dsts, ptrdiff_t *Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
+bool BestVideoFrame::ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t *const Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
     if (VF.ColorFamily == 0)
         return false;
+
+    uint8_t *Dsts[3] = { Dsts1[0], Dsts1[1], Dsts1[2] };
 
     if (Frame->format == AV_PIX_FMT_PAL8) {
         const uint8_t *Src = Frame->data[0];
