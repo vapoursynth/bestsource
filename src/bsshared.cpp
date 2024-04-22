@@ -25,6 +25,8 @@
 #include <atomic>
 #include <cassert>
 
+#include <xxhash.h>
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -101,12 +103,10 @@ static std::filesystem::path GetDefaultCachePath() {
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
     std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
     // Since it's possible to pass in urls, ffmpeg protocols and other things with characters not allowed on disk we now have to remove them from the path
-    std::string Tmp = Source.relative_path().u8string();
+    std::string Tmp = Source.filename().u8string();
     for (auto &iter : Tmp) {
-        if (iter == '?' || iter == '*' || iter == '<' || iter == '>' || iter == '|' || iter == '"')
+        if (iter == '?' || iter == '*' || iter == '<' || iter == '>' || iter == '|' || iter == '"' || iter == ':')
             iter = '_';
-        else if (iter == ':')
-            iter = '/';
     }
     CachePath /= std::filesystem::u8path(Tmp);
     return CachePath.make_preferred();
@@ -123,7 +123,9 @@ file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
 
 file_ptr_t OpenCacheFile(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write) {
     std::filesystem::path CacheFile = MangleCachePath(CacheBasePath.empty() ? GetDefaultCachePath() : CacheBasePath, Source);
-    CacheFile += "." + std::to_string(Track) + ".bsindex";
+    std::string SourceString = Source.u8string();
+    XXH64_hash_t Hash = XXH64(SourceString.c_str(), SourceString.size(), 0);
+    CacheFile += "." + std::to_string(Track) + "." + std::to_string(Hash) + ".bsindex";
     std::error_code ec;
     std::filesystem::create_directories(CacheFile.parent_path(), ec);
     return OpenNormalFile(CacheFile, Write);
