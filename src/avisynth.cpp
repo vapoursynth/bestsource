@@ -137,9 +137,7 @@ public:
                 throw BestSourceException("Unsupported output bitdepth");
             }
 
-            if (VP.FieldBased)
-                VI.image_type |= VideoInfo::IT_FIELDBASED;
-            VI.image_type |= VP.TFF ? VideoInfo::IT_TFF : VideoInfo::IT_BFF;
+            VI.image_type = (VP.TFF ? VideoInfo::IT_TFF : VideoInfo::IT_BFF);
 
             VI.width = VP.SSModWidth;
             VI.height = VP.SSModHeight;
