@@ -301,6 +301,8 @@ public:
                 VI.sample_type = SAMPLE_INT8;
             } else if (!AP.AF.Float && AP.AF.Bits <= 16) {
                 VI.sample_type = SAMPLE_INT16;
+            } else if (!AP.AF.Float && AP.AF.Bits <= 24) {
+                VI.sample_type = SAMPLE_INT24;
             } else if (!AP.AF.Float && AP.AF.Bits <= 32) {
                 VI.sample_type = SAMPLE_INT32;
             } else {
@@ -335,7 +337,19 @@ public:
 
     void __stdcall GetAudio(void *Buf, int64_t Start, int64_t Count, IScriptEnvironment *Env) {
         try {
-            A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
+            if (VI.sample_type == SAMPLE_INT24) {
+                // Avisynth has no way to signal the number of significant bits and instead requires 24bit packed stuff
+                std::unique_ptr<uint8_t[]> Tmp(new uint8_t[Count * VI.nchannels * 4]);
+                uint8_t *Dst = reinterpret_cast<uint8_t *>(Buf);
+                A->GetPackedAudio(reinterpret_cast<uint8_t *>(Tmp.get()), Start, Count);
+                for (int64_t i = 0; i < Count * VI.nchannels; i++) {
+                    // FIXME, the +1 is only for little endian
+                    memcpy(Dst, Tmp.get() + i * 4 + 1, 3);
+                    Dst += 3;
+                }
+            } else {
+                A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
+            }
         } catch (BestSourceException &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
         }
