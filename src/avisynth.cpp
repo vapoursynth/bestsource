@@ -40,6 +40,17 @@
 #define AVS_EXPORT __attribute__((visibility("default")))
 #endif
 
+// Endian detection
+#ifdef _WIN32
+#define BS_LITTLE_ENDIAN
+#elif defined(__BYTE_ORDER__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define BS_BIG_ENDIAN
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define BS_LITTLE_ENDIAN
+#endif
+#endif
+
 static std::once_flag BSInitOnce;
 
 static void BSInit() {
@@ -343,8 +354,11 @@ public:
                 uint8_t *Dst = reinterpret_cast<uint8_t *>(Buf);
                 A->GetPackedAudio(reinterpret_cast<uint8_t *>(Tmp.get()), Start, Count);
                 for (int64_t i = 0; i < Count * VI.nchannels; i++) {
-                    // FIXME, the +1 is only for little endian
+#ifdef BS_LITTLE_ENDIAN
                     memcpy(Dst, Tmp.get() + i * 4 + 1, 3);
+#else
+                    memcpy(Dst, Tmp.get() + i * 4, 3);
+#endif
                     Dst += 3;
                 }
             } else {
