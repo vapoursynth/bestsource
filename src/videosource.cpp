@@ -867,6 +867,26 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
+BSRational BestVideoSource::NearestCommonFrameRate(double FPS) {
+    constexpr std::array FPSList = { 24, 25, 30, 48, 50, 60, 100, 120 };
+    BSRational Result = {};
+
+    for (const auto &Iter : FPSList) {
+        const double delta = (Iter - static_cast<double>(Iter) / 1.001) / 2.0;
+        if (fabs(FPS - Iter) < delta) {
+            Result.Num = Iter;
+            Result.Den = 1;
+            break;
+        } else if ((Iter % 25 != 0) && (fabs(FPS - static_cast<double>(Iter) / 1.001) < delta)) {
+            Result.Num = Iter * 1000;
+            Result.Den = 1001;
+            break;
+        }
+    }
+
+    return Result;
+}
+
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
     : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
@@ -901,7 +921,28 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
         throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
 
     VP.NumFrames = TrackIndex.Frames.size();
-    VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + std::max<int64_t>(1, TrackIndex.LastFrameDuration);
+
+    // Framerate and last frame duration guessing fun
+    std::map<int64_t, size_t> DurationHistogram;
+    for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
+        ++DurationHistogram[TrackIndex.Frames[i + 1].PTS - TrackIndex.Frames[i].PTS];
+
+    const auto MostCommonDuration = std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+
+    int64_t LastFrameDuration = TrackIndex.LastFrameDuration;
+    if (LastFrameDuration <= 0 && !DurationHistogram.empty())
+        LastFrameDuration = MostCommonDuration->first;
+    LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
+
+    VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
+    
+    // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
+    if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
+        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.FPS.Num, TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS - TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS, INT_MAX);
+        BSRational CFRFPS = NearestCommonFrameRate(VP.FPS.ToDouble());
+        if (CFRFPS.Num > 0)
+            VP.FPS = CFRFPS;
+    }
 
     int64_t NumFields = 0;
 
