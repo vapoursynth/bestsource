@@ -923,27 +923,35 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     VP.NumFrames = TrackIndex.Frames.size();
 
     // Framerate and last frame duration guessing fun
+    const auto OriginalFPS = VP.FPS;
     std::map<int64_t, size_t> DurationHistogram;
-    for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
-        //if (TrackIndex.Frames[i + 1].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[i].PTS != AV_NOPTS_VALUE)
-        ++DurationHistogram[TrackIndex.Frames[i + 1].PTS - TrackIndex.Frames[i].PTS];
 
-    const auto MostCommonDuration = *std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+    for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
+        if (TrackIndex.Frames[i].PTS == AV_NOPTS_VALUE || TrackIndex.Frames[i + 1].PTS == AV_NOPTS_VALUE)
+            ++DurationHistogram[AV_NOPTS_VALUE];
+        else
+            ++DurationHistogram[TrackIndex.Frames[i + 1].PTS - TrackIndex.Frames[i].PTS];
+
+    std::pair<int64_t, size_t> MostCommonDuration(1, 1);
+    if (!DurationHistogram.empty())
+        MostCommonDuration = *std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
 
     int64_t LastFrameDuration = TrackIndex.LastFrameDuration;
-    if (LastFrameDuration <= 0 && !DurationHistogram.empty())
+    if (LastFrameDuration <= 0 && !DurationHistogram.empty() && MostCommonDuration.first > 0)
         LastFrameDuration = MostCommonDuration.first;
     LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
 
     VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
     
-    if (DurationHistogram.size() == 1) {
+    if (DurationHistogram.size() == 1 && MostCommonDuration.first > 0) {
         // It's true CFR so make sure the frame rate matches the frame durations
         av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, MostCommonDuration.first * VP.TimeBase.Num, INT_MAX);
     } else if (TrackIndex.Frames.size() >= 20 && DurationHistogram.size() > 1) {
         // If the clip is long enough discard as many small duration bins as possible but less than 5% of the total number of frame durations and calculate a frame rate from that
         size_t TotalHistogramFrames = TrackIndex.Frames.size() - 1;
-        size_t UsedHistogramFrames = TotalHistogramFrames;
+        size_t UsedHistogramFrames = TotalHistogramFrames - DurationHistogram[AV_NOPTS_VALUE];
+        DurationHistogram.erase(AV_NOPTS_VALUE);
+
         while (DurationHistogram.size() > 1) {
             const auto MinKey = std::min_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
             if (((UsedHistogramFrames - MinKey->second) * 100) / TotalHistogramFrames < 95)
@@ -952,18 +960,24 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
             DurationHistogram.erase(MinKey);
         }
 
-        int64_t HistDuration = 0;
-        for (const auto &Iter : DurationHistogram)
-            HistDuration += Iter.first * Iter.second;
+        if (!DurationHistogram.empty()) {
+            int64_t HistDuration = 0;
+            for (const auto &Iter : DurationHistogram)
+                HistDuration += Iter.first * Iter.second;
 
-        // FIXME, can this realistically overflow?
-        av_reduce(&VP.FPS.Num, &VP.FPS.Den, UsedHistogramFrames * VP.TimeBase.Den, HistDuration * VP.TimeBase.Num, INT_MAX);
-        NearestCommonFrameRate(VP.FPS);
+            // FIXME, can this realistically overflow?
+            av_reduce(&VP.FPS.Num, &VP.FPS.Den, UsedHistogramFrames * VP.TimeBase.Den, HistDuration * VP.TimeBase.Num, INT_MAX);
+            NearestCommonFrameRate(VP.FPS);
+        }
     } else if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
         // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
         // It's a fallback to make even obviously wrong mpeg timebase files have a saner framerate
-        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, (TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS - TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS) * VP.TimeBase.Num, INT_MAX);
-        NearestCommonFrameRate(VP.FPS);
+        int64_t F1 = TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS;
+        int64_t F2 = TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS;
+        if (F1 != AV_NOPTS_VALUE && F2 != AV_NOPTS_VALUE) {
+            av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, (F1 - F2) * VP.TimeBase.Num, INT_MAX);
+            NearestCommonFrameRate(VP.FPS);
+        }
     }
 
     int64_t NumFields = 0;
@@ -975,6 +989,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
 
     if (VP.NumFrames == VP.NumRFFFrames)
         RFFState = RFFStateEnum::Unused;
+    else
+        VP.FPS = OriginalFPS; // Restore the original FPS since it's generally always correct for files with RFF set
 
     Decoders[0] = std::move(Decoder);
 }
