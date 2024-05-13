@@ -867,24 +867,24 @@ BestVideoFrame *BestVideoSource::Cache::GetFrame(int64_t N) {
     return nullptr;
 }
 
-BSRational BestVideoSource::NearestCommonFrameRate(double FPS) {
+bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
     constexpr std::array FPSList = { 24, 25, 30, 48, 50, 60, 100, 120 };
-    BSRational Result = {};
+    double FPSDouble = FPS.ToDouble();
 
     for (const auto &Iter : FPSList) {
         const double delta = (Iter - static_cast<double>(Iter) / 1.001) / 2.0;
-        if (fabs(FPS - Iter) < delta) {
-            Result.Num = Iter;
-            Result.Den = 1;
-            break;
-        } else if ((Iter % 25 != 0) && (fabs(FPS - static_cast<double>(Iter) / 1.001) < delta)) {
-            Result.Num = Iter * 1000;
-            Result.Den = 1001;
-            break;
+        if (fabs(FPSDouble - Iter) < delta) {
+            FPS.Num = Iter;
+            FPS.Den = 1;
+            return true;
+        } else if ((Iter % 25 != 0) && (fabs(FPSDouble - static_cast<double>(Iter) / 1.001) < delta)) {
+            FPS.Num = Iter * 1000;
+            FPS.Den = 1001;
+            return true;
         }
     }
 
-    return Result;
+    return false;
 }
 
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
@@ -925,28 +925,50 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     // Framerate and last frame duration guessing fun
     std::map<int64_t, size_t> DurationHistogram;
     for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
+        //if (TrackIndex.Frames[i + 1].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[i].PTS != AV_NOPTS_VALUE)
         ++DurationHistogram[TrackIndex.Frames[i + 1].PTS - TrackIndex.Frames[i].PTS];
 
-    const auto MostCommonDuration = std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+    const auto MostCommonDuration = *std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
 
     int64_t LastFrameDuration = TrackIndex.LastFrameDuration;
     if (LastFrameDuration <= 0 && !DurationHistogram.empty())
-        LastFrameDuration = MostCommonDuration->first;
+        LastFrameDuration = MostCommonDuration.first;
     LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
 
     VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
     
-    // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
-    if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
-        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.FPS.Num, TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS - TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS, INT_MAX);
-        BSRational CFRFPS = NearestCommonFrameRate(VP.FPS.ToDouble());
-        if (CFRFPS.Num > 0)
-            VP.FPS = CFRFPS;
+    if (DurationHistogram.size() == 1) {
+        // It's true CFR so make sure the frame rate matches the frame durations
+        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, MostCommonDuration.first * VP.TimeBase.Num, INT_MAX);
+    } else if (TrackIndex.Frames.size() >= 20 && DurationHistogram.size() > 1) {
+        // If the clip is long enough discard as many small duration bins as possible but less than 5% of the total number of frame durations and calculate a frame rate from that
+        size_t TotalHistogramFrames = TrackIndex.Frames.size() - 1;
+        size_t UsedHistogramFrames = TotalHistogramFrames;
+        while (DurationHistogram.size() > 1) {
+            const auto MinKey = std::min_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+            if (((UsedHistogramFrames - MinKey->second) * 100) / TotalHistogramFrames < 95)
+                break;
+            UsedHistogramFrames -= MinKey->second;
+            DurationHistogram.erase(MinKey);
+        }
+
+        int64_t HistDuration = 0;
+        for (const auto &Iter : DurationHistogram)
+            HistDuration += Iter.first * Iter.second;
+
+        // FIXME, can this realistically overflow?
+        av_reduce(&VP.FPS.Num, &VP.FPS.Den, UsedHistogramFrames * VP.TimeBase.Den, HistDuration * VP.TimeBase.Num, INT_MAX);
+        NearestCommonFrameRate(VP.FPS);
+    } else if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
+        // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
+        // It's a fallback to make even obviously wrong mpeg timebase files have a saner framerate
+        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, (TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS - TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS) * VP.TimeBase.Num, INT_MAX);
+        NearestCommonFrameRate(VP.FPS);
     }
 
     int64_t NumFields = 0;
 
-    for (auto &Iter : TrackIndex.Frames)
+    for (const auto &Iter : TrackIndex.Frames)
         NumFields += Iter.RepeatPict + 2;
 
     VP.NumRFFFrames = (NumFields + 1) / 2;

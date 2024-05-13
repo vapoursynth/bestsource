@@ -264,7 +264,7 @@ private:
     [[nodiscard]] BestVideoFrame *GetFrameLinearInternal(int64_t N, int64_t SeekFrame = -1, size_t Depth = 0, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const ProgressFunction &Progress = nullptr);
     bool InitializeRFF();
-    [[nodiscard]] BSRational NearestCommonFrameRate(double FPS);
+    bool NearestCommonFrameRate(BSRational &FPS);
 public:
     BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
