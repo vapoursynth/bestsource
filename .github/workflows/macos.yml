@@ -17,19 +17,17 @@ jobs:
 
     - name: Install Homebrew packages
       run: |
-        export HOMEBREW_NO_INSTALL_CLEANUP=1
         export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-        # Skip brew update for now, see https://github.com/actions/setup-python/issues/577
-        # brew update
+        brew update
         brew install ffmpeg llvm meson vapoursynth xxhash
 
     - name: Set environment variables for Clang/LLVM
       run: |
-        echo "CC=/usr/local/opt/llvm/bin/clang" >> $GITHUB_ENV
-        echo "CXX=/usr/local/opt/llvm/bin/clang++" >> $GITHUB_ENV
-        echo "PATH=/usr/local/opt/llvm/bin:$PATH" >> $GITHUB_ENV
+        echo "CC=/opt/homebrew/opt/llvm/bin/clang" >> $GITHUB_ENV
+        echo "CXX=/opt/homebrew/opt/llvm/bin/clang++" >> $GITHUB_ENV
+        echo "PATH=/opt/homebrew/opt/llvm/bin:$PATH" >> $GITHUB_ENV
 
     - name: Build
       run: |
-        meson setup -Dcpp_link_args=-fuse-ld=lld build
+        meson setup "-Dcpp_link_args=['-fuse-ld=lld', '-L/opt/homebrew/opt/llvm/lib/c++', '-Wl,-rpath,/opt/homebrew/opt/llvm/lib/c++']" build
         ninja -C build
