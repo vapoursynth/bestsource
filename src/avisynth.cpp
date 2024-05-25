@@ -158,13 +158,8 @@ public:
 
             if (FPSNum > 0) {
                 vsh::reduceRational(&FPSNum, &FPSDen);
-                if (VP.FPS.Den != FPSDen || VP.FPS.Num != FPSNum) {
-                    VI.SetFPS(static_cast<int>(FPSNum), static_cast<int>(FPSDen));
-                    VI.num_frames = std::max(1, static_cast<int>((VP.Duration * VI.fps_numerator) / VI.fps_denominator));
-                } else {
-                    FPSNum = -1;
-                    FPSDen = 1;
-                }
+                VI.SetFPS(static_cast<int>(FPSNum), static_cast<int>(FPSDen));
+                VI.num_frames = std::max(1, static_cast<int>((VP.Duration * VI.fps_numerator) * VP.TimeBase.ToDouble() / VI.fps_denominator + 0.5));
             } else if (RFF) {
                 VI.num_frames = vsh::int64ToIntS(VP.NumRFFFrames);
             }

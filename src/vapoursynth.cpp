@@ -215,14 +215,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (D->FPSNum > 0) {
             vsh::reduceRational(&D->FPSNum, &D->FPSDen);
-            if (VP.FPS.Den != D->FPSDen || VP.FPS.Num != D->FPSNum) {
-                D->VI.fpsDen = D->FPSDen;
-                D->VI.fpsNum = D->FPSNum;
-                D->VI.numFrames = std::max(1, static_cast<int>((VP.Duration * D->VI.fpsNum) / D->VI.fpsDen));
-            } else {
-                D->FPSNum = -1;
-                D->FPSDen = 1;
-            }
+            D->VI.fpsDen = D->FPSDen;
+            D->VI.fpsNum = D->FPSNum;
+            D->VI.numFrames = std::max(1, static_cast<int>((VP.Duration * D->VI.fpsNum) * VP.TimeBase.ToDouble() / D->VI.fpsDen + 0.5));
         } else if (D->RFF) {
             D->VI.numFrames = vsh::int64ToIntS(VP.NumRFFFrames);
         }

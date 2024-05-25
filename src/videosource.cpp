@@ -24,6 +24,7 @@
 #include <thread>
 #include <cassert>
 #include <iterator>
+#include <charconv>
 
 #include "../libp2p/p2p_api.h"
 
@@ -1657,8 +1658,11 @@ void BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) 
         throw BestSourceException("Couldn't open timecode file for writing");
 
     fprintf(F.get(), "# timecode format v2\n");
-    for (const auto &Iter : TrackIndex.Frames)
-        fprintf(F.get(), "%.02f\n", (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den);
+    for (const auto &Iter : TrackIndex.Frames) {
+        char buffer[100];
+        auto res = std::to_chars(buffer, buffer + sizeof(buffer), (Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den, std::chars_format::fixed, 2);
+        fprintf(F.get(), "%s\n", std::string(buffer, res.ptr - buffer).c_str());
+    }
 }
 
 const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) const {
