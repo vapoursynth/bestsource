@@ -24,6 +24,7 @@
 #include "bsshared.h"
 #include <map>
 #include <memory>
+#include <vector>
 
 struct AVFormatContext;
 
