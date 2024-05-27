@@ -980,6 +980,9 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
 }
 
 void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count) {
+    if (VariableFormat)
+        throw BestSourceException("GetPackedAudio() can only be used when variable format is disabled");
+
     Start -= SampleDelay;
 
     ZeroFillStartPacked(Data, Start, Count);
@@ -1005,6 +1008,9 @@ void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count
 }
 
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
+    if (VariableFormat)
+        throw BestSourceException("GetPlanarAudio() can only be used when variable format is disabled");
+
     Start -= SampleDelay;
 
     std::vector<uint8_t *> DataV;

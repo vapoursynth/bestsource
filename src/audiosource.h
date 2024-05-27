@@ -167,7 +167,6 @@ private:
     [[nodiscard]] BestAudioFrame *GetFrameInternal(int64_t N);
     [[nodiscard]] BestAudioFrame *GetFrameLinearInternal(int64_t N, int64_t SeekFrame = -1, size_t Depth = 0, bool ForceUnseeked = false);
     [[nodiscard]] bool IndexTrack(const ProgressFunction &Progress = nullptr);
-    bool InitializeRFF();
     void ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_t &Count);
     void ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count);
     bool FillInFramePacked(const BestAudioFrame *Frame, int64_t FrameStartSample, uint8_t *&Data, int64_t &Start, int64_t &Count);
