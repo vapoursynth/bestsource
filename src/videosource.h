@@ -38,7 +38,7 @@ struct AVFrame;
 struct AVPacket;
 struct AVPixFmtDescriptor;
 
-struct VideoFormat {
+struct BSVideoFormat {
     int ColorFamily; /* Unknown = 0, Gray = 1, RGB = 2, YUV = 3 */
     bool Alpha;
     bool Float;
@@ -49,7 +49,7 @@ struct VideoFormat {
     void Set(const AVPixFmtDescriptor *Desc);
 };
 
-struct VideoProperties {
+struct BSVideoProperties {
     BSRational TimeBase;
     double StartTime; // in seconds
     int64_t Duration;
@@ -59,7 +59,7 @@ struct VideoProperties {
     BSRational FPS;
     BSRational SAR;
 
-    VideoFormat VF;
+    BSVideoFormat VF;
     int Width;
     int Height;
 
@@ -121,7 +121,7 @@ public:
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N); // Use after seeking to update internal frame number
-    void GetVideoProperties(VideoProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
+    void GetVideoProperties(BSVideoProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
     [[nodiscard]] AVFrame *GetNextFrame();
     bool SkipFrames(int64_t Count);
     [[nodiscard]] bool HasMoreFrames() const;
@@ -140,7 +140,7 @@ public:
     void MergeField(bool Top, const BestVideoFrame *FieldSrc); // Useful for RFF and other such things where fields from multiple decoded frames need to be combined, retains original frame's properties
     bool ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t *const Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
 
-    VideoFormat VF;
+    BSVideoFormat VF;
     int Width;
     int Height;
 
@@ -242,7 +242,7 @@ private:
 
     static constexpr int MaxVideoSources = 4;
     std::map<std::string, std::string> LAVFOptions;
-    VideoProperties VP = {};
+    BSVideoProperties VP = {};
     std::filesystem::path Source;
     std::string HWDevice;
     int ExtraHWFrames;
@@ -268,12 +268,12 @@ private:
 public:
     BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
-    void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
-    void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
-    [[nodiscard]] const VideoProperties &GetVideoProperties() const;
+    void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
+    void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to */
+    [[nodiscard]] const BSVideoProperties &GetVideoProperties() const;
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
-    [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false);
+    [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false); /* Time is in seconds */
     [[nodiscard]] bool GetFrameIsTFF(int64_t N, bool RFF = false);
     void WriteTimecodes(const std::filesystem::path &TimecodeFile) const;
     [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;

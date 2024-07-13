@@ -108,7 +108,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             return nullptr;
         }
 
-        const VideoProperties &VP = D->V->GetVideoProperties();
+        const BSVideoProperties &VP = D->V->GetVideoProperties();
         VSMap *Props = vsapi->getFramePropertiesRW(Dst);
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
@@ -201,7 +201,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CacheMode, CachePath ? CachePath : "", &Opts));
         }
 
-        const VideoProperties &VP = D->V->GetVideoProperties();
+        const BSVideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
         D->VI.width = VP.SSModWidth;
@@ -338,7 +338,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
             D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
         }
 
-        const AudioProperties &AP = D->A->GetAudioProperties();
+        const BSAudioProperties &AP = D->A->GetAudioProperties();
         D->Is8Bit = (AP.AF.Bits <= 8);
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, D->Is8Bit ? 16 : AP.AF.Bits, AP.ChannelLayout, Core))
             throw BestSourceException("Unsupported audio format from decoder (probably 8-bit)");

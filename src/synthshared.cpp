@@ -21,7 +21,7 @@
 #include "synthshared.h"
 #include "VSHelper4.h"
 
-void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const VideoProperties &VP, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
+void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const BSVideoProperties &VP, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
     // Set AR variables
     if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
         mapSetInt("_SARNum", VP.SAR.Num);

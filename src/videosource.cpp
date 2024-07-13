@@ -283,7 +283,7 @@ void LWVideoDecoder::SetFrameNumber(int64_t N) {
     CurrentFrame = N;
 }
 
-void LWVideoDecoder::GetVideoProperties(VideoProperties &VP) {
+void LWVideoDecoder::GetVideoProperties(BSVideoProperties &VP) {
     assert(CurrentFrame == 0);
     VP = {};
     AVFrame *PropFrame = GetNextFrame();
@@ -458,7 +458,7 @@ bool LWVideoDecoder::HasSeeked() const {
     return Seeked;
 }
 
-void VideoFormat::Set(const AVPixFmtDescriptor *Desc) {
+void BSVideoFormat::Set(const AVPixFmtDescriptor *Desc) {
     Alpha = HasAlpha(Desc);
     Float = GetSampleTypeIsFloat(Desc);
     ColorFamily = GetColorFamily(Desc);
@@ -1057,7 +1057,7 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     return !TrackIndex.Frames.empty();
 }
 
-const VideoProperties &BestVideoSource::GetVideoProperties() const {
+const BSVideoProperties &BestVideoSource::GetVideoProperties() const {
     return VP;
 }
 
@@ -1456,7 +1456,7 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
-    int64_t PTS = static_cast<int64_t>(((Time * 1000 * VP.TimeBase.Den) / VP.TimeBase.Num) + .001);
+    int64_t PTS = static_cast<int64_t>(((Time * VP.TimeBase.Den) / VP.TimeBase.Num) + .001);
     FrameInfo F{ PTS };
 
     auto Pos = std::lower_bound(TrackIndex.Frames.begin(), TrackIndex.Frames.end(), F, [](const FrameInfo &FI1, const FrameInfo &FI2) { return FI1.PTS < FI2.PTS; });

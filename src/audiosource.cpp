@@ -195,7 +195,7 @@ void LWAudioDecoder::SetFrameNumber(int64_t N, int64_t SampleNumber) {
     CurrentSample = SampleNumber;
 }
 
-void LWAudioDecoder::GetAudioProperties(AudioProperties &AP) {
+void LWAudioDecoder::GetAudioProperties(BSAudioProperties &AP) {
     assert(CurrentFrame == 0);
     AP = {};
     AVFrame *PropFrame = GetNextFrame();
@@ -272,7 +272,7 @@ bool LWAudioDecoder::HasSeeked() const {
     return Seeked;
 }
 
-void AudioFormat::Set(int Format, int BitsPerRawSample) {
+void BSAudioFormat::Set(int Format, int BitsPerRawSample) {
     Float = (Format == AV_SAMPLE_FMT_FLTP || Format == AV_SAMPLE_FMT_FLT || Format == AV_SAMPLE_FMT_DBLP || Format == AV_SAMPLE_FMT_DBL);
     BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(Format));
     Bits = BitsPerRawSample ? BitsPerRawSample : (BytesPerSample * 8);
@@ -467,7 +467,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
             std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
-            VideoProperties VP;
+            BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
         } catch (BestSourceException &) {
@@ -476,13 +476,13 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
     } else {
         try {
             std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
-            VideoProperties VP;
+            BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
         } catch (BestSourceException &) {
             try {
                 std::unique_ptr<LWAudioDecoder> Dec(new LWAudioDecoder(Source, false, Track, Threads, LAVFOptions, 0));
-                AudioProperties AP2;
+                BSAudioProperties AP2;
                 Dec->GetAudioProperties(AP2);
                 return AP.StartTime - AP2.StartTime;
             } catch (BestSourceException &) {
@@ -492,7 +492,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
     }
 }
 
-const AudioProperties &BestAudioSource::GetAudioProperties() const {
+const BSAudioProperties &BestAudioSource::GetAudioProperties() const {
     return AP;
 }
 

@@ -94,7 +94,7 @@ public:
 
             V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CacheMode, CachePath, &Opts));
 
-            const VideoProperties &VP = V->GetVideoProperties();
+            const BSVideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_Y;
             } else if (VP.VF.ColorFamily == cfYUV && VP.VF.Alpha) {
@@ -246,7 +246,7 @@ public:
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
 
-        const VideoProperties &VP = V->GetVideoProperties();
+        const BSVideoProperties &VP = V->GetVideoProperties();
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
         SetSynthFrameProperties(Src, VP, RFF, V->GetFrameIsTFF(n, RFF),
@@ -300,7 +300,7 @@ public:
         try {
             A.reset(new BestAudioSource(CreateProbablyUTF8Path(Source), Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
 
-            const AudioProperties &AP = A->GetAudioProperties();
+            const BSAudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {
                 VI.sample_type = SAMPLE_FLOAT;
             } else if (!AP.AF.Float && AP.AF.Bits <= 8) {

@@ -37,7 +37,7 @@ struct AVBufferRef;
 struct AVFrame;
 struct AVPacket;
 
-struct AudioFormat {
+struct BSAudioFormat {
     bool Float;
     int Bits;
     int BytesPerSample; // FIXME, kinda odd to have it exposed here but very useful to store internally
@@ -45,8 +45,8 @@ struct AudioFormat {
     void Set(int Format, int BitsPerRawSample);
 };
 
-struct AudioProperties {
-    AudioFormat AF;
+struct BSAudioProperties {
+    BSAudioFormat AF;
     int SampleRate;
     int Channels;
     uint64_t ChannelLayout;
@@ -80,7 +80,7 @@ public:
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
     [[nodiscard]] int64_t GetSamplePos() const; // The frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N, int64_t SampleNumber); // Use after seeking to update internal frame number
-    void GetAudioProperties(AudioProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
+    void GetAudioProperties(BSAudioProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
     [[nodiscard]] AVFrame *GetNextFrame();
     bool SkipFrames(int64_t Count);
     [[nodiscard]] bool HasMoreFrames() const;
@@ -96,7 +96,7 @@ public:
     BestAudioFrame(AVFrame *Frame);
     ~BestAudioFrame();
     [[nodiscard]] const AVFrame *GetAVFrame() const;
-    AudioFormat AF;
+    BSAudioFormat AF;
     int NumChannels;
 
     int64_t Pts;
@@ -147,7 +147,7 @@ private:
     static constexpr int MaxVideoSources = 4;
     std::map<std::string, std::string> LAVFOptions;
     double DrcScale;
-    AudioProperties AP = {};
+    BSAudioProperties AP = {};
     std::filesystem::path Source;
     int AudioTrack;
     bool VariableFormat;
@@ -185,7 +185,7 @@ public:
     void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
     double GetRelativeStartTime(int Track) const;
-    [[nodiscard]] const AudioProperties &GetAudioProperties() const;
+    [[nodiscard]] const BSAudioProperties &GetAudioProperties() const;
     [[nodiscard]] BestAudioFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;
     void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count);
