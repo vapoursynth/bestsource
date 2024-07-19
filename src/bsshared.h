@@ -70,6 +70,8 @@ int SetFFmpegLogLevel(int Level);
 void SetBSDebugOutput(bool DebugOutput);
 void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1);
 
+std::filesystem::path CleanFilePath(const std::filesystem::path& inputPath);
+std::filesystem::path CleanFilePath(const std::string& inputPath);
 file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write);
 file_ptr_t OpenCacheFile(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write);
 void WriteByte(file_ptr_t &F, uint8_t Value);

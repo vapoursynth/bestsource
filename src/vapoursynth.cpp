@@ -132,7 +132,13 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     BSInit();
 
     int err;
-    std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
+    // std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
+    // vsapi->logMessage(mtInformation, ("DIRTY SOURCE: " + Source.u8string()).c_str(), Core);
+    const char *InputSource = vsapi->mapGetData(In, "source", 0, &err);
+    std::filesystem::path CleanSource = CleanFilePath(std::string(InputSource));
+    vsapi->logMessage(mtInformation, ("CLEANED SOURCE: " + CleanSource.u8string()).c_str(), Core);
+    std::filesystem::path Source = CleanSource;
+    // std::filesystem::path Source = CreateProbablyUTF8Path(CleanSource.u8string().c_str());
     const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
     const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
     const char *Timecodes = vsapi->mapGetData(In, "timecodes", 0, &err);

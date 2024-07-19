@@ -75,6 +75,34 @@ void BSDebugPrint(const std::string_view Message, int64_t RequestedN, int64_t Cu
     }
 }
 
+// Sanitize and normalize file path string
+std::filesystem::path CleanFilePath(const std::string& inputPath) {
+    std::filesystem::path path = CreateProbablyUTF8Path(inputPath.c_str());
+
+    return CleanFilePath(path);
+}
+
+// Sanitize and normalize file path
+std::filesystem::path CleanFilePath(const std::filesystem::path& inputPath) {
+    std::filesystem::path path = inputPath;
+    // If an extended-length path prefix exists, remove it
+    if (path.wstring().size() >= 4 && path.wstring().substr(0, 4) == L"\\\\?\\")
+        path = path.wstring().substr(4);
+
+    // Normalize slashes (convert backslashes to forward slashes) and simplify/normalize the path
+    path = path.lexically_normal();
+
+    // Since it's possible to pass in urls, ffmpeg protocols and other things with characters not allowed on disk we now have to remove them from the path
+    // Replace invalid characters (e.g., ?, *, :, ", <, >, |) with underscores
+    const std::wstring invalidChars = L"?*:\"<>|";
+    for (auto& c : path.wstring()) {
+        if (invalidChars.find(c) != std::wstring::npos)
+            c = L'_';
+    }
+
+    return path;
+}
+
 static std::filesystem::path GetDefaultCachePath() {
 #ifdef _WIN32
     std::vector<wchar_t> appDataBuffer(MAX_PATH + 1);
@@ -98,18 +126,39 @@ static std::filesystem::path GetDefaultCachePath() {
     return IndexPath;
 }
 
+// Given a Source Path and an optional Cache Base Path, return a sanitized Cache Path preferred for the current platform
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
-    std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
-    // Since it's possible to pass in urls, ffmpeg protocols and other things with characters not allowed on disk we now have to remove them from the path
-    std::string Tmp = Source.relative_path().u8string();
-    for (auto &iter : Tmp) {
-        if (iter == '?' || iter == '*' || iter == '<' || iter == '>' || iter == '|' || iter == '"')
-            iter = '_';
-        else if (iter == ':')
-            iter = '/';
+    fprintf(stdout, "Initial Cache Path: %ls\n", CacheBasePath.c_str());
+    fprintf(stdout, "Initial Source Path: %ls\n", Source.c_str());
+
+    // Resolve the canonical path of the source
+    // The desired path(s) may exist at this point but just to be certain we may want to use weakly canonical and later ensure it is valid/writable
+    std::filesystem::path CanonicalSource = std::filesystem::canonical(Source);
+    // Clean the Cache Base Path
+    std::filesystem::path CleanCacheBasePath = CleanFilePath(CacheBasePath);
+
+    // If the Cache Base Path is absolute, return as is
+    if (CleanCacheBasePath.is_absolute()) {
+        fprintf(stdout, "Mangled Absolute Cache Path: %ls\n", CleanCacheBasePath.c_str());
+        // Make it preferred for the current platform
+        return CleanCacheBasePath.make_preferred();
     }
-    CachePath /= std::filesystem::u8path(Tmp);
-    return CachePath.make_preferred();
+
+    // Cleaned Cache Base Path should be relative to the Source Path
+    if (CleanCacheBasePath.is_relative()) {
+        // Resolve the relative path
+        std::filesystem::path RelativePath = CanonicalSource.parent_path() / CleanCacheBasePath;
+        fprintf(stdout, "Mangled Relative Cache Path: %ls\n", RelativePath.c_str());
+        return RelativePath.make_preferred();
+    }
+
+    // // Make it preferred for the current platform and return as is
+    // fprintf(stdout, "Cache Path is neither Absolute nor Relative: %ls\n", CleanCacheBasePath.c_str());
+    // return CleanCacheBasePath.make_preferred();
+
+    // Fallback to the Default Cache Path
+    fprintf(stdout, "Using default cache path: %ls\n", GetDefaultCachePath().c_str());
+    return GetDefaultCachePath().make_preferred();
 }
 
 file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
