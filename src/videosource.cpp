@@ -914,8 +914,10 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed");
 
-        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100))
-            WriteVideoTrackIndex(CachePath);
+        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100)) {
+            if (!WriteVideoTrackIndex(CachePath))
+                throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+        }
     }
 
     if (TrackIndex.Frames[0].RepeatPict < 0)

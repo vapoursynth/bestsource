@@ -400,8 +400,10 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(AudioTrack) + " failed");
 
-        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100))
-            WriteAudioTrackIndex(CachePath);
+        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100)) {
+            if (!WriteAudioTrackIndex(CachePath))
+                throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(AudioTrack));
+        }
     }
 
     AP.NumFrames = TrackIndex.Frames.size();
