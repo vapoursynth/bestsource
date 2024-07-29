@@ -996,6 +996,8 @@ void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count
 
     for (int64_t i = Range.First; i <= Range.Last; i++) {
         std::unique_ptr<BestAudioFrame> F(GetFrame(i));
+        if (!F)
+            throw BestSourceException("Audio decoding error, failed to get frame " + std::to_string(i));
         FillInFramePacked(F.get(), Range.FirstSamplePos, Data, Start, Count);
         Range.FirstSamplePos += F->NumSamples;
     }
