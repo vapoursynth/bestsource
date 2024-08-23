@@ -201,7 +201,7 @@ public:
     };
 private:
     struct VideoTrackIndex {
-        int64_t LastFrameDuration;
+        int64_t LastFrameDuration = 0;
         std::vector<FrameInfo> Frames;
     };
 

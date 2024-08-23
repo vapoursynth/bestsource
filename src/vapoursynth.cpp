@@ -50,9 +50,9 @@ static void BSInit() {
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
-    int64_t FPSNum;
-    int64_t FPSDen;
-    bool RFF;
+    int64_t FPSNum = -1;
+    int64_t FPSDen = -1;
+    bool RFF = false;
 };
 
 static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
