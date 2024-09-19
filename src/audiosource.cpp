@@ -214,6 +214,7 @@ void LWAudioDecoder::GetAudioProperties(BSAudioProperties &AP) {
         av_channel_layout_default(&ch, PropFrame->ch_layout.nb_channels);
         AP.ChannelLayout = ch.u.mask;
     } else {
+        av_frame_free(&PropFrame);
         throw BestSourceException("Ambisonics and custom channel orders not supported");
     }
 
@@ -221,7 +222,9 @@ void LWAudioDecoder::GetAudioProperties(BSAudioProperties &AP) {
     if (PropFrame->pts != AV_NOPTS_VALUE)
         AP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * PropFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
-    if (AP.AF.Bits <= 0)
+    av_frame_free(&PropFrame);
+
+    if (AP.AF.Bits <= 0) //FIXME, can this still happen?
         throw BestSourceException("Codec returned zero size audio");
 }
 

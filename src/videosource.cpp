@@ -409,6 +409,8 @@ void LWVideoDecoder::GetVideoProperties(BSVideoProperties &VP) {
                 VP.Rotation += 360;
         }
     }
+
+    av_frame_free(&PropFrame);
 }
 
 AVFrame *LWVideoDecoder::GetNextFrame() {
