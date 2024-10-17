@@ -905,8 +905,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     if (ExtraHWFrames < 0)
         throw BestSourceException("ExtraHWFrames must be 0 or greater");
     
-    if (CacheMode < 0 || CacheMode > 2)
-        throw BestSourceException("CacheMode must be between 0 and 2");
+    if (CacheMode < 0 || CacheMode > 4)
+        throw BestSourceException("CacheMode must be between 0 and 4");
 
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
 
@@ -914,12 +914,12 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     VideoTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
 
-    if (CacheMode == bcmDisable || !ReadVideoTrackIndex(CachePath)) {
+    if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed");
 
-        if (CacheMode == bcmAlwaysWrite || (CacheMode == bcmAuto && TrackIndex.Frames.size() >= 100)) {
-            if (!WriteVideoTrackIndex(CachePath))
+        if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
+            if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
                 throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
         }
     }
@@ -1489,8 +1489,8 @@ static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, bool KeyFra
     return Result;
 }
 
-bool BestVideoSource::WriteVideoTrackIndex(const std::filesystem::path &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, Source, VideoTrack, true);
+bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, VideoTrack, true);
     if (!F)
         return false;
     WriteBSHeader(F, true);
@@ -1566,8 +1566,8 @@ bool BestVideoSource::WriteVideoTrackIndex(const std::filesystem::path &CachePat
     return true;
 }
 
-bool BestVideoSource::ReadVideoTrackIndex(const std::filesystem::path &CachePath) {
-    file_ptr_t F = OpenCacheFile(CachePath, Source, VideoTrack, false);
+bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
+    file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, VideoTrack, false);
     if (!F)
         return false;
     if (!ReadBSHeader(F, true))

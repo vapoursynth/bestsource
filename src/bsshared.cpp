@@ -75,7 +75,15 @@ void BSDebugPrint(const std::string_view Message, int64_t RequestedN, int64_t Cu
     }
 }
 
-static std::filesystem::path GetDefaultCachePath() {
+bool ShouldWriteIndex(int CacheMode, size_t Frames) {
+    return (CacheMode == bcmAlwaysWriteSubTree || CacheMode == bcmAlwaysAbsolutePath) || ((CacheMode == bcmAutoSubTree || CacheMode == bcmAutoAbsolutePath) && Frames >= 100);
+}
+
+bool IsAbsolutePathCacheMode(int CacheMode) {
+    return (CacheMode == bcmAutoAbsolutePath || CacheMode == bcmAlwaysAbsolutePath);
+}
+
+static std::filesystem::path GetDefaultCacheSubTreePath() {
 #ifdef _WIN32
     std::vector<wchar_t> appDataBuffer(MAX_PATH + 1);
     if (SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, appDataBuffer.data()) != S_OK)
@@ -121,8 +129,14 @@ file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
     return F;
 }
 
-file_ptr_t OpenCacheFile(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write) {
-    std::filesystem::path CacheFile = MangleCachePath(CacheBasePath.empty() ? GetDefaultCachePath() : CacheBasePath, Source);
+file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CachePath, const std::filesystem::path &Source, int Track, bool Write) {
+    std::filesystem::path CacheFile;
+
+    if (AbsolutePath)
+        CacheFile = CachePath.empty() ? Source : CachePath;
+    else
+        CacheFile = MangleCachePath(CachePath.empty() ? GetDefaultCacheSubTreePath() : CachePath, Source);
+
     CacheFile += "." + std::to_string(Track) + ".bsindex";
     std::error_code ec;
     std::filesystem::create_directories(CacheFile.parent_path(), ec);

@@ -49,8 +49,12 @@ typedef std::function<bool(int Track, int64_t Current, int64_t Total)> ProgressF
 
 enum BestCacheMode {
     bcmDisable = 0,
-    bcmAuto,
-    bcmAlwaysWrite
+    bcmAutoSubTree,
+    bcmAlwaysWriteSubTree,
+    bcmAutoAbsolutePath,
+    bcmAlwaysAbsolutePath,
+    bcmAuto [[deprecated]] = bcmAutoSubTree,
+    bcmAlwaysWrite [[deprecated]] = bcmAlwaysWriteSubTree
 };
 
 struct AVRational;
@@ -70,8 +74,11 @@ int SetFFmpegLogLevel(int Level);
 void SetBSDebugOutput(bool DebugOutput);
 void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1);
 
+bool ShouldWriteIndex(int CacheMode, size_t Frames);
+bool IsAbsolutePathCacheMode(int CacheMode);
+
 file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write);
-file_ptr_t OpenCacheFile(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write);
+file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write);
 void WriteByte(file_ptr_t &F, uint8_t Value);
 void WriteInt(file_ptr_t &F, int Value);
 void WriteInt64(file_ptr_t &F, int64_t Value);

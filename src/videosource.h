@@ -205,8 +205,8 @@ private:
         std::vector<FrameInfo> Frames;
     };
 
-    bool WriteVideoTrackIndex(const std::filesystem::path &CachePath);
-    bool ReadVideoTrackIndex(const std::filesystem::path &CachePath);
+    bool WriteVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath);
+    bool ReadVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath);
 
     class Cache {
     private:

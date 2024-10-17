@@ -12,7 +12,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ## Dependencies
 
-- FFmpeg 6.1.x. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
+- FFmpeg 7.0.x. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
 - xxHash
 - libp2p (already included as submodule)
 
@@ -92,7 +92,13 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *drc_scale*: Apply dynamic range compression to ac3 audio. 0 = None and 1.0 = Normal.
 
-*cachemode*: 0 = Never read or write index to disk, 1 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs, 2 = Always try to read and write index to disk
+*cachemode*:
+
+    0 = Never read or write index to disk
+    1 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files in a subtree of *cachepath*
+    2 = Always try to read and write index to disk and store index files in a subtree of *cachepath*
+    3 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files in the absolute path in *cachepath* with track number and index extension appended
+    4 = Always try to read and write index to disk and store index files in the absolute path in *cachepath* with track number and index extension appended
 
 *cachepath*: The path where cache files are written. Note that the actual index files are written into subdirectories using based on the source location. Defaults to %LOCALAPPDATA% on Windows and ~/bsindex elsewhere.
 
