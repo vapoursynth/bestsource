@@ -100,7 +100,7 @@ Note that the *BSSource* function by default will silently ignore errors when op
     3 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files in the absolute path in *cachepath* with track number and index extension appended
     4 = Always try to read and write index to disk and store index files in the absolute path in *cachepath* with track number and index extension appended
 
-*cachepath*: The path where cache files are written. Note that the actual index files are written into subdirectories using based on the source location. Defaults to %LOCALAPPDATA% on Windows and ~/bsindex elsewhere.
+*cachepath*: The path where cache files are written. Note that the actual index files are written into subdirectories using based on the source location. Defaults to %LOCALAPPDATA% on Windows and ~/bsindex elsewhere in mode 1 and 2. For mode 3 and 4 it defaults to *source*.
 
 *cachesize*: Maximum internal cache size in MB.
 
