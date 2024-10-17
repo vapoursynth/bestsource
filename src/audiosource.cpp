@@ -55,7 +55,7 @@ bool LWAudioDecoder::DecodeNextFrame(bool SkipOutput) {
         int Ret = avcodec_receive_frame(CodecContext, DecodeFrame);
         if (Ret == 0) {
             return true;
-        } else if (Ret == AVERROR(EAGAIN)) {
+        } else if (Ret == AVERROR(EAGAIN) || Ret == AVERROR_INPUT_CHANGED) { // AVERROR_INPUT_CHANGED is only used for two things inside FFmpeg and the other one can't happen, therefore we don't need to care about whether or not variable format is allowed
             if (ReadPacket()) {
                 avcodec_send_packet(CodecContext, Packet);
                 av_packet_unref(Packet);
