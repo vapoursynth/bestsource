@@ -107,7 +107,7 @@ std::map<std::string, std::string> BestTrackList::GetFileMetadata() const {
 }
 
 std::map<std::string, std::string> BestTrackList::GetTrackMetadata(int Track) const {
-    if (Track < 0 || Track >= FormatContext->nb_streams)
+    if (Track < 0 || Track >= static_cast<int>(FormatContext->nb_streams))
         throw BestSourceException("Invalid track number");
 
     std::map<std::string, std::string> Result;

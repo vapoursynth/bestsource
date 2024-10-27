@@ -388,6 +388,35 @@ static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core
     }
 }
 
+static void VS_CC GetMetadata(const VSMap *In, VSMap *Out, void *, VSCore *core, const VSAPI *vsapi) {
+    BSInit();
+
+    int err;
+    std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
+
+    int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
+    if (err)
+        Track = -1;
+
+    std::map<std::string, std::string> Opts;
+    if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
+        Opts["enable_drefs"] = "1";
+    if (vsapi->mapGetInt(In, "use_absolute_path", 0, &err))
+        Opts["use_absolute_path"] = "1";
+
+    try {
+        std::unique_ptr<BestTrackList> TrackList(new BestTrackList(Source, &Opts));
+        
+        auto Metadata = (Track < 0) ? TrackList->GetFileMetadata() : TrackList->GetTrackMetadata(Track);
+
+        for (const auto &Iter : Metadata) {
+            vsapi->mapSetData(Out, Iter.first.c_str(), Iter.second.c_str(), -1, dtUtf8, maAppend);
+        }
+    } catch (BestSourceException &e) {
+        vsapi->mapSetError(Out, (std::string("Metadata: ") + e.what()).c_str());
+    }
+}
+
 static void VS_CC SetDebugOutput(const VSMap *In, VSMap *, void *, VSCore *, const VSAPI *vsapi) {
     BSInit();
     SetBSDebugOutput(!!vsapi->mapGetInt(In, "enable", 0, nullptr));
@@ -407,6 +436,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
+    vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);
     vspapi->registerFunction("SetDebugOutput", "enable:int;", "", SetDebugOutput, nullptr, plugin);
     vspapi->registerFunction("SetFFmpegLogLevel", "level:int;", "level:int;", SetLogLevel, nullptr, plugin);
 }

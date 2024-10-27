@@ -48,9 +48,15 @@ ninja -C build install
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
+`bs.Metadata(string source[, int track, bint enable_drefs = False, bint use_absolute_path = False])`
+
 `bs.SetDebugOutput(bint enable = False)`
 
 `bs.SetFFmpegLogLevel(int level = <quiet log level>)`
+
+The *TrackInfo* function only returns the most basic information about a track which is the type, codec and disposition. Its main use is to be able to implement custom track selection logic for the source functions.
+
+The *Metadata* function returns all the file or track metadata as key-value pairs depending on whether or not *track* is specified.
 
 ## Avisynth+ usage
 
