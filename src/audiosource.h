@@ -55,7 +55,7 @@ struct BSAudioProperties {
     double StartTime; /* in seconds */
 };
 
-struct LWAudioDecoder {
+class LWAudioDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
     AVCodecContext *CodecContext = nullptr;

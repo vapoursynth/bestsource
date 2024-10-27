@@ -93,3 +93,30 @@ int BestTrackList::GetNumTracks() const {
 const BestTrackList::TrackInfo &BestTrackList::GetTrackInfo(int Track) const {
     return TrackList[Track];
 }
+
+std::map<std::string, std::string> BestTrackList::GetFileMetadata() const {
+    std::map<std::string, std::string> Result;
+
+    auto Entry = av_dict_iterate(FormatContext->metadata, nullptr);
+    while (Entry) {
+        Result[Entry->key] = Entry->value;
+        Entry = av_dict_iterate(FormatContext->metadata, Entry);
+    }
+
+    return Result;
+}
+
+std::map<std::string, std::string> BestTrackList::GetTrackMetadata(int Track) const {
+    if (Track < 0 || Track >= FormatContext->nb_streams)
+        throw BestSourceException("Invalid track number");
+
+    std::map<std::string, std::string> Result;
+
+    auto Entry = av_dict_iterate(FormatContext->streams[Track]->metadata, nullptr);
+    while (Entry) {
+        Result[Entry->key] = Entry->value;
+        Entry = av_dict_iterate(FormatContext->streams[Track]->metadata, Entry);
+    }
+
+    return Result;
+}

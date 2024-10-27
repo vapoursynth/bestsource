@@ -50,6 +50,8 @@ public:
     ~BestTrackList();
     [[nodiscard]] int GetNumTracks() const;
     [[nodiscard]] const TrackInfo &GetTrackInfo(int Track) const;
+    [[nodiscard]] std::map<std::string, std::string> GetFileMetadata() const;
+    [[nodiscard]] std::map<std::string, std::string> GetTrackMetadata(int Track) const;
 };
 
 #endif

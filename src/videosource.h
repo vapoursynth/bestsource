@@ -95,7 +95,7 @@ struct BSVideoProperties {
     int Rotation; /* A positive number in degrees */
 };
 
-struct LWVideoDecoder {
+class LWVideoDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
     AVCodecContext *CodecContext = nullptr;
