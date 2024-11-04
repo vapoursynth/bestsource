@@ -92,7 +92,7 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, false, Threads, CacheMode, CachePath, &Opts));
+            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, 0, Threads, CacheMode, CachePath, &Opts)); // fixme, should probably expose the nth format selection mechanism
 
             const BSVideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {

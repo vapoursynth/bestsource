@@ -115,7 +115,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
@@ -215,12 +215,6 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     CodecContext->apply_cropping = 1;
     CodecContext->flags |= AV_CODEC_FLAG_UNALIGNED;
 
-    // FIXME, implement for newer ffmpeg versions
-    if (!VariableFormat) {
-        // Probably guard against mid-stream format changes
-        CodecContext->flags |= AV_CODEC_FLAG_DROPCHANGED;
-    }
-
     // Full explanation by more clever person available here: https://github.com/Nevcairiel/LAVFilters/issues/113
     if (CodecContext->codec_id == AV_CODEC_ID_H264 && CodecContext->has_b_frames) {
         CodecContext->has_b_frames = 15; // the maximum possible value for h264
@@ -242,10 +236,10 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
         throw BestSourceException("Could not open video codec");
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, VariableFormat, Threads, LAVFOpts);
+        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, Threads, LAVFOpts);
     } catch (...) {
         Free();
         throw;
@@ -285,21 +279,8 @@ void LWVideoDecoder::SetFrameNumber(int64_t N) {
     CurrentFrame = N;
 }
 
-void LWVideoDecoder::GetVideoProperties(BSVideoProperties &VP) {
-    assert(CurrentFrame == 0);
+void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
     VP = {};
-    AVFrame *PropFrame = GetNextFrame();
-    assert(PropFrame);
-    if (!PropFrame)
-        return;
-
-    VP.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(PropFrame->format)));
-    VP.FieldBased = !!(PropFrame->flags & AV_FRAME_FLAG_INTERLACED);
-    VP.TFF = !!(PropFrame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
-    VP.Width = CodecContext->width;
-    VP.Height = CodecContext->height;
-    VP.SSModWidth = VP.Width - (VP.Width % (1 << VP.VF.SubSamplingW));
-    VP.SSModHeight = VP.Height - (VP.Height % (1 << VP.VF.SubSamplingH));
 
     VP.FPS = CodecContext->framerate;
     // Set the framerate from the container if the codec framerate is invalid
@@ -323,9 +304,6 @@ void LWVideoDecoder::GetVideoProperties(BSVideoProperties &VP) {
         VP.FPS.Den = 1;
         VP.FPS.Num = 30;
     }
-
-    if (PropFrame->pts != AV_NOPTS_VALUE)
-        VP.StartTime = (static_cast<double>(FormatContext->streams[TrackNumber]->time_base.num) * PropFrame->pts) / FormatContext->streams[TrackNumber]->time_base.den;
 
     // Set AR variables
     VP.SAR = CodecContext->sample_aspect_ratio;
@@ -411,8 +389,6 @@ void LWVideoDecoder::GetVideoProperties(BSVideoProperties &VP) {
                 VP.Rotation += 360;
         }
     }
-
-    av_frame_free(&PropFrame);
 }
 
 AVFrame *LWVideoDecoder::GetNextFrame() {
@@ -892,8 +868,8 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
     return false;
 }
 
-BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads), DefaultFormatSet(AV_PIX_FMT_NONE, 0, 0) { // fixme, default format default constructor
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -908,7 +884,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     if (CacheMode < 0 || CacheMode > 4)
         throw BestSourceException("CacheMode must be between 0 and 4");
 
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
 
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
@@ -926,8 +902,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
         throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
-
-    VP.NumFrames = TrackIndex.Frames.size();
+;
 
     // Framerate and last frame duration guessing fun
     const auto OriginalFPS = VP.FPS;
@@ -987,16 +962,10 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
         }
     }
 
-    int64_t NumFields = 0;
+    InitializeFormatSets();
+    SelectFormatSet(VariableFormat);
 
-    for (const auto &Iter : TrackIndex.Frames)
-        NumFields += Iter.RepeatPict + 2;
-
-    VP.NumRFFFrames = (NumFields + 1) / 2;
-
-    if (VP.NumFrames == VP.NumRFFFrames)
-        RFFState = RFFStateEnum::Unused;
-    else
+    if (DefaultFormatSet.NumFrames != DefaultFormatSet.NumRFFFrames)
         VP.FPS = OriginalFPS; // Restore the original FPS since it's generally always correct for files with RFF set
 
     Decoders[0] = std::move(Decoder);
@@ -1017,38 +986,19 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
     TrackIndex.LastFrameDuration = 0;
-
-    // Fixme, implement frame discarding based on first seen format?
-    /*
-    bool First = true;
-    int Format = -1;
-    int Width = -1;
-    int Height = -1;
-    */
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
 
-        /*
-        if (First) {
-            Format = F->format;
-            Width = F->width;
-            Height = F->height;
-            First = false;
-        }
-        */
-
-        //if (VariableFormat || (Format == F->format && Width == F->width && Height == F->height)) {
-        TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), GetHash(F) });
+        TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), F->format, F->width, F->height, GetHash(F) });
         TrackIndex.LastFrameDuration = F->duration;
-        //}
 
         av_frame_free(&F);
         if (Progress) {
@@ -1080,6 +1030,15 @@ const BSVideoProperties &BestVideoSource::GetVideoProperties() const {
 BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     if (N < 0 || N >= VP.NumFrames)
         return nullptr;
+
+    // Adjust frame number if an output format is chosen
+    if (VariableFormat >= 0 && FormatSets.size() > 1) {
+        const auto &ActiveSet = FormatSets[VariableFormat];
+        for (const auto &Iter : TrackIndex.Frames) {
+            if (Iter.Format != ActiveSet.Format || Iter.Width != ActiveSet.Width || Iter.Height != ActiveSet.Height)
+                N++;
+        }
+    }
 
     std::unique_ptr<BestVideoFrame> F(FrameCache.GetFrame(N));
     if (!F)
@@ -1309,7 +1268,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
     if (!Decoders[Index])
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
 
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
@@ -1334,7 +1293,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
         Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, VariableFormat, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
     }
 
     std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
@@ -1432,6 +1391,43 @@ bool BestVideoSource::InitializeRFF() {
     return true;
 }
 
+void BestVideoSource::InitializeFormatSets() {
+    std::map<std::tuple<int, int, int>, std::tuple<int64_t, int64_t, int64_t, const FrameInfo *>> SeenSets;
+    for (const auto &Iter : TrackIndex.Frames) {
+        auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
+        if (SeenSets.insert(std::make_pair(V, std::make_tuple(0, 0, 0, &Iter))).second)
+            FormatSets.push_back(FormatSet(Iter.Format, Iter.Width, Iter.Height));
+        std::get<0>(SeenSets[V])++;
+        std::get<1>(SeenSets[V]) += Iter.RepeatPict + 2;
+    }
+
+    for (auto &Iter : FormatSets) {
+        auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
+        Iter.NumFrames = std::get<0>(SeenSets[V]);
+        Iter.NumRFFFrames = (std::get<1>(SeenSets[V]) + 1) / 2;
+        Iter.TFF = std::get<3>(SeenSets[V])->TFF;
+        if (std::get<3>(SeenSets[V])->PTS != AV_NOPTS_VALUE)
+            Iter.StartTime = (static_cast<double>(VP.TimeBase.Num) * std::get<3>(SeenSets[V])->PTS) / VP.TimeBase.Den;      
+        Iter.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Iter.Format)));
+    }
+
+    DefaultFormatSet = FormatSets[0];
+    DefaultFormatSet.NumFrames = TrackIndex.Frames.size();
+    DefaultFormatSet.NumRFFFrames = 0;
+    for (const auto &Iter : FormatSets) {
+        if (DefaultFormatSet.Format != Iter.Format)
+            DefaultFormatSet.Format = AV_PIX_FMT_NONE;
+        if (DefaultFormatSet.Width != Iter.Width || DefaultFormatSet.Height != Iter.Height) {
+            DefaultFormatSet.Width = 0;
+            DefaultFormatSet.Height = 0;
+        }
+    }
+    if (DefaultFormatSet.Format != AV_PIX_FMT_NONE)
+        DefaultFormatSet.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(DefaultFormatSet.Format)));
+    else
+        DefaultFormatSet.VF = {};
+}
+
 BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
     if (RFFState == RFFStateEnum::Uninitialized)
         InitializeRFF();
@@ -1475,17 +1471,51 @@ BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
     return GetFrame(Frame - 1);
 }
 
+const std::vector<BestVideoSource::FormatSet> &BestVideoSource::GetFormatSets() const {
+    return FormatSets;
+}
+
+void BestVideoSource::SelectFormatSet(int Index) {
+    if (Index >= static_cast<int>(FormatSets.size()) || Index < -1)
+        throw BestSourceException("Invalid format set");
+    VariableFormat = Index;
+    BestVideoSource::FormatSet &SrcSet = (Index < 0) ? DefaultFormatSet : FormatSets[Index];
+
+    VP.VF = SrcSet.VF;
+    VP.Format = SrcSet.Format;
+    VP.Width = SrcSet.Width;
+    VP.Height = SrcSet.Height;
+
+    /* Height and width but largest possible size where it's a multiple of the subsampling */
+    VP.SSModWidth = VP.Width - (VP.Width % (1 << VP.VF.SubSamplingW));
+    VP.SSModHeight = VP.Height - (VP.Height % (1 << VP.VF.SubSamplingH));
+
+    VP.StartTime = SrcSet.StartTime;
+
+    VP.NumFrames = SrcSet.NumFrames;
+    VP.NumRFFFrames = SrcSet.NumRFFFrames;
+
+    VP.TFF = SrcSet.TFF;
+
+    RFFState = (VP.NumFrames == VP.NumRFFFrames) ? RFFStateEnum::Unused : RFFStateEnum::Uninitialized;
+}
+
+
 ////////////////////////////////////////
 // Index read/write
 
-typedef std::array<uint8_t, 13> VideoCompArray;
+typedef std::array<uint8_t, 25> VideoCompArray;
 
-static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, bool KeyFrame, bool TFF) {
+static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, int Format, int Width, int Height, bool KeyFrame, bool TFF) {
     VideoCompArray Result;
     memcpy(Result.data(), &PTS, sizeof(PTS));
     memcpy(Result.data() + sizeof(PTS), &RepeatPict, sizeof(RepeatPict));
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict), &Format, sizeof(Format));
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format), &Width, sizeof(Width));
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width), &Height, sizeof(Height));
     uint8_t Flags = static_cast<uint8_t>(KeyFrame) | (static_cast<uint8_t>(TFF) << 1);
-    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict), &Flags, sizeof(Flags));
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Width), &Flags, sizeof(Flags));
+    static_assert(sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Width) + sizeof(Flags) == sizeof(VideoCompArray));
     return Result;
 }
 
@@ -1524,7 +1554,7 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
             LastPTSValue = OrigPTS;
         }
 
-        Dict.insert(std::make_pair(GetVideoCompArray(PTS, Iter.RepeatPict, Iter.KeyFrame, Iter.TFF), 0));
+        Dict.insert(std::make_pair(GetVideoCompArray(PTS, Iter.RepeatPict, Iter.Format, Iter.Width, Iter.Height, Iter.KeyFrame, Iter.TFF), 0));
     }
 
     // Only bother with a dictionary if it's not too big
@@ -1549,7 +1579,7 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
                 LastPTSValue = OrigPTS;
             }
 
-            WriteByte(F, Dict[GetVideoCompArray(PTS, Iter.RepeatPict, Iter.KeyFrame, Iter.TFF)]);
+            WriteByte(F, Dict[GetVideoCompArray(PTS, Iter.RepeatPict, Iter.Format, Iter.Width, Iter.Height, Iter.KeyFrame, Iter.TFF)]);
             fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
         }
     } else {
@@ -1559,6 +1589,9 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
             fwrite(Iter.Hash.data(), 1, Iter.Hash.size(), F.get());
             WriteInt64(F, Iter.PTS);
             WriteInt(F, Iter.RepeatPict);
+            WriteInt(F, Iter.Format);
+            WriteInt(F, Iter.Width);
+            WriteInt(F, Iter.Height);
             WriteByte(F, static_cast<uint8_t>(Iter.KeyFrame) | (static_cast<uint8_t>(Iter.TFF) << 1));
         }
     }
@@ -1604,6 +1637,9 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
             FrameInfo FI = {};
             FI.PTS = ReadInt64(F);
             FI.RepeatPict = ReadInt(F);
+            FI.Format = ReadInt(F);
+            FI.Width = ReadInt(F);
+            FI.Height = ReadInt(F);
             uint8_t Flags = ReadByte(F);
             FI.KeyFrame = !!(Flags & 1);
             FI.TFF = !!(Flags & 2);
@@ -1627,6 +1663,9 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
                 return false;
             FI.PTS = ReadInt64(F);
             FI.RepeatPict = ReadInt(F);
+            FI.Format = ReadInt(F);
+            FI.Width = ReadInt(F);
+            FI.Height = ReadInt(F);
             uint8_t Flags = ReadByte(F);
             FI.KeyFrame = !!(Flags & 1);
             FI.TFF = !!(Flags & 2);

@@ -49,26 +49,13 @@ struct BSVideoFormat {
     void Set(const AVPixFmtDescriptor *Desc);
 };
 
-struct BSVideoProperties {
+struct LWVideoProperties {
     BSRational TimeBase;
-    double StartTime; // in seconds
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
-    int64_t NumRFFFrames; // can be -1 to signal that the number of frames is completely unknown, RFF applied
 
     BSRational FPS;
     BSRational SAR;
-
-    BSVideoFormat VF;
-    int Width;
-    int Height;
-
-    /* Height and width but largest possible size where it's a multiple of the subsampling */
-    int SSModWidth;
-    int SSModHeight; 
-
-    bool FieldBased;
-    bool TFF;
 
     /* Stereo 3D */
     int Stereo3DType;
@@ -95,6 +82,23 @@ struct BSVideoProperties {
     int Rotation; /* A positive number in degrees */
 };
 
+struct BSVideoProperties : public LWVideoProperties {
+    BSVideoFormat VF;
+    int Format; // fixme, needed?
+
+    int Width;
+    int Height;
+
+    /* Height and width but largest possible size where it's a multiple of the subsampling */
+    int SSModWidth;
+    int SSModHeight;
+
+    double StartTime;
+    int64_t NumRFFFrames;
+
+    bool TFF;
+};
+
 class LWVideoDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
@@ -109,19 +113,19 @@ private:
     AVPacket *Packet = nullptr;
     bool Seeked = false;
 
-    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts);
+    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
 public:
-    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] int64_t GetSourceSize() const;
     [[nodiscard]] int64_t GetSourcePostion() const;
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N); // Use after seeking to update internal frame number
-    void GetVideoProperties(BSVideoProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
+    void GetVideoProperties(LWVideoProperties &VP); // Gets file level video properties, note that format and resolution information can only be retrieved by decoding a frame with GetNextFrame() and examining it 
     [[nodiscard]] AVFrame *GetNextFrame();
     bool SkipFrames(int64_t Count);
     [[nodiscard]] bool HasMoreFrames() const;
@@ -192,16 +196,39 @@ public:
 
 class BestVideoSource {
 public:
+    struct FormatSet {
+        BSVideoFormat VF = {};
+        int Format;
+        int Width;
+        int Height;
+
+        double StartTime = 0;
+
+        int64_t NumFrames = 0;
+        int64_t NumRFFFrames = 0;
+
+        bool TFF = false;
+
+        FormatSet(int Format, int Width, int Height) : Format(Format), Width(Width), Height(Height) { // fixme, move constructor
+
+        }
+    };
+
     struct FrameInfo {
         int64_t PTS;
         int RepeatPict;
         bool KeyFrame;
         bool TFF;
+        int Format;
+        int Width;
+        int Height;
         std::array<uint8_t, HashSize> Hash;
     };
+
+
 private:
     struct VideoTrackIndex {
-        int64_t LastFrameDuration = 0;
+        int64_t LastFrameDuration = 0; // fixme, is LastFrameDuration actually applied?
         std::vector<FrameInfo> Frames;
     };
 
@@ -239,6 +266,8 @@ private:
 
     RFFStateEnum RFFState = RFFStateEnum::Uninitialized;
     std::vector<std::pair<int64_t, int64_t>> RFFFields;
+    std::vector<FormatSet> FormatSets;
+    FormatSet DefaultFormatSet;
 
     static constexpr int MaxVideoSources = 4;
     std::map<std::string, std::string> LAVFOptions;
@@ -247,7 +276,7 @@ private:
     std::string HWDevice;
     int ExtraHWFrames;
     int VideoTrack;
-    bool VariableFormat;
+    int VariableFormat;
     int Threads;
     bool LinearMode = false;
     uint64_t DecoderSequenceNum = 0;
@@ -265,12 +294,15 @@ private:
     [[nodiscard]] bool IndexTrack(const ProgressFunction &Progress = nullptr);
     bool InitializeRFF();
     bool NearestCommonFrameRate(BSRational &FPS);
+    void InitializeFormatSets();
 public:
-    BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, bool VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to */
     [[nodiscard]] const BSVideoProperties &GetVideoProperties() const;
+    [[nodiscard]] const std::vector<FormatSet> &GetFormatSets() const; /* Get a listing of all the number of formats  */
+    void SelectFormatSet(int Index); /* Sets the output format to the specified format set, passing -1 means the default variable format will be used */
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false); /* Time is in seconds */

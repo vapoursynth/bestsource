@@ -139,7 +139,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
-    bool VariableFormat = !!vsapi->mapGetInt(In, "variableformat", 0, &err);
+    int VariableFormat = vsapi->mapGetIntSaturated(In, "variableformat", 0, &err);
+    if (err)
+        VariableFormat = -1;
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     int StartNumber = vsapi->mapGetIntSaturated(In, "start_number", 0, &err);
     if (err)
@@ -201,13 +203,12 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, VariableFormat, Threads, CacheMode, CachePath ? CachePath : "", &Opts));
         }
 
+        D->V->SelectFormatSet(VariableFormat);
         const BSVideoProperties &VP = D->V->GetVideoProperties();
-        if (VP.VF.ColorFamily == 0 || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
+        if ((VP.VF.ColorFamily == 0 && VariableFormat != -1) || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
         D->VI.width = VP.SSModWidth;
         D->VI.height = VP.SSModHeight;
-        if (VariableFormat)
-            D->VI = {};
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
         D->VI.fpsNum = VP.FPS.Num;
         D->VI.fpsDen = VP.FPS.Den;

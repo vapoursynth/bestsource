@@ -439,14 +439,6 @@ bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
-    // Fixme, implement frame discarding based on first seen format?
-    /*
-    bool First = true;
-    int Format = -1;
-    int Width = -1;
-    int Height = -1;
-    */
-
     int64_t NumSamples = 0;
 
     while (true) {
@@ -473,7 +465,7 @@ bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, LAVFOptions));
             BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
@@ -482,7 +474,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
         return 0;
     } else {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, true, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, LAVFOptions));
             BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
