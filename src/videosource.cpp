@@ -1034,9 +1034,15 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
     // Adjust frame number if an output format is chosen
     if (VariableFormat >= 0 && FormatSets.size() > 1) {
         const auto &ActiveSet = FormatSets[VariableFormat];
+        int64_t UsableFrames = 0;
+        int64_t SourceN = N;
         for (const auto &Iter : TrackIndex.Frames) {
-            if (Iter.Format != ActiveSet.Format || Iter.Width != ActiveSet.Width || Iter.Height != ActiveSet.Height)
+            if (Iter.Format != ActiveSet.Format || Iter.Width != ActiveSet.Width || Iter.Height != ActiveSet.Height) {
                 N++;
+            } else {
+                if (UsableFrames++ == SourceN)
+                    break;
+            }
         }
     }
 
