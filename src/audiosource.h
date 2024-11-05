@@ -57,6 +57,7 @@ struct LWAudioProperties {
 struct BSAudioProperties : public LWAudioProperties {
     BSAudioFormat AF;
     int Format;
+    int BitsPerSample; // fixme, redundant?
     int SampleRate;
     int Channels;
     uint64_t ChannelLayout;
@@ -92,7 +93,7 @@ public:
     [[nodiscard]] int64_t GetSamplePos() const; // The frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N, int64_t SampleNumber); // Use after seeking to update internal frame number
     void GetAudioProperties(LWAudioProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
-    [[nodiscard]] AVFrame *GetNextFrame();
+    [[nodiscard]] AVFrame *GetNextFrame(int *BitsPerSample = nullptr);
     bool SkipFrames(int64_t Count);
     [[nodiscard]] bool HasMoreFrames() const;
     [[nodiscard]] bool Seek(int64_t PTS); // Note that the current frame number isn't updated and if seeking fails the decoder is in an undefined state
@@ -104,7 +105,7 @@ class BestAudioFrame {
 private:
     AVFrame *Frame;
 public:
-    BestAudioFrame(AVFrame *Frame);
+    BestAudioFrame(AVFrame *Frame, int BitsPerSample);
     ~BestAudioFrame();
     [[nodiscard]] const AVFrame *GetAVFrame() const;
     BSAudioFormat AF;
@@ -119,6 +120,7 @@ public:
     struct FormatSet {
         BSAudioFormat AF = {};
         int Format;
+        int BitsPerSample; // FIXME, maybe redundant
         int SampleRate;
         int Channels;
         uint64_t ChannelLayout;
@@ -134,6 +136,7 @@ public:
         int64_t Start;
         int64_t Length;
         int Format;
+        int BitsPerSample;
         int SampleRate;
         int Channels;
         uint64_t ChannelLayout;
@@ -158,11 +161,13 @@ private:
             ~CacheBlock();
         };
 
+        const AudioTrackIndex &TrackIndex;
         size_t Size = 0;
         size_t MaxSize = 1024 * 1024 * 1024;
         std::list<CacheBlock> Data;
         void ApplyMaxSize();
     public:
+        Cache(const AudioTrackIndex &TrackIndex);
         void Clear();
         void SetMaxSize(size_t Bytes);
         void CacheFrame(int64_t FrameNumber, AVFrame *Frame); // Takes ownership of Frame
