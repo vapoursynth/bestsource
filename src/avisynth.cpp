@@ -74,10 +74,13 @@ public:
     AvisynthVideoSource(const char *Source, int Track,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
         int CacheMode, const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
-        const char *Timecodes, int StartNumber, IScriptEnvironment *Env)
+        const char *Timecodes, int StartNumber, int VariableFormat, IScriptEnvironment *Env)
         : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
 
         try {
+            if (VariableFormat < 0)
+                throw BestSourceException("Variable format number must be 0 or greater");
+
             if (FPSDen < 1)
                 throw BestSourceException("FPS denominator needs to be 1 or greater");
 
@@ -92,7 +95,9 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, 0, Threads, CacheMode, CachePath, &Opts)); // fixme, should probably expose the nth format selection mechanism
+            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, Threads, CacheMode, CachePath, &Opts));
+
+            V->SelectFormatSet(VariableFormat);
 
             const BSVideoProperties &VP = V->GetVideoProperties();
             if (VP.VF.ColorFamily == cfGray) {
@@ -280,8 +285,9 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int ExtraHWFrames = Args[13].AsInt(9);
     const char *Timecodes = Args[14].AsString(nullptr);
     int StartNumber = Args[15].AsInt(-1);
+    int VariableFormat = Args[16].AsInt(0);
 
-    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, Env);
+    return new AvisynthVideoSource(Source, Track, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, Env);
 }
 
 class AvisynthAudioSource : public IClip {
@@ -422,9 +428,9 @@ static constexpr auto PopulateArgNames() {
     return Result;
 }
 
-static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i";
+static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i";
 static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[adjustdelay]i[drc_scale]f";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f";
 
 static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
 static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();
