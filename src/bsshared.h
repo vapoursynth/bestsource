@@ -53,8 +53,6 @@ enum BestCacheMode {
     bcmAlwaysWriteSubTree,
     bcmAutoAbsolutePath,
     bcmAlwaysAbsolutePath,
-    bcmAuto [[deprecated]] = bcmAutoSubTree,
-    bcmAlwaysWrite [[deprecated]] = bcmAlwaysWriteSubTree
 };
 
 struct AVRational;
