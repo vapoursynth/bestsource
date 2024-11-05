@@ -869,7 +869,7 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
 }
 
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int VariableFormat, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads), DefaultFormatSet(AV_PIX_FMT_NONE, 0, 0) { // fixme, default format default constructor
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), VariableFormat(VariableFormat), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -1402,7 +1402,7 @@ void BestVideoSource::InitializeFormatSets() {
     for (const auto &Iter : TrackIndex.Frames) {
         auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
         if (SeenSets.insert(std::make_pair(V, std::make_tuple(0, 0, 0, &Iter))).second)
-            FormatSets.push_back(FormatSet(Iter.Format, Iter.Width, Iter.Height));
+            FormatSets.push_back(FormatSet{ {}, Iter.Format, Iter.Width, Iter.Height });
         std::get<0>(SeenSets[V])++;
         std::get<1>(SeenSets[V]) += Iter.RepeatPict + 2;
     }

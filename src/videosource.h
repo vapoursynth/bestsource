@@ -198,9 +198,9 @@ class BestVideoSource {
 public:
     struct FormatSet {
         BSVideoFormat VF = {};
-        int Format;
-        int Width;
-        int Height;
+        int Format = 0;
+        int Width = 0;
+        int Height = 0;
 
         double StartTime = 0;
 
@@ -208,10 +208,6 @@ public:
         int64_t NumRFFFrames = 0;
 
         bool TFF = false;
-
-        FormatSet(int Format, int Width, int Height) : Format(Format), Width(Width), Height(Height) { // fixme, move constructor
-
-        }
     };
 
     struct FrameInfo {
