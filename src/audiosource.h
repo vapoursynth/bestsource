@@ -45,8 +45,6 @@ struct BSAudioFormat {
     void Set(int Format, int BitsPerRawSample);
 };
 
-// int format, uint64_t ChannelLayout, int samplerate
-
 struct LWAudioProperties {
     BSRational TimeBase;
     int64_t Duration;
