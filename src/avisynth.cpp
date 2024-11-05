@@ -304,7 +304,9 @@ public:
             Opts["use_absolute_path"] = "1";
 
         try {
-            A.reset(new BestAudioSource(CreateProbablyUTF8Path(Source), Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+            A.reset(new BestAudioSource(CreateProbablyUTF8Path(Source), Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+
+            A->SelectFormatSet(0);
 
             const BSAudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {

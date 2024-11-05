@@ -319,7 +319,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
             int LastValue = -1;
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale,
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale,
                 [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Total == INT64_MAX && Cur == Total) {
@@ -337,8 +337,10 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
                 }));
 
         } else {
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, false, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
         }
+
+        D->A->SelectFormatSet(0);
 
         const BSAudioProperties &AP = D->A->GetAudioProperties();
         D->Is8Bit = (AP.AF.Bits <= 8);

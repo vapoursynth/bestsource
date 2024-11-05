@@ -84,7 +84,7 @@ struct LWVideoProperties {
 
 struct BSVideoProperties : public LWVideoProperties {
     BSVideoFormat VF;
-    int Format; // fixme, needed?
+    int Format;
 
     int Width;
     int Height;

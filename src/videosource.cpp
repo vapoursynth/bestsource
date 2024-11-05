@@ -1398,10 +1398,10 @@ bool BestVideoSource::InitializeRFF() {
 }
 
 void BestVideoSource::InitializeFormatSets() {
-    std::map<std::tuple<int, int, int>, std::tuple<int64_t, int64_t, int64_t, const FrameInfo *>> SeenSets;
+    std::map<std::tuple<int, int, int>, std::tuple<int64_t, int64_t, int64_t, bool>> SeenSets;
     for (const auto &Iter : TrackIndex.Frames) {
         auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
-        if (SeenSets.insert(std::make_pair(V, std::make_tuple(0, 0, 0, &Iter))).second)
+        if (SeenSets.insert(std::make_pair(V, std::make_tuple(0, 0, Iter.PTS, Iter.TFF))).second)
             FormatSets.push_back(FormatSet{ {}, Iter.Format, Iter.Width, Iter.Height });
         std::get<0>(SeenSets[V])++;
         std::get<1>(SeenSets[V]) += Iter.RepeatPict + 2;
@@ -1410,17 +1410,21 @@ void BestVideoSource::InitializeFormatSets() {
     for (auto &Iter : FormatSets) {
         auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
         Iter.NumFrames = std::get<0>(SeenSets[V]);
-        Iter.NumRFFFrames = (std::get<1>(SeenSets[V]) + 1) / 2;
-        Iter.TFF = std::get<3>(SeenSets[V])->TFF;
-        if (std::get<3>(SeenSets[V])->PTS != AV_NOPTS_VALUE)
-            Iter.StartTime = (static_cast<double>(VP.TimeBase.Num) * std::get<3>(SeenSets[V])->PTS) / VP.TimeBase.Den;      
+        Iter.NumRFFFrames = std::get<1>(SeenSets[V]);
+        Iter.TFF = std::get<3>(SeenSets[V]);
+        if (std::get<2>(SeenSets[V]) != AV_NOPTS_VALUE)
+            Iter.StartTime = (static_cast<double>(VP.TimeBase.Num) * std::get<2>(SeenSets[V])) / VP.TimeBase.Den;      
         Iter.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Iter.Format)));
     }
 
     DefaultFormatSet = FormatSets[0];
     DefaultFormatSet.NumFrames = TrackIndex.Frames.size();
     DefaultFormatSet.NumRFFFrames = 0;
-    for (const auto &Iter : FormatSets) {
+
+    for (auto &Iter : FormatSets) {
+        DefaultFormatSet.NumRFFFrames += Iter.NumRFFFrames;
+        Iter.NumRFFFrames = (Iter.NumRFFFrames + 1) / 2; // Can't round before adding it together
+
         if (DefaultFormatSet.Format != Iter.Format)
             DefaultFormatSet.Format = AV_PIX_FMT_NONE;
         if (DefaultFormatSet.Width != Iter.Width || DefaultFormatSet.Height != Iter.Height) {
@@ -1428,6 +1432,9 @@ void BestVideoSource::InitializeFormatSets() {
             DefaultFormatSet.Height = 0;
         }
     }
+
+    DefaultFormatSet.NumRFFFrames = (DefaultFormatSet.NumRFFFrames + 1) / 2;
+
     if (DefaultFormatSet.Format != AV_PIX_FMT_NONE)
         DefaultFormatSet.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(DefaultFormatSet.Format)));
     else
