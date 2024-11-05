@@ -568,7 +568,7 @@ BestAudioFrame *BestAudioSource::GetFrame(int64_t N, bool Linear) {
         int64_t UsableFrames = 0;
         int64_t SourceN = N;
         for (const auto &Iter : TrackIndex.Frames) {
-            if (Iter.Format != ActiveSet.Format || Iter.SampleRate != ActiveSet.SampleRate || Iter.Channels != ActiveSet.Channels || Iter.ChannelLayout != ActiveSet.ChannelLayout) {
+            if (Iter.Format != ActiveSet.Format || Iter.BitsPerSample != ActiveSet.BitsPerSample || Iter.SampleRate != ActiveSet.SampleRate || Iter.Channels != ActiveSet.Channels || Iter.ChannelLayout != ActiveSet.ChannelLayout) {
                 N++;
             } else {
                 if (UsableFrames++ == SourceN)
