@@ -1115,7 +1115,7 @@ void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, 
 ////////////////////////////////////////
 // Index read/write
 
-typedef std::array<uint8_t, 40> AudioCompArray;
+typedef std::array<uint8_t, sizeof(int64_t) + sizeof(int64_t) + sizeof(int) + sizeof(int) + sizeof(int) + sizeof(int) + sizeof(uint64_t)> AudioCompArray;
 
 static AudioCompArray GetAudioCompArray(int64_t PTS, int64_t Length, int Format, int BitsPerSample, int SampleRate, int Channels, uint64_t ChannelLayout) {
     AudioCompArray Result;
@@ -1126,6 +1126,8 @@ static AudioCompArray GetAudioCompArray(int64_t PTS, int64_t Length, int Format,
     memcpy(Result.data() + sizeof(PTS) + sizeof(Length) + sizeof(Format) + sizeof(BitsPerSample), &SampleRate, sizeof(SampleRate));
     memcpy(Result.data() + sizeof(PTS) + sizeof(Length) + sizeof(Format) + sizeof(BitsPerSample) + sizeof(SampleRate), &Channels, sizeof(Channels));
     memcpy(Result.data() + sizeof(PTS) + sizeof(Length) + sizeof(Format) + sizeof(BitsPerSample) + sizeof(SampleRate) + sizeof(Channels), &ChannelLayout, sizeof(ChannelLayout));
+
+    static_assert(sizeof(PTS) + sizeof(Length) + sizeof(Format) + sizeof(BitsPerSample) + sizeof(SampleRate) + sizeof(Channels) + sizeof(ChannelLayout) == sizeof(AudioCompArray));
 
     return Result;    
 }

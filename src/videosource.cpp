@@ -1517,7 +1517,7 @@ void BestVideoSource::SelectFormatSet(int Index) {
 ////////////////////////////////////////
 // Index read/write
 
-typedef std::array<uint8_t, 25> VideoCompArray;
+typedef std::array<uint8_t, sizeof(int64_t) + sizeof(int) + sizeof(int) + sizeof(int) + sizeof(int) + sizeof(uint8_t)> VideoCompArray;
 
 static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, int Format, int Width, int Height, bool KeyFrame, bool TFF) {
     VideoCompArray Result;
@@ -1527,8 +1527,10 @@ static VideoCompArray GetVideoCompArray(int64_t PTS, int RepeatPict, int Format,
     memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format), &Width, sizeof(Width));
     memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width), &Height, sizeof(Height));
     uint8_t Flags = static_cast<uint8_t>(KeyFrame) | (static_cast<uint8_t>(TFF) << 1);
-    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Width), &Flags, sizeof(Flags));
-    static_assert(sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Width) + sizeof(Flags) == sizeof(VideoCompArray));
+    memcpy(Result.data() + sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Height), &Flags, sizeof(Flags));
+
+    static_assert(sizeof(PTS) + sizeof(RepeatPict) + sizeof(Format) + sizeof(Width) + sizeof(Height) + sizeof(Flags) == sizeof(VideoCompArray));
+
     return Result;
 }
 
