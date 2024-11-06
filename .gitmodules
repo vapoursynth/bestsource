@@ -1,6 +1,6 @@
 [submodule "libp2p"]
 	path = libp2p
-	url = https://bitbucket.org/the-sekrit-twc/libp2p.git
+	url = https://github.com/sekrit-twc/libp2p.git
 [submodule "AviSynthPlus"]
 	path = AviSynthPlus
 	url = https://github.com/AviSynth/AviSynthPlus.git
