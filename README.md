@@ -39,6 +39,7 @@ ninja -C build install
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
 - Mod files can't be decoded correctly using libmodplug due to the library not having repeatable bitexact output
 - Gray+alpha format isn't supported in Avisynth+ and as a result only the Y component is returned
+- Files with dimensions that aren't a multiple of the subsampling value will be cropped
 
 ## VapourSynth usage
 
