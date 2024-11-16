@@ -55,6 +55,12 @@ static int GetColorFamily(const AVPixFmtDescriptor *Desc) {
         return 1;
     else if (Desc->flags & AV_PIX_FMT_FLAG_RGB)
         return 2;
+    else if (
+        Desc->flags & AV_PIX_FMT_FLAG_XYZ
+        && Desc->log2_chroma_h == 0
+        && Desc->log2_chroma_w == 0
+    )
+        return 2;
     else
         return 3;
 }
