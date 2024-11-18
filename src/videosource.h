@@ -272,7 +272,7 @@ private:
     std::string HWDevice;
     int ExtraHWFrames;
     int VideoTrack;
-    int VariableFormat;
+    int VariableFormat = -1;
     int Threads;
     bool LinearMode = false;
     uint64_t DecoderSequenceNum = 0;

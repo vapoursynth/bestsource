@@ -1541,7 +1541,6 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
     WriteBSHeader(F, true);
     WriteInt64(F, FileSize);
     WriteInt(F, VideoTrack);
-    WriteInt(F, VariableFormat);
     WriteString(F, HWDevice);
     WriteInt(F, ExtraHWFrames);
 
@@ -1623,8 +1622,6 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
     if (!ReadCompareInt64(F, FileSize))
         return false;
     if (!ReadCompareInt(F, VideoTrack))
-        return false;
-    if (!ReadCompareInt(F, VariableFormat))
         return false;
     if (!ReadCompareString(F, HWDevice))
         return false;
