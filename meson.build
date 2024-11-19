@@ -56,7 +56,7 @@ endif
 deps = [
     dependency('libavcodec', version: '>=60.31.0'),
     dependency('libavformat', version: '>=60.16.0'),
-    dependency('libavutil', version: '>=58.29.0'),
+    dependency('libavutil', version: '>=58.31.0'),
     dependency('libxxhash'),
 ]
 
