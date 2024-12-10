@@ -115,7 +115,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     TrackNumber = Track;
 
     AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
@@ -232,14 +232,20 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
             throw BestSourceException("Couldn't allocate frame");
     }
 
-    if (avcodec_open2(CodecContext, Codec, nullptr) < 0)
+    AVDictionary *CodecDict = nullptr;
+    if (ViewID >= 0)
+        av_dict_set(&CodecDict, "view_ids", std::to_string(ViewID).c_str(), 0);
+
+    if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0)
         throw BestSourceException("Could not open video codec");
+
+    av_dict_free(&CodecDict);
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, Threads, LAVFOpts);
+        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, ViewID, Threads, LAVFOpts);
     } catch (...) {
         Free();
         throw;
@@ -868,8 +874,8 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
     return false;
 }
 
-BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), Threads(Threads) {
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+    : Source(SourceFile), HWDevice(HWDeviceName), ExtraHWFrames(!HWDeviceName.empty() ? ExtraHWFrames : 0), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -884,7 +890,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     if (CacheMode < 0 || CacheMode > 4)
         throw BestSourceException("CacheMode must be between 0 and 4");
 
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
 
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
@@ -986,7 +992,7 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
@@ -1274,7 +1280,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
     if (!Decoders[Index])
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
 
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
@@ -1299,7 +1305,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
         Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
     }
 
     std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
@@ -1541,6 +1547,7 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
     WriteBSHeader(F, true);
     WriteInt64(F, FileSize);
     WriteInt(F, VideoTrack);
+    WriteInt(F, ViewID);
     WriteString(F, HWDevice);
     WriteInt(F, ExtraHWFrames);
 
@@ -1622,6 +1629,8 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
     if (!ReadCompareInt64(F, FileSize))
         return false;
     if (!ReadCompareInt(F, VideoTrack))
+        return false;
+    if (!ReadCompareInt(F, ViewID))
         return false;
     if (!ReadCompareString(F, HWDevice))
         return false;

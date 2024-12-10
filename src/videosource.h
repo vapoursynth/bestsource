@@ -113,12 +113,12 @@ private:
     AVPacket *Packet = nullptr;
     bool Seeked = false;
 
-    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts);
+    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
 public:
-    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] int64_t GetSourceSize() const;
     [[nodiscard]] int64_t GetSourcePostion() const;
@@ -273,6 +273,7 @@ private:
     int ExtraHWFrames;
     int VideoTrack;
     int VariableFormat = -1;
+    int ViewID;
     int Threads;
     bool LinearMode = false;
     uint64_t DecoderSequenceNum = 0;
@@ -292,7 +293,7 @@ private:
     bool NearestCommonFrameRate(BSRational &FPS);
     void InitializeFormatSets();
 public:
-    BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to */

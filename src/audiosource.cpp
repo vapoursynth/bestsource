@@ -494,7 +494,7 @@ void BestAudioSource::InitializeFormatSets() {
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     if (Track < 0) {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, 0, LAVFOptions));
             BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
@@ -503,7 +503,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
         return 0;
     } else {
         try {
-            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, LAVFOptions));
+            std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, 0, LAVFOptions));
             BSVideoProperties VP;
             Dec->GetVideoProperties(VP);
             return AP.StartTime - VP.StartTime;
