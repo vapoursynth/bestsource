@@ -50,12 +50,19 @@ struct BSVideoFormat {
 };
 
 struct LWVideoProperties {
+    struct ViewIDInfo {
+        int ViewID;
+        int ViewPos;
+    };
+
     BSRational TimeBase;
     int64_t Duration;
-    int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown, RFF ignored
+    int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown and can't even be estimated, RFF ignored
 
     BSRational FPS;
     BSRational SAR;
+
+    std::vector<ViewIDInfo> ViewIDs;
 
     /* Stereo 3D */
     int Stereo3DType;
@@ -112,6 +119,8 @@ private:
     bool DecodeSuccess = true;
     AVPacket *Packet = nullptr;
     bool Seeked = false;
+    bool IsLayered = false;
+    std::vector<LWVideoProperties::ViewIDInfo> ViewIDs;
 
     void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts);
     bool ReadPacket();

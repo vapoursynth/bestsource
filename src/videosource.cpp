@@ -33,6 +33,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/stereo3d.h>
 #include <libavutil/display.h>
@@ -163,6 +164,14 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     if (FormatContext->streams[TrackNumber]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
         throw BestSourceException("Not a video track");
 
+    IsLayered = !!(FormatContext->streams[TrackNumber]->disposition & AV_DISPOSITION_MULTILAYER);
+
+    if (ViewID < 0)
+        throw BestSourceException("Invalid view id specified, negative numbers aren't allowed");
+
+    if (ViewID != 0 && !IsLayered)
+        throw BestSourceException("Non-zero view id specified but there is only a single layer");
+
     for (int i = 0; i < static_cast<int>(FormatContext->nb_streams); i++)
         if (i != TrackNumber)
             FormatContext->streams[i]->discard = AVDISCARD_ALL;
@@ -233,13 +242,37 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     }
 
     AVDictionary *CodecDict = nullptr;
-    if (ViewID >= 0)
+    if (IsLayered)
         av_dict_set(&CodecDict, "view_ids", std::to_string(ViewID).c_str(), 0);
 
     if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0)
         throw BestSourceException("Could not open video codec");
 
     av_dict_free(&CodecDict);
+
+    // MV-HEVC views
+    if (IsLayered) {
+        unsigned ArrSize = 0;
+        if (av_opt_get_array_size(CodecContext, "view_ids_available", 0, &ArrSize) >= 0 && ArrSize > 0) {
+            std::vector<int> Tmp1;
+            Tmp1.resize(ArrSize);
+            av_opt_get_array(CodecContext, "view_ids_available", 0, 0, ArrSize, AV_OPT_TYPE_INT, Tmp1.data());
+
+            std::vector<int> Tmp2;
+            if (av_opt_get_array_size(CodecContext, "view_pos_available", 0, &ArrSize) >= 0 && ArrSize > 0) {
+                Tmp2.resize(ArrSize);
+                av_opt_get_array(CodecContext, "view_pos_available", 0, 0, ArrSize, AV_OPT_TYPE_INT, Tmp2.data());
+            }
+
+            for (size_t i = 0; i < Tmp1.size(); i++) {
+                if (i < Tmp2.size())
+                    ViewIDs.push_back({ Tmp1[i], Tmp2[i] });
+                else {
+                    ViewIDs.push_back({ Tmp1[i], -1 });
+                }
+            }
+        }
+    }
 }
 
 LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
@@ -317,6 +350,8 @@ void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
     // Set the SAR from the container if the codec SAR is invalid
     if (VP.SAR.Num <= 0 || VP.SAR.Den <= 0)
         VP.SAR = FormatContext->streams[TrackNumber]->sample_aspect_ratio;
+
+    VP.ViewIDs = ViewIDs;
 
     // Set stereoscopic 3d type
     VP.Stereo3DType = AV_STEREO3D_2D;
@@ -889,6 +924,9 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     
     if (CacheMode < 0 || CacheMode > 4)
         throw BestSourceException("CacheMode must be between 0 and 4");
+
+    if (ViewID < 0)
+        throw BestSourceException("ViewID must be 0 or greater");
 
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
 
