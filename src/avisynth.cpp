@@ -100,6 +100,10 @@ public:
             V->SelectFormatSet(VariableFormat);
 
             const BSVideoProperties &VP = V->GetVideoProperties();
+
+            if (VP.SSModWidth == 0 || VP.SSModHeight == 0)
+                throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
+
             if (VP.VF.ColorFamily == cfGray) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_Y;
             } else if (VP.VF.ColorFamily == cfYUV && VP.VF.Alpha) {

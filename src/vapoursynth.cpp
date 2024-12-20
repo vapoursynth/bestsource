@@ -209,6 +209,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         const BSVideoProperties &VP = D->V->GetVideoProperties();
         if ((VP.VF.ColorFamily == 0 && VariableFormat != -1) || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
+
+        if (VP.SSModWidth == 0 || VP.SSModHeight == 0)
+            throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
+
         D->VI.width = VP.SSModWidth;
         D->VI.height = VP.SSModHeight;
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
