@@ -45,7 +45,7 @@ ninja -C build install
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = False])`
 
-`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, bint showprogress = False])`
+`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -63,9 +63,9 @@ The *Metadata* function returns all the file or track metadata as key-value pair
 
 `BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100])`
 
-`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0])`
+`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int viewid = 0])`
 
-`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int adjustdelay = -1, float drc_scale = 0])`
+`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 1000, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 
@@ -118,6 +118,8 @@ Note that the *BSSource* function by default will silently ignore errors when op
 *timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option will produce an error if any frame has an unknown timestamp which would result in an invalid timecode file.
 
 *start_number*: The first number of image sequences.
+
+*viewid*: The view id to output, this is currently only used for some mv-hevc files and is quite rare.
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages.
 
