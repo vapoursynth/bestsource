@@ -54,9 +54,9 @@ if host_machine.cpu_family().startswith('x86')
 endif
 
 deps = [
-    dependency('libavcodec', version: '>=60.31.0'),
-    dependency('libavformat', version: '>=60.16.0'),
-    dependency('libavutil', version: '>=58.31.0'),
+    dependency('libavcodec', version: '>=61.19.0'),
+    dependency('libavformat', version: '>=61.7.0'),
+    dependency('libavutil', version: '>=59.39.0'),
     dependency('libxxhash'),
 ]
 
