@@ -1035,12 +1035,17 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
     TrackIndex.LastFrameDuration = 0;
+    bool HasKeyFrames = false;
+    bool HasEarlyKeyFrames = false;
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
 
+        HasKeyFrames = HasKeyFrames || !!(F->flags & AV_FRAME_FLAG_KEY);
+        if (TrackIndex.Frames.size() < 100)
+            HasEarlyKeyFrames = HasKeyFrames;
         TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), F->format, F->width, F->height, GetHash(F) });
         TrackIndex.LastFrameDuration = F->duration;
 
@@ -1053,6 +1058,16 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
 
     if (Progress)
         Progress(VideoTrack, INT64_MAX, INT64_MAX);
+
+    if (!TrackIndex.Frames.empty()) {
+        if (!HasKeyFrames) {
+            BSDebugPrint("No keyframes found when indexing which indicates an incorrectly flagged or very broken file, this may or may not cause performance problems when seeking");
+            for (auto &Iter : TrackIndex.Frames)
+                Iter.KeyFrame = true;
+        } else if (!HasEarlyKeyFrames) {
+            BSDebugPrint("No keyframes found in the first 100 frames when indexing, this may or may not cause performance problems when seeking");
+        }
+    }
 
     return !TrackIndex.Frames.empty();
 }
