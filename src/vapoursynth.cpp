@@ -148,6 +148,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         StartNumber = -1;
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
+    if (err)
+        ShowProgress = true;
     int ExtraHWFrames = vsapi->mapGetIntSaturated(In, "extrahwframes", 0, &err);
     if (err)
         ExtraHWFrames = 9;
