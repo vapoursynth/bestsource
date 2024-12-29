@@ -803,7 +803,7 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     int SampleSize[4] = {};
 
     for (int i = 0; i < desc->nb_components; i++) {
-        SampleSize[desc->comp[i].plane] = std::max(SampleSize[desc->comp[i].plane], desc->comp[i].step);
+        SampleSize[desc->comp[i].plane] = std::min(SampleSize[desc->comp[i].plane], desc->comp[i].step);
         NumPlanes = std::max(NumPlanes, desc->comp[i].plane + 1);
     }
 
