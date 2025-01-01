@@ -802,8 +802,13 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     int NumPlanes = 0;
     int SampleSize[4] = {};
 
+    // A bit weird but for planar formats this will yield the samplesize directly since it's identical to the step
+    // For packed formats like YUY2 and others it will get the average packed unit size per pixel
     for (int i = 0; i < desc->nb_components; i++) {
-        SampleSize[desc->comp[i].plane] = std::min(SampleSize[desc->comp[i].plane], desc->comp[i].step);
+        if (SampleSize[desc->comp[i].plane] == 0)
+            SampleSize[desc->comp[i].plane] = desc->comp[i].step;
+        else
+            SampleSize[desc->comp[i].plane] = std::min(SampleSize[desc->comp[i].plane], desc->comp[i].step);
         NumPlanes = std::max(NumPlanes, desc->comp[i].plane + 1);
     }
 
