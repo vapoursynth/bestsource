@@ -53,10 +53,12 @@ if host_machine.cpu_family().startswith('x86')
     )
 endif
 
+avutil_dep = dependency('libavutil', version: '>=59.39.0')
+
 deps = [
+    avutil_dep,
     dependency('libavcodec', version: '>=61.19.0'),
     dependency('libavformat', version: '>=61.7.0'),
-    dependency('libavutil', version: '>=59.39.0'),
     dependency('libxxhash'),
 ]
 
@@ -100,7 +102,7 @@ if get_option('enable_plugin')
     endif
 
     shared_module('bestsource', plugin_sources,
-        dependencies: [bestsource_dep, vapoursynth_dep],
+        dependencies: [bestsource_dep, vapoursynth_dep, avutil_dep.partial_dependency(compile_args: true, includes: true)],
         gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth',
