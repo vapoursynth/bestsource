@@ -21,7 +21,13 @@
 #include "synthshared.h"
 #include "VSHelper4.h"
 
-void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const BSVideoProperties &VP, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
+extern "C" {
+#include <libavutil/avutil.h>
+}
+
+void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
+    const BSVideoProperties VP = VS.GetVideoProperties();
+
     // Set AR variables
     if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
         mapSetInt("_SARNum", VP.SAR.Num);
@@ -49,14 +55,22 @@ void SetSynthFrameProperties(const std::unique_ptr<BestVideoFrame> &Src, const B
         mapSetInt("_FieldBased", FieldBased);
         mapSetInt("RepeatField", Src->RepeatPict);
 
-        // FIXME, use PTS difference between frames instead?
-        if (Src->Duration > 0) {
-            int64_t DurNum = VP.TimeBase.Num;
-            int64_t DurDen = VP.TimeBase.Den;
-            vsh::muldivRational(&DurNum, &DurDen, Src->Duration, 1);
-            mapSetInt("_DurationNum", DurNum);
-            mapSetInt("_DurationDen", DurDen);
+        if (n < VP.NumFrames - 1) {
+            int64_t NextPTS = VS.GetFrameInfo(n + 1).PTS;
+
+            // Leave _Duration unset when it can't be computed reliably, let callers decide
+            // whether or how to guess values.
+            if (Src->PTS != AV_NOPTS_VALUE && NextPTS != AV_NOPTS_VALUE && NextPTS > Src->PTS) {
+                int64_t DurNum = VP.TimeBase.Num;
+                int64_t DurDen = VP.TimeBase.Den;
+
+                vsh::muldivRational(&DurNum, &DurDen, NextPTS - Src->PTS, 1);
+                mapSetInt("_DurationNum", DurNum);
+                mapSetInt("_DurationDen", DurDen);
+            }
         }
+        // FIXME Use Src->Duration or the track's duration for the last frame?
+        // These are how you'd compute the last frame's duration, but they're not always accurate.
     }
 
     mapSetInt("TopFieldFirst", TFF);
