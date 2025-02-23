@@ -957,11 +957,19 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     const auto OriginalFPS = VP.FPS;
     std::map<int64_t, size_t> DurationHistogram;
 
+    // This part is to compensate for files that most likely have timestamps attached to the wrong frame due to b-frame reordering and timecode attachment fun in broken tools
+    // Does nothing for most files
+    std::vector<int64_t> SortedPTS;
+    SortedPTS.resize(TrackIndex.Frames.size());
+    for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
+        SortedPTS[i] = TrackIndex.Frames[i].PTS;
+    std::sort(SortedPTS.begin(), SortedPTS.end());
+
     for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
-        if (TrackIndex.Frames[i].PTS == AV_NOPTS_VALUE || TrackIndex.Frames[i + 1].PTS == AV_NOPTS_VALUE)
+        if (SortedPTS[i] == AV_NOPTS_VALUE || SortedPTS[i + 1] == AV_NOPTS_VALUE)
             ++DurationHistogram[AV_NOPTS_VALUE];
         else
-            ++DurationHistogram[TrackIndex.Frames[i + 1].PTS - TrackIndex.Frames[i].PTS];
+            ++DurationHistogram[SortedPTS[i + 1] - SortedPTS[i]];
 
     std::pair<int64_t, size_t> MostCommonDuration(1, 1);
     if (!DurationHistogram.empty())
