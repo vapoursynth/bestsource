@@ -2,7 +2,7 @@ project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
     meson_version: '>=0.53.0',
-    version: '10.0',
+    version: '11.0',
 )
 
 api_sources = files(

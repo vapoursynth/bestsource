@@ -1,4 +1,4 @@
-//  Copyright (c) 2022-2024 Fredrik Mellbin
+//  Copyright (c) 2022-2025 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,7 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-#define BEST_SOURCE_VERSION_MAJOR 10
+#define BEST_SOURCE_VERSION_MAJOR 11
 #define BEST_SOURCE_VERSION_MINOR 0
 
 #endif
