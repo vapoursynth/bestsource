@@ -39,7 +39,7 @@ struct AVPacket;
 struct AVPixFmtDescriptor;
 
 struct BSVideoFormat {
-    int ColorFamily; /* Unknown = 0, Gray = 1, RGB = 2, YUV = 3 */
+    int ColorFamily; /* Unknown = 0, Gray = 1, RGB = 2, YUV = 3, Bayer = 4 (Unsupported) */
     bool Alpha;
     bool Float;
     int Bits;

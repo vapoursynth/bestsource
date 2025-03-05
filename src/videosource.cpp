@@ -52,6 +52,8 @@ static bool HasAlpha(const AVPixFmtDescriptor *Desc) {
 static int GetColorFamily(const AVPixFmtDescriptor *Desc) {
     if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
         return 2;
+    if (!!(Desc->flags & AV_PIX_FMT_FLAG_BAYER))
+        return 4;
     if (Desc->nb_components <= 2)
         return 1;
     else if (Desc->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_XYZ))
@@ -642,7 +644,7 @@ static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
 };
 
 bool BestVideoFrame::ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t *const Stride, uint8_t *AlphaDst, ptrdiff_t AlphaStride) const {
-    if (VF.ColorFamily == 0)
+    if (VF.ColorFamily == 0 || VF.ColorFamily == 4)
         return false;
 
     uint8_t *Dsts[3] = { Dsts1[0], Dsts1[1], Dsts1[2] };

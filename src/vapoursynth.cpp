@@ -208,6 +208,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         D->V->SelectFormatSet(VariableFormat);
 
         const BSVideoProperties &VP = D->V->GetVideoProperties();
+        if (VP.VF.ColorFamily == 4)
+            throw BestSourceException("Unsupported source colorspace (bayer)");
         if ((VP.VF.ColorFamily == 0 && VariableFormat != -1) || !vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core))
             throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
 

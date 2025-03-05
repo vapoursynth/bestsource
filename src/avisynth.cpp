@@ -114,6 +114,8 @@ public:
                 VI.pixel_type = VideoInfo::CS_GENERIC_RGBAP;
             } else if (VP.VF.ColorFamily == cfRGB) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_RGBP;
+            } else if (VP.VF.ColorFamily == 4) {
+                throw BestSourceException("Unsupported source colorspace (bayer)");
             } else {
                 throw BestSourceException("Unsupported output colorspace");
             }
