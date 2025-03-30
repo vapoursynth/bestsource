@@ -953,7 +953,6 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
         throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
-;
 
     // Framerate and last frame duration guessing fun
     const auto OriginalFPS = VP.FPS;
@@ -982,7 +981,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
         LastFrameDuration = MostCommonDuration.first;
     LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
 
-    VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
+    if (TrackIndex.Frames.front().PTS != AV_NOPTS_VALUE && TrackIndex.Frames.back().PTS != AV_NOPTS_VALUE)
+        VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
     
     if (DurationHistogram.size() == 1 && MostCommonDuration.first > 0) {
         // It's true CFR so make sure the frame rate matches the frame durations
