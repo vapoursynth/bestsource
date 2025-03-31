@@ -37,6 +37,7 @@ ninja -C build install
 
 - Seeking performance in mpeg/ts/vob files can be quite poor due to the FFmpeg demuxer
 - VC1 codec is unseekable due to FFmpeg not having bitexact output after seeking
+- The unholy combination of VFR H264 in AVI has poor seeking performance
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
 - Mod files can't be decoded correctly using libmodplug due to the library not having repeatable bitexact output
 - Gray+alpha format isn't supported in Avisynth+ and as a result only the Y component is returned
