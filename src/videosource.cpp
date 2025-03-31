@@ -1059,12 +1059,14 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     TrackIndex.LastFrameDuration = 0;
     bool HasKeyFrames = false;
     bool HasEarlyKeyFrames = false;
+    bool HasValidPTS = false;
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
 
+        HasValidPTS = HasValidPTS || (F->pts != AV_NOPTS_VALUE);
         HasKeyFrames = HasKeyFrames || !!(F->flags & AV_FRAME_FLAG_KEY);
         if (TrackIndex.Frames.size() < 100)
             HasEarlyKeyFrames = HasKeyFrames;
@@ -1088,6 +1090,15 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
                 Iter.KeyFrame = true;
         } else if (!HasEarlyKeyFrames) {
             BSDebugPrint("No keyframes found in the first 100 frames when indexing, this may or may not cause performance problems when seeking");
+        }
+    }
+
+    if (!HasValidPTS) {
+        // Probably H264 in AVI
+        if (VP.Duration == TrackIndex.Frames.size()) {
+            // It's CFR so we know every frame duration is 1 unit
+            for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
+                TrackIndex.Frames[i].PTS = i;
         }
     }
 
