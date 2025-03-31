@@ -1052,14 +1052,12 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     TrackIndex.LastFrameDuration = 0;
     bool HasKeyFrames = false;
     bool HasEarlyKeyFrames = false;
-    bool HasValidPTS = false;
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
 
-        HasValidPTS = HasValidPTS || (F->pts != AV_NOPTS_VALUE);
         HasKeyFrames = HasKeyFrames || !!(F->flags & AV_FRAME_FLAG_KEY);
         if (TrackIndex.Frames.size() < 100)
             HasEarlyKeyFrames = HasKeyFrames;
@@ -1083,22 +1081,6 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
                 Iter.KeyFrame = true;
         } else if (!HasEarlyKeyFrames) {
             BSDebugPrint("No keyframes found in the first 100 frames when indexing, this may or may not cause performance problems when seeking");
-        }
-
-        // Fill out default incrementing PTS for files with no valid values
-        if (!HasValidPTS) {
-            size_t Step = VP.Duration / TrackIndex.Frames.size();
-            if (Step < 1 || VP.Duration % TrackIndex.Frames.size() != 0) {
-                // Assertion here because it probably doesn't exist
-                assert(false);
-                Step = 1;
-            }
-
-            int64_t PTS = 0;
-            for (auto &Iter : TrackIndex.Frames) {
-                Iter.PTS = PTS;
-                PTS += Step;
-            }
         }
     }
 
