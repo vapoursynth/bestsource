@@ -284,6 +284,7 @@ private:
     int VariableFormat = -1;
     int ViewID;
     int Threads;
+    bool CanSeekByTime = true;
     bool LinearMode = false;
     uint64_t DecoderSequenceNum = 0;
     uint64_t DecoderLastUse[MaxVideoSources] = {};

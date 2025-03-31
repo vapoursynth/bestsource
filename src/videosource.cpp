@@ -953,6 +953,13 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
 
     if (TrackIndex.Frames[0].RepeatPict < 0)
         throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
+    
+    for (const auto &Iter : TrackIndex.Frames) {
+        if (Iter.PTS == AV_NOPTS_VALUE) {
+            CanSeekByTime = false;
+            break;
+        }
+    }
 
     // Framerate and last frame duration guessing fun
     const auto OriginalFPS = VP.FPS;
@@ -1545,6 +1552,9 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
+    if (!CanSeekByTime)
+        throw BestSourceException("Can't get frame by time, file has frames with unknown timestamps");
+
     int64_t PTS = static_cast<int64_t>(((Time * VP.TimeBase.Den) / VP.TimeBase.Num) + .001);
     FrameInfo F{ PTS };
 
