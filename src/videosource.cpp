@@ -247,8 +247,10 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     if (IsLayered)
         av_dict_set(&CodecDict, "view_ids", std::to_string(ViewID).c_str(), 0);
 
-    if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0)
+    if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0) {
+        av_dict_free(&CodecDict);
         throw BestSourceException("Could not open video codec");
+    }
 
     av_dict_free(&CodecDict);
 
