@@ -60,7 +60,7 @@ jobs:
       run: |
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
-        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-postproc --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libjxl --enable-libopus --enable-libxevd --enable-libxml2 --disable-nvenc --cc=clang --cxx=clang++ --pkg-config-flags=--static --disable-debug
+        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libjxl --enable-libopus --enable-libxevd --enable-libxml2 --disable-nvenc --cc=clang --cxx=clang++ --pkg-config-flags=--static --disable-debug
         make install -j$(nproc)
         popd
         rm -rf ffmpeg

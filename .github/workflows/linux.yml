@@ -55,7 +55,7 @@ jobs:
       run: |
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
-        ./configure --prefix=/usr --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-postproc --disable-avfilter --disable-encoders --disable-muxers --disable-debug
+        ./configure --prefix=/usr --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-avfilter --disable-encoders --disable-muxers --disable-debug
         make -j$(nproc)
         sudo make install -j$(nproc)
         popd
