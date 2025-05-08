@@ -619,11 +619,11 @@ namespace {
             Data.push_back(std::make_pair(F, GetHash(F)));
         }
 
-        size_t size() {
+        [[nodiscard]] size_t size() {
             return Data.size();
         }
 
-        size_t empty() {
+        [[nodiscard]] bool empty() {
             return Data.empty();
         }
 
