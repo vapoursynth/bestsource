@@ -161,7 +161,7 @@ private:
 
         const AudioTrackIndex &TrackIndex;
         size_t Size = 0;
-        size_t MaxSize = 1024 * 1024 * 1024;
+        size_t MaxSize = 100 * 1024 * 1024;
         std::list<CacheBlock> Data;
         void ApplyMaxSize();
     public:
