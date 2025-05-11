@@ -590,7 +590,7 @@ void BestAudioSource::SetLinearMode() {
         BSDebugPrint("Linear mode is now forced");
         LinearMode = true;
         FrameCache.Clear();
-        for (size_t i = 0; i < MaxVideoSources; i++)
+        for (size_t i = 0; i < MaxAudioDecoders; i++)
             Decoders[i].reset();
     }
 }
@@ -788,7 +788,7 @@ BestAudioFrame *BestAudioSource::GetFrameInternal(int64_t N) {
         return GetFrameLinearInternal(N);
 
     // # 1 A suitable linear decoder exists and seeking is out of the question
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedAudioDecoders; i++) {
         if (Decoders[i] && Decoders[i]->GetFrameNumber() <= N && Decoders[i]->GetFrameNumber() >= SeekFrame)
             return GetFrameLinearInternal(N);
     }
@@ -798,7 +798,7 @@ BestAudioFrame *BestAudioSource::GetFrameInternal(int64_t N) {
     // Grab/create a new decoder to use for seeking, the position is irrelevant
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedAudioDecoders; i++) {
         if (!Decoders[i])
             EmptySlot = i;
         if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[LeastRecentlyUsed])
@@ -820,7 +820,7 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     int Index = -1;
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedAudioDecoders; i++) {
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
         if (!Decoders[i])
@@ -1292,4 +1292,14 @@ const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) const
 
 bool BestAudioSource::GetLinearDecodingState() const {
     return LinearMode;
+}
+
+int BestAudioSource::SetMaxDecoderInstances(int NumInstances) {
+    if (NumInstances < 1 || NumInstances > MaxAudioDecoders)
+        MaxUsedAudioDecoders = MaxAudioDecoders;
+    else
+        MaxUsedAudioDecoders = NumInstances;
+    for (int i = NumInstances; i < MaxAudioDecoders; i++)
+        Decoders[i].release();
+    return MaxUsedAudioDecoders;
 }

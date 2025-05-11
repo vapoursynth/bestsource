@@ -1153,7 +1153,7 @@ void BestVideoSource::SetLinearMode() {
         BSDebugPrint("Linear mode is now forced");
         LinearMode = true;
         FrameCache.Clear();
-        for (size_t i = 0; i < MaxVideoSources; i++)
+        for (size_t i = 0; i < MaxVideoDecoders; i++)
             Decoders[i].reset();
     }
 }
@@ -1349,7 +1349,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
         return GetFrameLinearInternal(N);
 
     // # 1 A suitable linear decoder exists and seeking is out of the question
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedVideoDecoders; i++) {
         if (Decoders[i] && Decoders[i]->GetFrameNumber() <= N && Decoders[i]->GetFrameNumber() >= SeekFrame)
             return GetFrameLinearInternal(N);
     }
@@ -1359,7 +1359,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     // Grab/create a new decoder to use for seeking, the position is irrelevant
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedVideoDecoders; i++) {
         if (!Decoders[i])
             EmptySlot = i;
         if (Decoders[i] && DecoderLastUse[i] < DecoderLastUse[LeastRecentlyUsed])
@@ -1381,7 +1381,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     int Index = -1;
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
-    for (int i = 0; i < MaxVideoSources; i++) {
+    for (int i = 0; i < MaxUsedVideoDecoders; i++) {
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
         if (!Decoders[i])
@@ -1833,4 +1833,14 @@ const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) const
 
 bool BestVideoSource::GetLinearDecodingState() const {
     return LinearMode;
+}
+
+int BestVideoSource::SetMaxDecoderInstances(int NumInstances) {
+    if (NumInstances < 1 || NumInstances > MaxVideoDecoders)
+        MaxUsedVideoDecoders = MaxVideoDecoders;
+    else
+        MaxUsedVideoDecoders = NumInstances;
+    for (int i = NumInstances; i < MaxVideoDecoders; i++)
+        Decoders[i].release();
+    return MaxUsedVideoDecoders;
 }

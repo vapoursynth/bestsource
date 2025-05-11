@@ -178,7 +178,8 @@ private:
     std::vector<FormatSet> FormatSets;
     FormatSet DefaultFormatSet;
 
-    static constexpr int MaxVideoSources = 4;
+    static constexpr int MaxAudioDecoders = 4;
+    int MaxUsedAudioDecoders = MaxAudioDecoders;
     std::map<std::string, std::string> LAVFOptions;
     double DrcScale;
     BSAudioProperties AP = {};
@@ -188,8 +189,8 @@ private:
     int Threads;
     bool LinearMode = false;
     uint64_t DecoderSequenceNum = 0;
-    uint64_t DecoderLastUse[MaxVideoSources] = {};
-    std::unique_ptr<LWAudioDecoder> Decoders[MaxVideoSources];
+    uint64_t DecoderLastUse[MaxAudioDecoders] = {};
+    std::unique_ptr<LWAudioDecoder> Decoders[MaxAudioDecoders];
     int64_t PreRoll = 40;
     int64_t SampleDelay = 0;
     int64_t FileSize = -1;
@@ -229,6 +230,7 @@ public:
     void GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count);
     [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;
     [[nodiscard]] bool GetLinearDecodingState() const;
+    int SetMaxDecoderInstances(int NumInstances); /* Default value is MaxAudioDecoders */
 };
 
 #endif

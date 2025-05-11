@@ -29,12 +29,7 @@
     <ClCompile Include="..\src\bsshared.cpp" />
     <ClCompile Include="..\src\synthshared.cpp" />
     <ClCompile Include="..\src\tracklist.cpp" />
-    <ClCompile Include="..\src\vapoursynth.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="..\src\vapoursynth.cpp" />
     <ClCompile Include="..\src\videosource.cpp" />
   </ItemGroup>
   <ItemGroup>
