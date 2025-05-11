@@ -155,6 +155,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     int CacheMode = vsapi->mapGetIntSaturated(In, "cachemode", 0, &err);
     if (err)
         CacheMode = 1;
+    int MaxDecoders = vsapi->mapGetIntSaturated(In, "max_decoders", 0, &err);
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -205,6 +206,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath ? CachePath : "", &Opts));
         }
 
+        D->V->SetMaxDecoderInstances(MaxDecoders);
         D->V->SelectFormatSet(VariableFormat);
 
         const BSVideoProperties &VP = D->V->GetVideoProperties();
@@ -312,6 +314,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     int CacheMode = vsapi->mapGetIntSaturated(In, "cachemode", 0, &err);
     if (err)
         CacheMode = 1;
+    int MaxDecoders = vsapi->mapGetIntSaturated(In, "max_decoders", 0, &err);
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -348,6 +351,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
             D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
         }
 
+        D->A->SetMaxDecoderInstances(MaxDecoders);
         D->A->SelectFormatSet(0);
 
         const BSAudioProperties &AP = D->A->GetAudioProperties();
@@ -445,8 +449,8 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;int:opt:max_decoders:int;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;int:opt:max_decoders:int;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);
     vspapi->registerFunction("SetDebugOutput", "enable:int;", "", SetDebugOutput, nullptr, plugin);
