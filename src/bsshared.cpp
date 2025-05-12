@@ -91,10 +91,10 @@ static std::filesystem::path GetDefaultCacheSubTreePath() {
     std::filesystem::path IndexPath = appDataBuffer.data();
 #else
     const char *home = getenv("HOME");
-    const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+    const char *xdg_cache_home = getenv("XDG_CACHE_HOME");
     std::filesystem::path IndexPath;
-    if (xdg_config_home) {
-        IndexPath = xdg_config_home;
+    if (xdg_cache_home) {
+        IndexPath = xdg_cache_home;
     } else if (home) {
         IndexPath = home;
     }
