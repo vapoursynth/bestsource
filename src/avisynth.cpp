@@ -74,7 +74,7 @@ public:
     AvisynthVideoSource(const char *Source, int Track, int ViewID,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
         int CacheMode, const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
-        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, IScriptEnvironment *Env)
+        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool HWFallback, IScriptEnvironment *Env)
         : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
 
         try {
@@ -95,7 +95,14 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
-            V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+            try {
+                V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+            } catch (BestSourceHWDecoderException &) {
+                if (HWFallback)
+                    V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+                else
+                    throw;
+            }
 
             V->SetMaxDecoderInstances(MaxDecoders);
             V->SelectFormatSet(VariableFormat);
@@ -294,8 +301,9 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int VariableFormat = Args[16].AsInt(0);
     int ViewID = Args[17].AsInt(0);
     int MaxDecoders = Args[18].AsInt(0);
+    bool HWFallback = Args[19].AsBool(true);
 
-    return new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, MaxDecoders, Env);
+    return new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, MaxDecoders, HWFallback, Env);
 }
 
 class AvisynthAudioSource : public IClip {
@@ -440,9 +448,9 @@ static constexpr auto PopulateArgNames() {
     return Result;
 }
 
-static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[max_decoders]i";
-static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[max_decoders]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f[viewid]i[max_decoders]i";
+static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[hwfallback]b";
+static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[maxdecoders]i";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b";
 
 static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
 static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();

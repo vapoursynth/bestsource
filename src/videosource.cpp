@@ -192,7 +192,7 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
         for (int i = 0;; i++) {
             const AVCodecHWConfig *Config = avcodec_get_hw_config(Codec, i);
             if (!Config)
-                throw BestSourceException("Decoder " + std::string(Codec->name) + " does not support device type " + av_hwdevice_get_type_name(Type));
+                throw BestSourceHWDecoderException("Decoder " + std::string(Codec->name) + " does not support device type " + av_hwdevice_get_type_name(Type));
             if (Config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
                 Config->device_type == Type) {
                 hw_pix_fmt = Config->pix_fmt;

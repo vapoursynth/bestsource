@@ -34,6 +34,10 @@ class BestSourceException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+class BestSourceHWDecoderException : public BestSourceException {
+    using BestSourceException::BestSourceException;
+};
+
 namespace std {
     template<>
     struct default_delete<FILE> {
