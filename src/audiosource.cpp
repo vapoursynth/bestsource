@@ -1300,6 +1300,6 @@ int BestAudioSource::SetMaxDecoderInstances(int NumInstances) {
     else
         MaxUsedAudioDecoders = NumInstances;
     for (int i = NumInstances; i < MaxAudioDecoders; i++)
-        Decoders[i].release();
+        Decoders[i].reset();
     return MaxUsedAudioDecoders;
 }

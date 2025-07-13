@@ -1841,6 +1841,6 @@ int BestVideoSource::SetMaxDecoderInstances(int NumInstances) {
     else
         MaxUsedVideoDecoders = NumInstances;
     for (int i = NumInstances; i < MaxVideoDecoders; i++)
-        Decoders[i].release();
+        Decoders[i].reset();
     return MaxUsedVideoDecoders;
 }
