@@ -1115,20 +1115,7 @@ const BSVideoProperties &BestVideoSource::GetVideoProperties() const {
     return VP;
 }
 
-// Short algorithm summary
-// 1. If a current decoder is close to the requested frame simply start from there
-//    Determine if a decoder is "close" based on whether or not it is already in the optimal zone based on the existing keyframes
-// 2. If a decoder isn't nearby and the seek destination is within the first 100 frames simply start with a fresh decoder to avoid the seek to start issue (technically almost always fresh)
-// 3. Seek with an existing or new decoder. Seek to the nearest keyframe at or before frame N-preroll using PTS. If no such point exists more than 100 frames after the start don't seek.
-//    After seeking match the hash of the decoded frame. For duplicate hashes match a string of up to 10 frame hashes.
-// 4. If the frame is determined to not exist, be beyond the target frame to decode or simply in a string of frames that aren't uniquely identifiable by hashes mark the keyframe as unusable and retry seeking to
-//    at least 100 frames earlier.
-// 5. If linear decoding after seeking fails handle it the same way as #4 and flag it as a bad seek point and retry from at least 100 frames earlier.
-
-BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
-    if (N < 0 || N >= VP.NumFrames)
-        return nullptr;
-
+[[nodiscard]] int64_t BestVideoSource::GetOriginalFrameNumber(int64_t N) const {
     // Adjust frame number if an output format is chosen
     if (VariableFormat >= 0 && FormatSets.size() > 1) {
         const auto &ActiveSet = FormatSets[VariableFormat];
@@ -1143,6 +1130,25 @@ BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
             }
         }
     }
+
+    return N;
+}
+
+// Short algorithm summary
+// 1. If a current decoder is close to the requested frame simply start from there
+//    Determine if a decoder is "close" based on whether or not it is already in the optimal zone based on the existing keyframes
+// 2. If a decoder isn't nearby and the seek destination is within the first 100 frames simply start with a fresh decoder to avoid the seek to start issue (technically almost always fresh)
+// 3. Seek with an existing or new decoder. Seek to the nearest keyframe at or before frame N-preroll using PTS. If no such point exists more than 100 frames after the start don't seek.
+//    After seeking match the hash of the decoded frame. For duplicate hashes match a string of up to 10 frame hashes.
+// 4. If the frame is determined to not exist, be beyond the target frame to decode or simply in a string of frames that aren't uniquely identifiable by hashes mark the keyframe as unusable and retry seeking to
+//    at least 100 frames earlier.
+// 5. If linear decoding after seeking fails handle it the same way as #4 and flag it as a bad seek point and retry from at least 100 frames earlier.
+
+BestVideoFrame *BestVideoSource::GetFrame(int64_t N, bool Linear) {
+    if (N < 0 || N >= VP.NumFrames)
+        return nullptr;
+
+    N = GetOriginalFrameNumber(N);
 
     std::unique_ptr<BestVideoFrame> F(FrameCache.GetFrame(N));
     if (!F)
@@ -1832,7 +1838,7 @@ void BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) 
 }
 
 const BestVideoSource::FrameInfo &BestVideoSource::GetFrameInfo(int64_t N) const {
-    return TrackIndex.Frames[N];
+    return TrackIndex.Frames[GetOriginalFrameNumber(N)];
 }
 
 bool BestVideoSource::GetLinearDecodingState() const {

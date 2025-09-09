@@ -311,12 +311,13 @@ public:
     [[nodiscard]] const BSVideoProperties &GetVideoProperties() const;
     [[nodiscard]] const std::vector<FormatSet> &GetFormatSets() const; /* Get a listing of all the number of formats  */
     void SelectFormatSet(int Index); /* Sets the output format to the specified format set, passing -1 means the default variable format will be used */
+    [[nodiscard]] int64_t GetOriginalFrameNumber(int64_t N) const;
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false); /* Time is in seconds */
     [[nodiscard]] bool GetFrameIsTFF(int64_t N, bool RFF = false);
     void WriteTimecodes(const std::filesystem::path &TimecodeFile) const;
-    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;
+    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const; /* Note that this function is always in relation to the frame returned by GetFrame() and takes the current format set into account */
     [[nodiscard]] bool GetLinearDecodingState() const;
     int SetMaxDecoderInstances(int NumInstances); /* Default value is MaxVideoDecoders */
 };

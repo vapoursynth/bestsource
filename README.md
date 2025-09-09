@@ -47,7 +47,7 @@ ninja -C build install
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0])`
 
-`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool hwfallback = True])`
+`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool hwfallback = True, exporttimestamps = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -128,5 +128,7 @@ Note that the *BSSource* function by default will silently ignore errors when op
 *maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. Passing a number outside the 1-4 range will set it to the biggest number supported.
 
 *hwfallback*: Automatically fall back to CPU decoding if hardware decoding can't be used for the current video track when *hwdevice* is set. Note that the fallback only happens when a hardware decoder is unavailable and not on any other category of error such as *hwdevice* having an invalid value.
+
+*exporttimestamps*: Returns an additonal array of all frame *timestamps* and its timebase in *timebasenum* and *timebaseden* containing all frame times addition to the video clip. Note that unknown timestamps can be set to AV_NOPTS_VALUE. Cannot be combined with *rff* and *fpsnum* modes.
 
 *level*: The log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Mostly useful for debugging purposes.

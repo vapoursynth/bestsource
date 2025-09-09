@@ -159,6 +159,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     bool HWFallback = !!vsapi->mapGetInt(In, "hwfallback", 0, &err);
     if (err)
         HWFallback = true;
+    bool ExportTimestamps = !!vsapi->mapGetInt(In, "exporttimestamps", 0, &err);
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -184,6 +185,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (D->FPSNum > 0 && D->RFF)
             throw BestSourceException("Cannot combine CFR and RFF modes");
+
+        if (ExportTimestamps && (D->RFF || D->FPSNum > 0))
+            throw BestSourceException("Cannot combine RFF or CFR mode with timestamp export");
 
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
@@ -260,6 +264,13 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (Timecodes)
             D->V->WriteTimecodes(CreateProbablyUTF8Path(Timecodes));
+
+        if (ExportTimestamps) {
+            vsapi->mapSetInt(Out, "timebasenum", VP.TimeBase.Num, maAppend);
+            vsapi->mapSetInt(Out, "timebaseden", VP.TimeBase.Den, maAppend);
+            for (int64_t i = 0; i < D->VI.numFrames; i++)
+                vsapi->mapSetInt(Out, "timestamps", D->V->GetFrameInfo(i).PTS, maAppend);
+        }
     } catch (BestSourceException &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
@@ -469,7 +480,7 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);
