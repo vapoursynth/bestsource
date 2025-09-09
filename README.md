@@ -81,7 +81,7 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
-*adjustdelay*: Adjust audio start time relative to track number. Pass -2 to disable and -1 to be relative to the first video track if one exists.
+*adjustdelay*: Adjust audio start time relative to a video track number. Pass -2 to disable and -1 to be relative to the first video track if one exists. Specifying a non-video track is equivalent to passing -2. Note that the offset is always relative to the first CPU-decodable frame in the stream meaning that it may not be the correct delay when *hwmode* and *variableformat* are used.
 
 *variableformat*: Allow format changes in the output for video. To only allow fixed format output pass 0 or greater to choose the nth encountered format as the output format. Any frames not matching the chosen format are dropped. If the file is constant format (most are) this setting does nothing.
 
