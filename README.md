@@ -129,6 +129,6 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *hwfallback*: Automatically fall back to CPU decoding if hardware decoding can't be used for the current video track when *hwdevice* is set. Note that the fallback only happens when a hardware decoder is unavailable and not on any other category of error such as *hwdevice* having an invalid value.
 
-*exporttimestamps*: Returns an additonal array of all frame *timestamps* and its timebase in *timebasenum* and *timebaseden* containing all frame times addition to the video clip. Note that unknown timestamps can be set to AV_NOPTS_VALUE. Cannot be combined with *rff* and *fpsnum* modes.
+*exporttimestamps*: Returns an additional array of all frame *timestamps* and its timebase in *timebasenum* and *timebaseden* containing all frame times addition to the video clip. Note that unknown timestamps can be set to AV_NOPTS_VALUE. Cannot be combined with *rff* and *fpsnum* modes.
 
 *level*: The log level of the FFmpeg library. By default quiet. See FFmpeg documentation for allowed constants. Mostly useful for debugging purposes.
