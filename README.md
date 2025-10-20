@@ -18,7 +18,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ### Windows Compilation
 
-On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`. Do however note that this is without Little CMS2 support.
+On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`. Do however note that this is without Little CMS2 support.
 Use the latest version of Visual Studio. It should automatically find all the required libraries if you used vcpkg.
 
 ### Linux and MacOS Compilation
@@ -106,8 +106,8 @@ Note that the *BSSource* function by default will silently ignore errors when op
     0 = Never read or write index to disk
     1 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files in a subtree of *cachepath*
     2 = Always try to read and write index to disk and store index files in a subtree of *cachepath*
-    3 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files in the absolute path in *cachepath* with track number and index extension appended
-    4 = Always try to read and write index to disk and store index files in the absolute path in *cachepath* with track number and index extension appended
+    3 = Always try to read index but only write index to disk when it will make a noticeable difference on subsequent runs and store index files with *cachepath* used as the base filename with track number and index extension automatically appended 
+    4 = Always try to read and write index to disk and store index files with *cachepath* used as the base filename with track number and index extension automatically appended
 
 *cachepath*: The path where cache files are written. Note that the actual index files are written into subdirectories using based on the source location. Defaults to %LOCALAPPDATA% on Windows and $XDG_CACHE_HOME/bsindex if set otherwise ~/bsindex on other operation systems in mode 1 and 2. For mode 3 and 4 it defaults to *source*.
 
