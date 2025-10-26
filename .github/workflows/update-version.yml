@@ -10,14 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - run: |
         VERSION_MAJOR=$(grep BEST_SOURCE_VERSION_MAJOR src/version.h | cut -d " " -f 3)
         VERSION_MINOR=$(grep BEST_SOURCE_VERSION_MINOR src/version.h | cut -d " " -f 3)
         sed -i -E -e "s/version: '[0-9]+.[0-9]+'/version: '${VERSION_MAJOR}.${VERSION_MINOR}'/" meson.build
 
-    - uses: stefanzweifel/git-auto-commit-action@v5
+    - uses: stefanzweifel/git-auto-commit-action@v7
       with:
         commit_message: Update version in meson.build
         file_pattern: meson.build
