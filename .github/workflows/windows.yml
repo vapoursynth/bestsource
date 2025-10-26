@@ -38,6 +38,15 @@ jobs:
           mingw-w64-clang-x86_64-vulkan-headers
           mingw-w64-clang-x86_64-xxhash
 
+    - name: Install davs2
+      run: |
+        git clone https://github.com/pkuvcl/davs2.git --depth 1
+        pushd davs2/build/linux
+        CC=clang++ ./configure --prefix=/clang64 --disable-cli
+        make install -j$(nproc)
+        popd
+        rm -rf davs2
+
     - name: Install nv-codec-headers
       run: |
         git clone https://github.com/FFmpeg/nv-codec-headers.git --depth 1
@@ -46,11 +55,20 @@ jobs:
         popd
         rm -rf nv-codec-headers
 
+    - name: Install uavs3d
+      run: |
+        git clone https://github.com/uavs3/uavs3d.git --depth 1
+        pushd uavs3d
+        cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.20 -DCOMPILE_10BIT=1 --install-prefix /clang64
+        ninja -C build install
+        popd
+        rm -rf uavs3d
+
     - name: Install XEVD
       run: |
         git clone https://github.com/mpeg5/xevd.git
         pushd xevd
-        cmake --install-prefix /clang64 -S . -B build
+        cmake -S . -B build --install-prefix /clang64
         ninja -C build install
         popd
         rm -rf xevd
@@ -60,7 +78,7 @@ jobs:
       run: |
         git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
         pushd ffmpeg
-        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libjxl --enable-libopus --enable-libxevd --enable-libxml2 --disable-nvenc --cc=clang --cxx=clang++ --pkg-config-flags=--static --disable-debug
+        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libdavs2 --enable-libjxl --enable-libopus --enable-libuavs3d --enable-libxevd --enable-libxml2 --disable-nvenc --cc=clang --cxx=clang++ --pkg-config-flags=--static --disable-debug
         make install -j$(nproc)
         popd
         rm -rf ffmpeg
