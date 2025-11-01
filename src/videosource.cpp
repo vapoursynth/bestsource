@@ -41,6 +41,17 @@ extern "C" {
 #include <libavutil/hdr_dynamic_metadata.h>
 }
 
+// Endian detection
+#ifdef _WIN32
+#define BS_LITTLE_ENDIAN
+#elif defined(__BYTE_ORDER__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define BS_BIG_ENDIAN
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define BS_LITTLE_ENDIAN
+#endif
+#endif
+
 static bool GetSampleTypeIsFloat(const AVPixFmtDescriptor *Desc) {
     return !!(Desc->flags & AV_PIX_FMT_FLAG_FLOAT);
 }
@@ -68,13 +79,19 @@ static int GetBitDepth(const AVPixFmtDescriptor *Desc) {
     return Desc->comp[0].depth;
 }
 
-static int IsRealPlanar(const AVPixFmtDescriptor *Desc) {
+static int IsRealPlanarNative(const AVPixFmtDescriptor *Desc) {
     if (!!(Desc->flags & AV_PIX_FMT_FLAG_PAL))
         return false;
     int MaxPlane = 0;
     for (int i = 0; i < Desc->nb_components; i++)
         MaxPlane = std::max(MaxPlane, Desc->comp[i].plane);
-    return (MaxPlane + 1) == Desc->nb_components;
+    if ((MaxPlane + 1) != Desc->nb_components)
+        return false;
+#ifdef BS_LITTLE_ENDIAN
+    return (GetBitDepth(Desc) <= 8 || !(Desc->flags & AV_PIX_FMT_FLAG_BE));
+#else
+    return (GetBitDepth(Desc) <= 8 || !!(Desc->flags & AV_PIX_FMT_FLAG_BE));
+#endif
 }
 
 bool LWVideoDecoder::ReadPacket() {
@@ -684,7 +701,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t
 
     if (VF.Bits <= 8)
         BytesPerSample = 1;
-    if (VF.Bits > 8 && VF.Bits <= 16)
+    else if (VF.Bits > 8 && VF.Bits <= 16)
         BytesPerSample = 2;
     else if (VF.Bits > 16 && VF.Bits <= 32)
         BytesPerSample = 4;
@@ -694,7 +711,7 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t
     if (!BytesPerSample)
         return false;
 
-    if (IsRealPlanar(Desc)) {
+    if (IsRealPlanarNative(Desc)) {
         int NumBasePlanes = (VF.ColorFamily == 1 ? 1 : 3);
         for (int Plane = 0; Plane < NumBasePlanes; Plane++) {
             int PlaneW = SSModWidth;

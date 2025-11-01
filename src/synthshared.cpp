@@ -34,7 +34,8 @@ void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, 
         mapSetInt("_SARDen", VP.SAR.Den);
     }
 
-    mapSetInt("_Matrix", Src->Matrix);
+    // Don't flag grayscale as RGB and instead set it as unspecified because it gives zimg resizers indigestion and doesn't make sense in general
+    mapSetInt("_Matrix", (VP.VF.ColorFamily == cfGray && Src->Matrix == 0) ? 2 : Src->Matrix);
     mapSetInt("_Primaries", Src->Primaries);
     mapSetInt("_Transfer", Src->Transfer);
     if (Src->ChromaLocation > 0)
