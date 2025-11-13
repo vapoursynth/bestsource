@@ -115,7 +115,8 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
         if (Ret == 0) {
             if (HWMode) {
                 if (!SkipOutput) {
-                    av_hwframe_transfer_data(DecodeFrame, HWFrame, 0);
+                    if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
+                        return false;
                     av_frame_copy_props(DecodeFrame, HWFrame);
                 }
             }
@@ -962,7 +963,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
 
     if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
         if (!IndexTrack(Progress))
-            throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed");
+            throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed, if hwdevice is set this may also be an indication that hardware decoding is unsupported");
 
         if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
             if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
