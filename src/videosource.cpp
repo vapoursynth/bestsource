@@ -1080,12 +1080,18 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     bool HasKeyFrames = false;
     bool HasEarlyKeyFrames = false;
     bool HasValidPTS = false;
+    bool OutOfOrderPTS = false;
+    int64_t LastValidPTS = AV_NOPTS_VALUE;
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F)
             break;
 
+        if (LastValidPTS != AV_NOPTS_VALUE && F->pts != AV_NOPTS_VALUE && F->pts <= LastValidPTS)
+            OutOfOrderPTS = true;
+        if (F->pts != AV_NOPTS_VALUE)
+            LastValidPTS = F->pts;
         HasValidPTS = HasValidPTS || (F->pts != AV_NOPTS_VALUE);
         HasKeyFrames = HasKeyFrames || !!(F->flags & AV_FRAME_FLAG_KEY);
         if (TrackIndex.Frames.size() < 100)
@@ -1113,6 +1119,18 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
         }
     }
 
+    if (OutOfOrderPTS)
+        BSDebugPrint("Out of order PTS values detected, this should not happen and may indicate a broken file");
+
+    if (!OutOfOrderPTS && HasValidPTS) {
+        // Interpolate missing PTS values for single frame gaps
+        for (size_t i = 1; i < TrackIndex.Frames.size() - 1; i++) {
+            if (TrackIndex.Frames[i - 1].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[i].PTS == AV_NOPTS_VALUE && TrackIndex.Frames[i + 1].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[i + 1].PTS > TrackIndex.Frames[i - 1].PTS)
+                TrackIndex.Frames[i].PTS = (TrackIndex.Frames[i - 1].PTS + TrackIndex.Frames[i + 1].PTS) / 2;
+        }
+
+    }
+
     if (!HasValidPTS) {
         // Probably H264 in AVI
         if (VP.Duration == TrackIndex.Frames.size()) {
@@ -1123,6 +1141,8 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
             // It's with 99.99% certainty CFR so we almost know every frame duration is 2 units
             for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
                 TrackIndex.Frames[i].PTS = i * 2;
+        } else {
+            BSDebugPrint("No valid PTS values at all and guessing failed");
         }
     }
 
