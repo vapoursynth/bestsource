@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-to-pypi:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        submodules: recursive
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+
+    - name: Install meson
+      run: pip install meson ninja
+
+    - name: Install Ubuntu packages
+      run: |
+        sudo apt update
+        sudo apt -y install libxxhash-dev nasm
+
+    - name: Install FFmpeg
+      run: |
+        git clone https://git.ffmpeg.org/ffmpeg.git --depth 1
+        pushd ffmpeg
+        ./configure --prefix=/usr --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --disable-debug
+        make -j$(nproc)
+        sudo make install -j$(nproc)
+        popd
+        rm -rf ffmpeg
+
+    - name: Configure
+      # We don't need the plugin to create the dist
+      run: meson setup build -Denable_plugin=false
+
+    - name: Build dist
+      run: meson dist -C build
+
+    - name: Upload dist to GitHub Release
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: gh release upload '${{ github.ref_name }}' build/meson-dist/* --repo '${{ github.repository }}'
