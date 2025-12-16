@@ -28,13 +28,33 @@
 #include <functional>
 #include <filesystem>
 
+#if (defined(_WIN32) || defined(__CYGWIN__))
+#  define BSSHARED_API_EXPORT __declspec(dllexport)
+#  define BSSHARED_API_IMPORT __declspec(dllimport)
+#elif defined(__OS2__)
+#  define BSSHARED_API_EXPORT __declspec(dllexport)
+#  define BSSHARED_API_IMPORT
+#elif __GNUC__ >= 4
+#  define BSSHARED_API_EXPORT __attribute__((visibility("default")))
+#  define BSSHARED_API_IMPORT __attribute__((visibility("default")))
+#else
+#  define BSSHARED_API_EXPORT
+#  define BSSHARED_API_IMPORT
+#endif
+
+#ifdef BSSHARED_API_BUILDING
+#  define BSSHARED_API BSSHARED_API_EXPORT
+#else
+#  define BSSHARED_API BSSHARED_API_IMPORT
+#endif
+
 constexpr size_t HashSize = 8;
 
-class BestSourceException : public std::runtime_error {
+class BSSHARED_API BestSourceException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-class BestSourceHWDecoderException : public BestSourceException {
+class BSSHARED_API BestSourceHWDecoderException : public BestSourceException {
     using BestSourceException::BestSourceException;
 };
 

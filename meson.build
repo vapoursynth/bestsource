@@ -27,6 +27,7 @@ plugin_sources = files(
 )
 
 libs = []
+api_args = ['-DBSSHARED_API_BUILDING']
 p2p_args = []
 
 if host_machine.cpu_family().startswith('x86')
@@ -71,6 +72,7 @@ endif
 libbestsource = library('libbestsource', api_sources,
     dependencies: deps,
     install: true,
+    cpp_args: api_args,
     link_args: link_args,
     link_with: libs,
     name_prefix: '',
