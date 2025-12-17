@@ -27,7 +27,7 @@ plugin_sources = files(
 )
 
 libs = []
-api_args = ['-DBSSHARED_API_BUILDING']
+api_args = []
 p2p_args = []
 
 if host_machine.cpu_family().startswith('x86')
@@ -67,6 +67,10 @@ link_args = []
 
 if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
     link_args += ['-Wl,-Bsymbolic']
+endif
+
+if get_option('default_library') != 'static'
+    api_args += ['-DBSSHARED_API_BUILDING']
 endif
 
 libbestsource = library('libbestsource', api_sources,
