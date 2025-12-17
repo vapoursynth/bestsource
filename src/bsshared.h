@@ -28,10 +28,10 @@
 #include <functional>
 #include <filesystem>
 
-#if (defined(_WIN32) || defined(__CYGWIN__))
+#if (defined(_WIN32) || defined(__CYGWIN__)) && !defined(BSSHARED_API_STATIC)
 #  define BSSHARED_API_EXPORT __declspec(dllexport)
 #  define BSSHARED_API_IMPORT __declspec(dllimport)
-#elif defined(__OS2__)
+#elif defined(__OS2__) && !defined(BSSHARED_API_STATIC)
 #  define BSSHARED_API_EXPORT __declspec(dllexport)
 #  define BSSHARED_API_IMPORT
 #elif __GNUC__ >= 4
