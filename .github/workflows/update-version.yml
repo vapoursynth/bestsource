@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - run: |
         VERSION_MAJOR=$(grep BEST_SOURCE_VERSION_MAJOR src/version.h | cut -d " " -f 3)

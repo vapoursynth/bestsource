@@ -7,13 +7,13 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
 
     - uses: actions/setup-python@v6
       with:
-        python-version: '3.13'
+        python-version: '3.x'
 
     - name: Install Homebrew packages
       run: |
@@ -30,4 +30,4 @@ jobs:
     - name: Build
       run: |
         meson setup -Dcpp_link_args=-fuse-ld=lld build
-        ninja -C build
+        meson compile -C build

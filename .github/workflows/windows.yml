@@ -11,7 +11,7 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
 
@@ -86,10 +86,10 @@ jobs:
     - name: Build
       run: |
         meson setup -Dprefer_static=true -Db_lto=true -Dcpp_link_args=-static build
-        ninja -C build
+        meson compile -C build
         strip build/libbestsource.dll
 
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       with:
         name: bestsource
         path: build/libbestsource.dll
