@@ -29,8 +29,8 @@ Requires `pkg-config`, `meson` and `ninja-build`.
 git clone https://github.com/vapoursynth/bestsource.git --depth 1 --recurse-submodules --shallow-submodules --remote-submodules
 cd bestsource
 meson setup build
-ninja -C build
-ninja -C build install
+meson compile -C build
+meson install -C build
 ```
 
 ### Known issues and limitations
