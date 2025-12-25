@@ -132,7 +132,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
     int err;
     std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
-    const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    const char *RawCachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    std::filesystem::path CachePath = CreateProbablyUTF8Path(RawCachePath ? RawCachePath : "");
     const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
     const char *Timecodes = vsapi->mapGetData(In, "timecodes", 0, &err);
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
@@ -208,10 +209,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 return true;
                 };
             try {
-                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath ? CachePath : "", &Opts, ProgressCB));
+                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
-                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath ? CachePath : "", &Opts, ProgressCB));
+                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
                 } else {
                     vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
                     throw;
@@ -219,10 +220,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             }
         } else {
             try {
-                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath ? CachePath : "", &Opts));
+                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
-                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath ? CachePath : "", &Opts));
+                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
                 } else {
                     vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
                     throw;
@@ -333,7 +334,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
 
     int err;
     std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
-    const char *CachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    const char *RawCachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
+    std::filesystem::path CachePath = CreateProbablyUTF8Path(RawCachePath ? RawCachePath : "");
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
         Track = -1;
@@ -361,7 +363,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
             int LastValue = -1;
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale,
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale,
                 [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                     if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                         if (Total == INT64_MAX && Cur == Total) {
@@ -379,7 +381,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
                 }));
 
         } else {
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale));
         }
 
         D->A->SetMaxDecoderInstances(MaxDecoders);

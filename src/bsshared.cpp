@@ -120,9 +120,30 @@ static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheB
     return CachePath.make_preferred();
 }
 
+#ifdef _WIN32
+static bool TryLongPath(const std::filesystem::path &Path) {
+    const auto &WPath = Path.native();
+    return (WPath.substr(0, 4) != L"\\\\?\\") && (WPath.length() > MAX_PATH - 10);
+}
+
+static std::filesystem::path ConvertToLongPath(const std::filesystem::path &Path) {
+    const auto &WPath = Path.native();
+    std::filesystem::path Result(L"\\\\?\\");
+    if (WPath.substr(0, 2) == L"\\\\") {
+        Result += L"UNC\\";
+        Result += WPath.substr(2);
+    } else {
+        Result += Path;
+    }
+    return Result;
+}
+#endif
+
 file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
 #ifdef _WIN32
     file_ptr_t F(_wfopen(Filename.c_str(), Write ? L"wb" : L"rb"));
+    if (!F && TryLongPath(Filename))
+        F.reset(_wfopen(ConvertToLongPath(Filename).c_str(), Write ? L"wb" : L"rb"));
 #else
     file_ptr_t F(fopen(Filename.c_str(), Write ? "wb" : "rb"));
 #endif
@@ -138,8 +159,14 @@ file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CachePa
         CacheFile = MangleCachePath(CachePath.empty() ? GetDefaultCacheSubTreePath() : CachePath, Source);
 
     CacheFile += "." + std::to_string(Track) + ".bsindex";
-    std::error_code ec;
-    std::filesystem::create_directories(CacheFile.parent_path(), ec);
+    if (Write) {
+        std::error_code ec;
+        std::filesystem::create_directories(CacheFile.parent_path(), ec);
+#ifdef _WIN32
+        if (ec && TryLongPath(CacheFile))
+            std::filesystem::create_directories(ConvertToLongPath(CacheFile.parent_path()), ec);
+#endif
+    }
     return OpenNormalFile(CacheFile, Write);
 }
 

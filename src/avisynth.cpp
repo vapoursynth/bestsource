@@ -71,9 +71,9 @@ class AvisynthVideoSource : public IClip {
     int64_t FPSDen;
     bool RFF;
 public:
-    AvisynthVideoSource(const char *Source, int Track, int ViewID,
+    AvisynthVideoSource(const char *RawSource, int Track, int ViewID,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
-        int CacheMode, const char *CachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
+        int CacheMode, const char *RawCachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
         const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool HWFallback, IScriptEnvironment *Env)
         : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
 
@@ -95,11 +95,14 @@ public:
             if (StartNumber >= 0)
                 Opts["start_number"] = std::to_string(StartNumber);
 
+            std::filesystem::path Source(CreateProbablyUTF8Path(RawSource));
+            std::filesystem::path CachePath(CreateProbablyUTF8Path(RawCachePath));
+
             try {
-                V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+                V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback)
-                    V.reset(new BestVideoSource(CreateProbablyUTF8Path(Source), "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+                    V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
                 else
                     throw;
             }
@@ -310,8 +313,8 @@ class AvisynthAudioSource : public IClip {
     VideoInfo VI = {};
     std::unique_ptr<BestAudioSource> A;
 public:
-    AvisynthAudioSource(const char *Source, int Track,
-        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, int CacheMode, const char *CachePath, int CacheSize, int MaxDecoders, IScriptEnvironment *Env) {
+    AvisynthAudioSource(const char *RawSource, int Track,
+        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, int CacheMode, const char *RawCachePath, int CacheSize, int MaxDecoders, IScriptEnvironment *Env) {
 
         std::map<std::string, std::string> Opts;
         if (EnableDrefs)
@@ -319,8 +322,11 @@ public:
         if (UseAbsolutePath)
             Opts["use_absolute_path"] = "1";
 
+        std::filesystem::path Source(CreateProbablyUTF8Path(RawSource));
+        std::filesystem::path CachePath(CreateProbablyUTF8Path(RawCachePath));
+
         try {
-            A.reset(new BestAudioSource(CreateProbablyUTF8Path(Source), Track, AdjustDelay, Threads, CacheMode, CachePath ? CachePath : "", &Opts, DrcScale));
+            A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale));
 
             A->SetMaxDecoderInstances(MaxDecoders);
             A->SelectFormatSet(0);
