@@ -38,10 +38,16 @@ public:
         int Disposition;
         std::string DispositionString;
     };
+    struct FileInfo {
+        // Warning, ContainerStartTime may be equal to AV_NOPTS_VALUE.
+        int64_t ContainerStartTime;
+        int ContainerStartTimeBase;
+    };
 private:
     AVFormatContext *FormatContext = nullptr;
 
     std::vector<TrackInfo> TrackList;
+    FileInfo File;
 
     void OpenFile(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> &LAVFOpts);
     void Free();
@@ -52,6 +58,7 @@ public:
     [[nodiscard]] const TrackInfo &GetTrackInfo(int Track) const;
     [[nodiscard]] std::map<std::string, std::string> GetFileMetadata() const;
     [[nodiscard]] std::map<std::string, std::string> GetTrackMetadata(int Track) const;
+    [[nodiscard]] const FileInfo &GetFileInfo() const;
 };
 
 #endif

@@ -64,6 +64,9 @@ void BestTrackList::OpenFile(const std::filesystem::path &SourceFile, const std:
 
         TrackList.push_back(TI);
     }
+
+    File.ContainerStartTime = FormatContext->start_time;
+    File.ContainerStartTimeBase = AV_TIME_BASE;
 }
 
 BestTrackList::BestTrackList(const std::filesystem::path &SourceFile, const std::map<std::string, std::string> *LAVFOpts) {
@@ -119,4 +122,8 @@ std::map<std::string, std::string> BestTrackList::GetTrackMetadata(int Track) co
     }
 
     return Result;
+}
+
+const BestTrackList::FileInfo &BestTrackList::GetFileInfo() const {
+    return File;
 }
