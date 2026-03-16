@@ -196,6 +196,10 @@ void LWAudioDecoder::GetAudioProperties(LWAudioProperties &AP) {
 
     AP.Duration = FormatContext->streams[TrackNumber]->duration;
     AP.TimeBase = FormatContext->streams[TrackNumber]->time_base;
+
+    AP.FileStartTime = FormatContext->start_time;
+    AP.FileTimeBase = AV_TIME_BASE_Q;
+
     AP.NumSamples = (FormatContext->duration * CodecContext->sample_rate) / AV_TIME_BASE - FormatContext->streams[TrackNumber]->codecpar->initial_padding;
 }
 

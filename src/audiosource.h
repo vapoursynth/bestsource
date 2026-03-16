@@ -49,6 +49,10 @@ struct LWAudioProperties {
     BSRational TimeBase;
     int64_t Duration;
 
+    /* Provided for here since it's required for certain track timestamp operations */
+    BSRational FileTimeBase;
+    int64_t FileStartTime;
+
     int64_t NumSamples; /* estimated by decoder, may be wrong */
 };
 

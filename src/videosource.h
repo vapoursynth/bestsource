@@ -59,6 +59,10 @@ struct LWVideoProperties {
     int64_t Duration;
     int64_t NumFrames; // can be -1 to signal that the number of frames is completely unknown and can't even be estimated, RFF ignored
 
+    /* Provided for here since it's required for certain track timestamp operations */
+    BSRational FileTimeBase;
+    int64_t FileStartTime;
+
     BSRational FPS;
     BSRational SAR;
 

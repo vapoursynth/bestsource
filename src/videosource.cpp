@@ -351,6 +351,9 @@ void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
     VP.Duration = FormatContext->streams[TrackNumber]->duration;
     VP.TimeBase = FormatContext->streams[TrackNumber]->time_base;
 
+    VP.FileStartTime = FormatContext->start_time;
+    VP.FileTimeBase = AV_TIME_BASE_Q;
+
     VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
     if (VP.NumFrames <= 0 && VP.Duration > 0) {
         if (VP.FPS.Num)
