@@ -66,10 +66,6 @@ if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
     link_args += '-Wl,-Bsymbolic'
 endif
 
-if host_machine.system() in ['cygwin', 'windows']
-    link_args += '-static'
-endif
-
 bestsource = library('bestsource',
     sources,
     dependencies: deps,
