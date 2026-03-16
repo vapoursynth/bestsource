@@ -1,9 +1,11 @@
 project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
-    meson_version: '>=0.58.0',
+    meson_version: '>=1.2.3',
     version: '16.0',
 )
+
+enable_plugin = get_option('enable_plugin')
 
 sources = files(
     'src/audiosource.cpp',
@@ -12,39 +14,28 @@ sources = files(
     'src/videosource.cpp',
 )
 
-headers = files(
-    'src/audiosource.h',
-    'src/bsshared.h',
-    'src/tracklist.h',
-    'src/version.h',
-    'src/videosource.h',
-)
-
-deps = []
-install_dir = get_option('libdir')
-libs = []
-link_args = []
-p2p_args = []
-
-if get_option('enable_plugin')
+if enable_plugin
     sources += files(
         'src/avisynth.cpp',
         'src/synthshared.cpp',
         'src/vapoursynth.cpp',
     )
-
-    vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
-    deps += vapoursynth_dep
-
-    install_dir = vapoursynth_dep.get_variable('libdir') / 'vapoursynth'
 endif
 
-deps += [
+deps = [
     dependency('libavcodec', version: '>=61.19.0'),
     dependency('libavformat', version: '>=61.7.0'),
     dependency('libavutil', version: '>=59.39.0'),
     dependency('libxxhash'),
 ]
+
+libs = []
+
+link_args = []
+
+p2p_args = []
+
+py = import('python').find_installation(pure: false)
 
 if host_machine.cpu_family().startswith('x86')
     p2p_args += '-DP2P_SIMD'
@@ -62,7 +53,7 @@ libs += static_library('p2p_main',
 )
 
 if host_machine.cpu_family().startswith('x86')
-    p2p_args += '-msse4.1'
+    p2p_args += '-march=x86-64-v2'
 
     libs += static_library('p2p_sse41',
         files('libp2p/simd/p2p_sse41.cpp'),
@@ -72,29 +63,38 @@ if host_machine.cpu_family().startswith('x86')
 endif
 
 if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
-    link_args += ['-Wl,-Bsymbolic']
+    link_args += '-Wl,-Bsymbolic'
 endif
 
 bestsource = library('bestsource',
     sources,
     dependencies: deps,
+    include_directories: include_directories('vapoursynth/include'),
     install: true,
-    install_dir: install_dir,
+    install_dir: enable_plugin ? py.get_install_dir() / 'vapoursynth/plugins' : get_option('libdir'),
     link_args: link_args,
     link_with: libs,
 )
 
-install_headers(headers,
-    subdir: 'bestsource',
-)
+if not enable_plugin
+    install_headers(
+        files(
+            'src/audiosource.h',
+            'src/bsshared.h',
+            'src/tracklist.h',
+            'src/version.h',
+            'src/videosource.h',
+        ),
+        subdir: 'bestsource',
+    )
 
-pkg = import('pkgconfig')
-pkg.generate(bestsource,
-    description: 'A super great audio/video source and FFmpeg wrapper',
-    filebase: 'bestsource',
-    install_dir: get_option('libdir') / 'pkgconfig',
-    subdirs: 'bestsource',
-)
+    pkg = import('pkgconfig')
+    pkg.generate(bestsource,
+        description: 'A super great audio/video source and FFmpeg wrapper',
+        filebase: 'bestsource',
+        subdirs: 'bestsource',
+    )
+endif
 
 bestsource_dep = declare_dependency(
     include_directories: include_directories('src'),
