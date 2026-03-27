@@ -53,6 +53,7 @@ struct BestVideoSourceData {
     int64_t FPSNum = -1;
     int64_t FPSDen = -1;
     bool RFF = false;
+    bool RFFIsUsed = false;
 };
 
 static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
@@ -112,7 +113,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
-        SetSynthFrameProperties(n, Src, *D->V, D->RFF, D->V->GetFrameIsTFF(n, D->RFF),
+        SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF),
             [Props, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, double V) { vsapi->mapSetFloat(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(Props, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
@@ -243,6 +244,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         if (VP.SSModWidth == 0 || VP.SSModHeight == 0)
             throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
 
+        D->RFFIsUsed = (VP.NumFrames == VP.NumRFFFrames);
         D->VI.width = VP.SSModWidth;
         D->VI.height = VP.SSModHeight;
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);

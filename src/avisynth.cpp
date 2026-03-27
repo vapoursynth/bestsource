@@ -70,6 +70,7 @@ class AvisynthVideoSource : public IClip {
     int64_t FPSNum;
     int64_t FPSDen;
     bool RFF;
+    bool RFFIsUsed;
 public:
     AvisynthVideoSource(const char *RawSource, int Track, int ViewID,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
@@ -186,6 +187,8 @@ public:
                 VI.num_frames = vsh::int64ToIntS(VP.NumRFFFrames);
             }
 
+            RFFIsUsed = (VP.NumFrames == VP.NumRFFFrames);
+
             V->SetSeekPreRoll(SeekPreRoll);
 
             if (CacheSize >= 0)
@@ -270,7 +273,7 @@ public:
 
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        SetSynthFrameProperties(n, Src, *V, RFF, V->GetFrameIsTFF(n, RFF),
+        SetSynthFrameProperties(n, Src, *V, RFFIsUsed, V->GetFrameIsTFF(n, RFF),
             [Props, Env](const char *Name, int64_t V) { Env->propSetInt(Props, Name, V, 1); },
             [Props, Env](const char *Name, double V) { Env->propSetFloat(Props, Name, V, 1); },
             [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetData(Props, Name, V, Size, 1); });
