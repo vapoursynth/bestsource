@@ -1,6 +1,7 @@
 project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
+    license_files: 'LICENSE',
     meson_version: '>=1.2.3',
     version: '17.0',
 )

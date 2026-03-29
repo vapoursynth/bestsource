@@ -28,7 +28,7 @@ jobs:
       env:
         CIBW_BUILD: cp312-*
         CIBW_SKIP: cp312-musllinux*
-        CIBW_BUILD_FRONTEND: 'build; args: -Csetup-args="-Db_lto=true"'
+        CIBW_CONFIG_SETTINGS: setup-args="-Db_lto=true"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
         CIBW_BEFORE_ALL_LINUX: >
           dnf -y install libdav1d-devel libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
@@ -87,13 +87,10 @@ jobs:
         msystem: CLANG64
         update: true
         install: >-
-          autoconf
-          automake
-          base-devel
-          git
-          libtool
+          mingw-w64-clang-x86_64-autotools
           mingw-w64-clang-x86_64-cmake
           mingw-w64-clang-x86_64-dav1d
+          mingw-w64-clang-x86_64-git
           mingw-w64-clang-x86_64-lcms2
           mingw-w64-clang-x86_64-libjxl
           mingw-w64-clang-x86_64-libxml2
