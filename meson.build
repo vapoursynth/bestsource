@@ -2,7 +2,7 @@ project('BestSource', 'cpp',
     default_options: ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
     license: 'MIT',
     meson_version: '>=1.2.3',
-    version: '16.0',
+    version: '17.0',
 )
 
 enable_plugin = get_option('enable_plugin')
