@@ -87,13 +87,10 @@ jobs:
         msystem: CLANG64
         update: true
         install: >-
-          autoconf
-          automake
-          base-devel
-          git
-          libtool
+          mingw-w64-clang-x86_64-autotools
           mingw-w64-clang-x86_64-cmake
           mingw-w64-clang-x86_64-dav1d
+          mingw-w64-clang-x86_64-git
           mingw-w64-clang-x86_64-lcms2
           mingw-w64-clang-x86_64-libjxl
           mingw-w64-clang-x86_64-libxml2
