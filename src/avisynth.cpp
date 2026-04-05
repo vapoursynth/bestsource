@@ -187,7 +187,7 @@ public:
                 VI.num_frames = vsh::int64ToIntS(VP.NumRFFFrames);
             }
 
-            RFFIsUsed = (VP.NumFrames == VP.NumRFFFrames);
+            RFFIsUsed = (VP.NumFrames != VP.NumRFFFrames);
 
             V->SetSeekPreRoll(SeekPreRoll);
 

@@ -244,7 +244,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         if (VP.SSModWidth == 0 || VP.SSModHeight == 0)
             throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
 
-        D->RFFIsUsed = (VP.NumFrames == VP.NumRFFFrames);
+        D->RFFIsUsed = (VP.NumFrames != VP.NumRFFFrames);
         D->VI.width = VP.SSModWidth;
         D->VI.height = VP.SSModHeight;
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
