@@ -3,7 +3,7 @@ requires = ["meson-python"]
 build-backend = "mesonpy"
 
 [project]
-name = "bestsource"
+name = "vapoursynth-bestsource"
 description = "A super great audio/video source and FFmpeg wrapper"
 readme = "README.md"
 requires-python = ">=3.12"
