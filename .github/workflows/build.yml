@@ -31,7 +31,14 @@ jobs:
         CIBW_CONFIG_SETTINGS: setup-args="-Db_lto=true"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
         CIBW_BEFORE_ALL_LINUX: >
-          dnf -y install libdav1d-devel libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
+          dnf -y install libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
+          git clone https://code.videolan.org/videolan/dav1d.git --depth 1 &&
+          cd dav1d &&
+          meson setup build -Dprefix=/usr -Denable_tools=false -Denable_tests=false &&
+          meson compile -C build &&
+          meson install -C build &&
+          cd .. &&
+          rm -rf dav1d &&
           git clone https://github.com/mm2/Little-CMS.git --depth 1 &&
           cd Little-CMS &&
           meson setup build -Dprefix=/usr -Dtests=disabled &&
