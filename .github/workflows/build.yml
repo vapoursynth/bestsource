@@ -26,8 +26,9 @@ jobs:
 
     - uses: pypa/cibuildwheel@v3.4.0
       env:
-        CIBW_BUILD: cp312-*
-        CIBW_SKIP: cp312-musllinux*
+        CIBW_BUILD: cp314-*
+        CIBW_SKIP: cp314-musllinux*
+        CIBW_BUILD_FRONTEND: uv
         CIBW_CONFIG_SETTINGS: setup-args="-Db_lto=true"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
         CIBW_BEFORE_ALL_LINUX: >
@@ -64,6 +65,7 @@ jobs:
           rm -rf ffmpeg
       with:
         output-dir: dist
+        extras: uv
 
     - name: Fix tag
       run: |
@@ -104,9 +106,8 @@ jobs:
           mingw-w64-clang-x86_64-nasm
           mingw-w64-clang-x86_64-ninja
           mingw-w64-clang-x86_64-opus
-          mingw-w64-clang-x86_64-python-build
-          mingw-w64-clang-x86_64-python-wheel
           mingw-w64-clang-x86_64-toolchain
+          mingw-w64-clang-x86_64-uv
           mingw-w64-clang-x86_64-vulkan-headers
           mingw-w64-clang-x86_64-xxhash
 
@@ -157,13 +158,13 @@ jobs:
 
     - name: Build
       run: |
-        python -m build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static"
+        uv build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static"
 
     - name: Fix tag
       run: |
         cd dist
         for whl in *.whl; do
-          wheel tags --remove --python-tag py3 --abi-tag none --platform-tag win_amd64 $whl
+          uvx wheel tags --remove --python-tag py3 --abi-tag none $whl
         done
 
     - uses: actions/upload-artifact@v7
