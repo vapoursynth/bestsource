@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Multimedia :: Video",
 ]
-dependencies = ["VapourSynth"]
+dependencies = ["VapourSynth>=74"]
 dynamic = ["version"]
 
 [project.urls]
@@ -33,4 +33,4 @@ Repository = "https://github.com/vapoursynth/bestsource.git"
 Issues = "https://github.com/vapoursynth/bestsource/issues"
 
 [tool.meson-python.wheel]
-exclude = ["*/*.dll.a"]
+exclude = ["*.dll.a"]
