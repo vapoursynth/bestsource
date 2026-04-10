@@ -27,12 +27,15 @@ jobs:
     - uses: pypa/cibuildwheel@v3.4.0
       env:
         CIBW_BUILD: cp314-*
-        CIBW_SKIP: cp314-musllinux*
         CIBW_BUILD_FRONTEND: uv
         CIBW_CONFIG_SETTINGS: setup-args="-Db_lto=true"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
         CIBW_BEFORE_ALL_LINUX: >
-          dnf -y install libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
+          if command -v dnf >/dev/null 2>&1; then
+            dnf -y install libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel
+          else
+            apk add --no-cache libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-loader-dev xxhash-dev
+          fi &&
           git clone https://code.videolan.org/videolan/dav1d.git --depth 1 &&
           cd dav1d &&
           meson setup build -Dprefix=/usr -Denable_tools=false -Denable_tests=false &&
