@@ -24,9 +24,9 @@ if enable_plugin
 endif
 
 deps = [
-    dependency('libavcodec', version: '>=61.19.0'),
-    dependency('libavformat', version: '>=61.7.0'),
-    dependency('libavutil', version: '>=59.39.0'),
+    dependency('libavcodec', version: '>=62.11.0'),
+    dependency('libavformat', version: '>=62.3.0'),
+    dependency('libavutil', version: '>=60.8.0'),
     dependency('libxxhash'),
 ]
 
