@@ -174,7 +174,7 @@ int64_t LWAudioDecoder::GetSourceSize() const {
     return avio_size(FormatContext->pb);
 }
 
-int64_t LWAudioDecoder::GetSourcePostion() const {
+int64_t LWAudioDecoder::GetSourcePosition() const {
     return avio_tell(FormatContext->pb);
 }
 
@@ -449,7 +449,7 @@ bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
 
         av_frame_free(&F);
         if (Progress) {
-            if (!Progress(AudioTrack, Decoder->GetSourcePostion(), FileSize))
+            if (!Progress(AudioTrack, Decoder->GetSourcePosition(), FileSize))
                 throw BestSourceException("Indexing canceled by user");
         }
     };
@@ -935,7 +935,7 @@ void BestAudioSource::ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_
 void BestAudioSource::ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count) {
     if (Start + Count > AP.NumSamples) {
         int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample * AP.Channels;
+        size_t ByteOffset = std::max<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample * AP.Channels;
         memset(Data + ByteOffset, 0, Length * AP.AF.BytesPerSample * AP.Channels);
         Count -= Length;
     }
@@ -997,7 +997,7 @@ void BestAudioSource::ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64
 void BestAudioSource::ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t &Count) {
     if (Start + Count > AP.NumSamples) {
         int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::min<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample;
+        size_t ByteOffset = std::max<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample;
         for (int i = 0; i < AP.Channels; i++)
             memset(Data[i] + ByteOffset, 0, Length * AP.AF.BytesPerSample);
         Count -= Length;

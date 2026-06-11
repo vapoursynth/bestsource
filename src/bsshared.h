@@ -38,6 +38,7 @@ class BestSourceHWDecoderException : public BestSourceException {
     using BestSourceException::BestSourceException;
 };
 
+// FIXME, technically undefined behavior since FILE isn't a user defined type
 namespace std {
     template<>
     struct default_delete<FILE> {

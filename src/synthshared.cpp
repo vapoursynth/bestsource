@@ -107,7 +107,7 @@ void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, 
         mapSetData("ICCProfile", reinterpret_cast<const char *>(Src->ICCProfile), static_cast<int>(Src->ICCProfileSize), false);
     }
 
-    mapSetInt("FlipVertical", VP.FlipVerical);
+    mapSetInt("FlipVertical", VP.FlipVertical);
     mapSetInt("FlipHorizontal", VP.FlipHorizontal);
     mapSetInt("Rotation", VP.Rotation);
 }

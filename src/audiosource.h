@@ -89,7 +89,7 @@ public:
     LWAudioDecoder(const std::filesystem::path &SourceFile, int Track, int Threads, const std::map<std::string, std::string> &LAVFOpts, double DrcScale); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWAudioDecoder();
     [[nodiscard]] int64_t GetSourceSize() const;
-    [[nodiscard]] int64_t GetSourcePostion() const;
+    [[nodiscard]] int64_t GetSourcePosition() const;
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
     [[nodiscard]] int64_t GetSamplePos() const; // The frame you will get when calling GetNextFrame()

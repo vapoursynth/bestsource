@@ -324,7 +324,7 @@ int64_t LWVideoDecoder::GetSourceSize() const {
     return avio_size(FormatContext->pb);
 }
 
-int64_t LWVideoDecoder::GetSourcePostion() const {
+int64_t LWVideoDecoder::GetSourcePosition() const {
     return avio_tell(FormatContext->pb);
 }
 
@@ -439,13 +439,13 @@ void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
 
         if (rot == 180 && det < 0) {
             /* This is a vertical flip with no rotation. */
-            VP.FlipVerical = true;
+            VP.FlipVertical = true;
         } else {
             /* It is possible to have a 90/270 rotation and a horizontal flip:
              * in this case, the rotation angle applies to the video frame
              * (rather than the rendering frame), so add this step to nullify
              * the conversion below. */
-            if (VP.FlipHorizontal || VP.FlipVerical)
+            if (VP.FlipHorizontal || VP.FlipVertical)
                 rot *= -1;
 
             /* Return a positive value, noting that this converts angles
@@ -1104,7 +1104,7 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
 
         av_frame_free(&F);
         if (Progress) {
-            if (!Progress(VideoTrack, Decoder->GetSourcePostion(), FileSize))
+            if (!Progress(VideoTrack, Decoder->GetSourcePosition(), FileSize))
                 throw BestSourceException("Indexing canceled by user");
         }
     };

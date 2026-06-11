@@ -68,10 +68,11 @@ void SetBSDebugOutput(bool DebugOutput) {
 
 void BSDebugPrint(const std::string_view Message, int64_t RequestedN, int64_t CurrentN) {
     if (PrintDebugInfo) {
+        std::string debugMessage(Message);
         if (RequestedN == -1 && CurrentN == -1)
-            fprintf(stderr, "%s\n", Message.data());
+            fprintf(stderr, "%s\n", debugMessage.data());
         else
-            fprintf(stderr, "Req/Current: %" PRId64 "/%" PRId64 ", %s\n", RequestedN, CurrentN, Message.data());
+            fprintf(stderr, "Req/Current: %" PRId64 "/%" PRId64 ", %s\n", RequestedN, CurrentN, debugMessage.data());
     }
 }
 
@@ -204,7 +205,7 @@ uint8_t ReadByte(file_ptr_t &F) {
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else
-        return -1;
+        return 0;
 }
 
 int ReadInt(file_ptr_t &F) {

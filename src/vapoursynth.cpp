@@ -214,8 +214,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
                     D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
-                } else {
                     vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
+                } else {
                     throw;
                 }
             }
@@ -225,8 +225,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
                     D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
-                } else {
                     vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
+                } else {
                     throw;
                 }
             }
