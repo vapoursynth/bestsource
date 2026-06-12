@@ -109,6 +109,8 @@ private:
 public:
     BestAudioFrame(AVFrame *Frame, int BitsPerSample);
     ~BestAudioFrame();
+    BestAudioFrame(const BestAudioFrame &) = delete;
+    BestAudioFrame &operator=(const BestAudioFrame &) = delete;
     [[nodiscard]] const AVFrame *GetAVFrame() const;
     BSAudioFormat AF;
     int NumChannels;
@@ -161,6 +163,8 @@ private:
             size_t Size = 0;
             CacheBlock(int64_t FrameNumber, AVFrame *Frame);
             ~CacheBlock();
+            CacheBlock(const CacheBlock &) = delete;
+            CacheBlock &operator=(const CacheBlock &) = delete;
         };
 
         const AudioTrackIndex &TrackIndex;

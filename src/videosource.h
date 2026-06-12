@@ -153,6 +153,8 @@ private:
 public:
     BestVideoFrame(AVFrame *Frame);
     ~BestVideoFrame();
+    BestVideoFrame(const BestVideoFrame &) = delete;
+    BestVideoFrame &operator=(const BestVideoFrame &) = delete;
     [[nodiscard]] const AVFrame *GetAVFrame() const;
     void MergeField(bool Top, const BestVideoFrame *FieldSrc); // Useful for RFF and other such things where fields from multiple decoded frames need to be combined, retains original frame's properties
     bool ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t *const Stride, uint8_t *AlphaDst = nullptr, ptrdiff_t AlphaStride = 0) const;
@@ -253,6 +255,8 @@ private:
             size_t Size = 0;
             CacheBlock(int64_t FrameNumber, AVFrame *Frame);
             ~CacheBlock();
+            CacheBlock(const CacheBlock &) = delete;
+            CacheBlock &operator=(const CacheBlock &) = delete;
         };
 
         size_t Size = 0;
