@@ -292,9 +292,9 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     if (IsPlanar) {
         int NumPlanes = Frame->ch_layout.nb_channels;
         for (int p = 0; p < NumPlanes; p++)
-            XXH3_64bits_update(hctx, Frame->extended_data[p], BytesPerSample * Frame->nb_samples);
+            XXH3_64bits_update(hctx, Frame->extended_data[p], static_cast<size_t>(BytesPerSample) * Frame->nb_samples);
     } else {
-        XXH3_64bits_update(hctx, Frame->data[0], BytesPerSample * Frame->ch_layout.nb_channels * Frame->nb_samples);
+        XXH3_64bits_update(hctx, Frame->data[0], static_cast<size_t>(BytesPerSample) * Frame->ch_layout.nb_channels * Frame->nb_samples);
     }
 
     XXH64_hash_t FinalHash = XXH3_64bits_digest(hctx);
@@ -507,7 +507,7 @@ double BestAudioSource::GetRelativeStartTime(int Track) const {
         std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, "", 0, Track, 0, 0, LAVFOptions));
         AVFrame *F = Dec->GetNextFrame();
         int64_t PTS = (F && F->pts != AV_NOPTS_VALUE) ? F->pts : 0;
-        av_frame_unref(F);
+        av_frame_free(&F);
         LWVideoProperties VP;
         Dec->GetVideoProperties(VP);
         return AP.StartTime - (static_cast<double>(VP.TimeBase.Num) * PTS) / VP.TimeBase.Den;
@@ -740,7 +740,11 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
                 BSDebugPrint("Seek destination determined to be within 100 frames of start, this was unexpected", N, MatchedN);
 #endif
 
-            Decoder->SetFrameNumber(MatchedN + MatchFrames.size(), TrackIndex.Frames[MatchedN + MatchFrames.size()].Start);
+            int64_t NextFrame = MatchedN + MatchFrames.size();
+            int64_t NextSample = (NextFrame < static_cast<int64_t>(TrackIndex.Frames.size()))
+                ? TrackIndex.Frames[NextFrame].Start
+                : TrackIndex.Frames.back().Start + TrackIndex.Frames.back().Length;
+            Decoder->SetFrameNumber(NextFrame, NextSample);
 
             // Insert frames into cache if appropriate
             BestAudioFrame *RetFrame = nullptr;
@@ -1295,7 +1299,7 @@ int BestAudioSource::SetMaxDecoderInstances(int NumInstances) {
         MaxUsedAudioDecoders = MaxAudioDecoders;
     else
         MaxUsedAudioDecoders = NumInstances;
-    for (int i = NumInstances; i < MaxAudioDecoders; i++)
+    for (int i = MaxUsedAudioDecoders; i < MaxAudioDecoders; i++)
         Decoders[i].reset();
     return MaxUsedAudioDecoders;
 }

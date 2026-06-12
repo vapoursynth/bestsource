@@ -48,7 +48,8 @@ void BestTrackList::OpenFile(const std::filesystem::path &SourceFile, const std:
     for (unsigned int i = 0; i < FormatContext->nb_streams; i++) {
         TrackInfo TI = {};
         TI.MediaType = FormatContext->streams[i]->codecpar->codec_type;
-        TI.MediaTypeString = av_get_media_type_string(FormatContext->streams[i]->codecpar->codec_type);
+        const char *MediaTypeString = av_get_media_type_string(FormatContext->streams[i]->codecpar->codec_type);
+        TI.MediaTypeString = MediaTypeString ? MediaTypeString : "unknown";
         TI.Codec = FormatContext->streams[i]->codecpar->codec_id;
         TI.CodecString = avcodec_get_name(FormatContext->streams[i]->codecpar->codec_id);
 
@@ -91,6 +92,8 @@ int BestTrackList::GetNumTracks() const {
 }
 
 const BestTrackList::TrackInfo &BestTrackList::GetTrackInfo(int Track) const {
+    if (Track < 0 || Track >= static_cast<int>(TrackList.size()))
+        throw BestSourceException("Invalid track number");
     return TrackList[Track];
 }
 

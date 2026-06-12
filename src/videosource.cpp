@@ -1539,6 +1539,8 @@ bool BestVideoSource::InitializeRFF() {
     assert(DestFieldTop == DestFieldBottom);
     assert(DestFieldTop == VP.NumRFFFrames);
 
+    RFFState = RFFStateEnum::Ready;
+
     return true;
 }
 
@@ -1587,6 +1589,9 @@ void BestVideoSource::InitializeFormatSets() {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
+    if (N < 0 || N >= VP.NumRFFFrames)
+        return nullptr;
+
     if (RFFState == RFFStateEnum::Uninitialized)
         InitializeRFF();
     if (RFFState == RFFStateEnum::Unused) {
@@ -1629,7 +1634,7 @@ BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
     size_t Frame = std::distance(TrackIndex.Frames.begin(), Pos);
     if (Pos == TrackIndex.Frames.begin() || std::abs(Pos->PTS - PTS) <= std::abs((Pos - 1)->PTS - PTS))
         return GetFrame(Frame, Linear);
-    return GetFrame(Frame - 1);
+    return GetFrame(Frame - 1, Linear);
 }
 
 const std::vector<BestVideoSource::FormatSet> &BestVideoSource::GetFormatSets() const {
@@ -1887,7 +1892,7 @@ int BestVideoSource::SetMaxDecoderInstances(int NumInstances) {
         MaxUsedVideoDecoders = MaxVideoDecoders;
     else
         MaxUsedVideoDecoders = NumInstances;
-    for (int i = NumInstances; i < MaxVideoDecoders; i++)
+    for (int i = MaxUsedVideoDecoders; i < MaxVideoDecoders; i++)
         Decoders[i].reset();
     return MaxUsedVideoDecoders;
 }

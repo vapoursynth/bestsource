@@ -192,7 +192,7 @@ public:
             V->SetSeekPreRoll(SeekPreRoll);
 
             if (CacheSize >= 0)
-                V->SetMaxCacheSize(CacheSize * 1024 * 1024);
+                V->SetMaxCacheSize(static_cast<size_t>(CacheSize) * 1024 * 1024);
 
             if (Timecodes)
                 V->WriteTimecodes(CreateProbablyUTF8Path(Timecodes));
@@ -360,7 +360,7 @@ public:
         }
 
         if (CacheSize > 0)
-            A->SetMaxCacheSize(CacheSize * 1024 * 1024);
+            A->SetMaxCacheSize(static_cast<size_t>(CacheSize) * 1024 * 1024);
     }
 
     bool __stdcall GetParity(int n) {
