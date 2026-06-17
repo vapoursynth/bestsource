@@ -540,7 +540,7 @@ void BestAudioSource::SelectFormatSet(int Index) {
     AP.StartTime = SrcSet.StartTime;
 
     AP.NumFrames = SrcSet.NumFrames;
-    AP.NumSamples = SrcSet.NumSamples;
+    AP.NumSamples = SrcSet.NumSamples + SampleDelay;
 }
 
 
@@ -893,7 +893,8 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
 
 BestAudioSource::FrameRange BestAudioSource::GetFrameRangeBySamples(int64_t Start, int64_t Count) const {
     FrameRange Result = { -1, -1, -1 };
-    if (Count <= 0 || Start >= AP.NumSamples)
+    const int64_t DataSamples = AP.NumSamples - SampleDelay;
+    if (Count <= 0 || Start >= DataSamples)
         return Result;
     if (Start < 0) {
         Result.First = 0;
@@ -907,7 +908,7 @@ BestAudioSource::FrameRange BestAudioSource::GetFrameRangeBySamples(int64_t Star
     }
 
     int64_t EndPos = Start + Count;
-    if (EndPos >= AP.NumSamples) {
+    if (EndPos >= DataSamples) {
         Result.Last = AP.NumFrames - 1;
     } else {
         for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
@@ -937,9 +938,10 @@ void BestAudioSource::ZeroFillStartPacked(uint8_t *&Data, int64_t &Start, int64_
 }
 
 void BestAudioSource::ZeroFillEndPacked(uint8_t *Data, int64_t Start, int64_t &Count) {
-    if (Start + Count > AP.NumSamples) {
-        int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::max<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample * AP.Channels;
+    const int64_t DataSamples = AP.NumSamples - SampleDelay;
+    if (Start + Count > DataSamples) {
+        int64_t Length = std::min(Start + Count - DataSamples, Count);
+        size_t ByteOffset = std::max<int64_t>(DataSamples - Start, 0) * AP.AF.BytesPerSample * AP.Channels;
         memset(Data + ByteOffset, 0, Length * AP.AF.BytesPerSample * AP.Channels);
         Count -= Length;
     }
@@ -999,9 +1001,10 @@ void BestAudioSource::ZeroFillStartPlanar(uint8_t *Data[], int64_t &Start, int64
 }
 
 void BestAudioSource::ZeroFillEndPlanar(uint8_t *Data[], int64_t Start, int64_t &Count) {
-    if (Start + Count > AP.NumSamples) {
-        int64_t Length = std::min(Start + Count - AP.NumSamples, Count);
-        size_t ByteOffset = std::max<int64_t>(AP.NumSamples - Start, 0) * AP.AF.BytesPerSample;
+    const int64_t DataSamples = AP.NumSamples - SampleDelay;
+    if (Start + Count > DataSamples) {
+        int64_t Length = std::min(Start + Count - DataSamples, Count);
+        size_t ByteOffset = std::max<int64_t>(DataSamples - Start, 0) * AP.AF.BytesPerSample;
         for (int i = 0; i < AP.Channels; i++)
             memset(Data[i] + ByteOffset, 0, Length * AP.AF.BytesPerSample);
         Count -= Length;
