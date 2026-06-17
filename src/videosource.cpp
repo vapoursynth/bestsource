@@ -1054,8 +1054,13 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     InitializeFormatSets();
     SelectFormatSet(-1);
 
+    // Sanity check reported framerate for mpeg timebase files, if it's ridiculous just use the original one
+    if (OriginalFPS.Num > 0 && VP.FPS.ToDouble() > 300 && VP.TimeBase.Num == 1 && VP.TimeBase.Den == 90000)
+        VP.FPS = OriginalFPS;
+
+    // Restore the original FPS since it's generally always correct for files with RFF set
     if (DefaultFormatSet.NumFrames != DefaultFormatSet.NumRFFFrames)
-        VP.FPS = OriginalFPS; // Restore the original FPS since it's generally always correct for files with RFF set
+        VP.FPS = OriginalFPS;
 
     Decoders[0] = std::move(Decoder);
 }
