@@ -1852,7 +1852,7 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
         InitializeRFF();
 
     if (!RFF || RFFState == RFFStateEnum::Unused) {
-        return TrackIndex.Frames[N].TFF;
+        return TrackIndex.Frames[GetOriginalFrameNumber(N)].TFF;
     } else {
         if (RFFFields[N].first == RFFFields[N].second)
             return TrackIndex.Frames[RFFFields[N].first].TFF;
