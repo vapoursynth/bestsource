@@ -1214,86 +1214,90 @@ bool BestAudioSource::WriteAudioTrackIndex(bool AbsolutePath, const std::filesys
 }
 
 bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
-    file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, AudioTrack, false);
-    if (!F)
-        return false;
-    if (!ReadBSHeader(F, false))
-        return false;
-    if (!ReadCompareInt64(F, FileSize))
-        return false;
-    if (!ReadCompareInt(F, AudioTrack))
-        return false;
-    if (!ReadCompareDouble(F, DrcScale))
-        return false;
+    try {
+        file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, AudioTrack, false);
+        if (!F)
+            return false;
+        if (!ReadBSHeader(F, false))
+            return false;
+        if (!ReadCompareInt64(F, FileSize))
+            return false;
+        if (!ReadCompareInt(F, AudioTrack))
+            return false;
+        if (!ReadCompareDouble(F, DrcScale))
+            return false;
 
-    int LAVFOptCount = ReadInt(F);
-    if (LAVFOptCount > 1000)
-        throw BestSourceException("Unreasonable number of LAVF options in index, file is corrupt");
-    std::map<std::string, std::string> IndexLAVFOptions;
-    for (int i = 0; i < LAVFOptCount; i++) {
-        std::string Key = ReadString(F);
-        IndexLAVFOptions[Key] = ReadString(F);
-    }
-    if (LAVFOptions != IndexLAVFOptions)
-        return false;
-    int64_t NumFrames = ReadInt64(F);
-
-    TrackIndex.Frames.reserve(NumFrames);
-    AP.NumSamples = 0;
-
-    int DictSize = ReadInt(F);
-    if (DictSize > 0xFF)
-        throw BestSourceException("Unreasonable dictionary size in index, file is corrupt");
-
-    if (DictSize > 0) {
-        int64_t LastPTSValue = ReadInt64(F);
-        std::map<uint8_t, FrameInfo> Dict;
-        for (int i = 0; i < DictSize; i++) {
-            FrameInfo FI = {};
-            FI.PTS = ReadInt64(F);
-            FI.Length = ReadInt64(F);
-            FI.Format = ReadInt(F);
-            FI.BitsPerSample = ReadInt(F);
-            FI.SampleRate = ReadInt(F);
-            FI.Channels = ReadInt(F);
-            FI.ChannelLayout = ReadInt64(F);
-            Dict[i] = FI;
+        int LAVFOptCount = ReadInt(F);
+        if (LAVFOptCount > 1000)
+            return false;
+        std::map<std::string, std::string> IndexLAVFOptions;
+        for (int i = 0; i < LAVFOptCount; i++) {
+            std::string Key = ReadString(F);
+            IndexLAVFOptions[Key] = ReadString(F);
         }
+        if (LAVFOptions != IndexLAVFOptions)
+            return false;
+        int64_t NumFrames = ReadInt64(F);
 
-        for (int i = 0; i < NumFrames; i++) {
-            uint8_t DictKey = ReadByte(F);
-            if (DictKey >= DictSize)
-                throw BestSourceException("Invalid dictionary key in index, file is corrupt");
-            FrameInfo FI = Dict.at(DictKey);
-            if (FI.PTS != AV_NOPTS_VALUE) {
-                FI.PTS += LastPTSValue;
-                LastPTSValue = FI.PTS;
+        TrackIndex.Frames.reserve(NumFrames);
+        AP.NumSamples = 0;
+
+        int DictSize = ReadInt(F);
+        if (DictSize > 0xFF)
+            return false;
+
+        if (DictSize > 0) {
+            int64_t LastPTSValue = ReadInt64(F);
+            std::map<uint8_t, FrameInfo> Dict;
+            for (int i = 0; i < DictSize; i++) {
+                FrameInfo FI = {};
+                FI.PTS = ReadInt64(F);
+                FI.Length = ReadInt64(F);
+                FI.Format = ReadInt(F);
+                FI.BitsPerSample = ReadInt(F);
+                FI.SampleRate = ReadInt(F);
+                FI.Channels = ReadInt(F);
+                FI.ChannelLayout = ReadInt64(F);
+                Dict[i] = FI;
             }
-            FI.Start = AP.NumSamples;
-            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-                return false;
-            AP.NumSamples += FI.Length;
-            TrackIndex.Frames.push_back(FI);
-        }
-    } else {
-        for (int i = 0; i < NumFrames; i++) {
-            FrameInfo FI = {};
-            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-                return false;
-            FI.PTS = ReadInt64(F);
-            FI.Start = AP.NumSamples;
-            FI.Length = ReadInt64(F);
-            FI.Format = ReadInt(F);
-            FI.BitsPerSample = ReadInt(F);
-            FI.SampleRate = ReadInt(F);
-            FI.Channels = ReadInt(F);
-            FI.ChannelLayout = ReadInt64(F);
-            AP.NumSamples += FI.Length;
-            TrackIndex.Frames.push_back(FI);
-        }
-    }
 
-    return true;
+            for (int i = 0; i < NumFrames; i++) {
+                uint8_t DictKey = ReadByte(F);
+                if (DictKey >= DictSize)
+                    return false;
+                FrameInfo FI = Dict.at(DictKey);
+                if (FI.PTS != AV_NOPTS_VALUE) {
+                    FI.PTS += LastPTSValue;
+                    LastPTSValue = FI.PTS;
+                }
+                FI.Start = AP.NumSamples;
+                if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                    return false;
+                AP.NumSamples += FI.Length;
+                TrackIndex.Frames.push_back(FI);
+            }
+        } else {
+            for (int i = 0; i < NumFrames; i++) {
+                FrameInfo FI = {};
+                if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                    return false;
+                FI.PTS = ReadInt64(F);
+                FI.Start = AP.NumSamples;
+                FI.Length = ReadInt64(F);
+                FI.Format = ReadInt(F);
+                FI.BitsPerSample = ReadInt(F);
+                FI.SampleRate = ReadInt(F);
+                FI.Channels = ReadInt(F);
+                FI.ChannelLayout = ReadInt64(F);
+                AP.NumSamples += FI.Length;
+                TrackIndex.Frames.push_back(FI);
+            }
+        }
+
+        return true;
+    } catch (const std::exception &) {
+        return false;
+    }
 }
 
 const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) const {

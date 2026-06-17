@@ -1768,87 +1768,91 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
 }
 
 bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
-    file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, VideoTrack, false);
-    if (!F)
-        return false;
-    if (!ReadBSHeader(F, true))
-        return false;
-    if (!ReadCompareInt64(F, FileSize))
-        return false;
-    if (!ReadCompareInt(F, VideoTrack))
-        return false;
-    if (!ReadCompareInt(F, ViewID))
-        return false;
-    if (!ReadCompareString(F, HWDevice))
-        return false;
-    if (!ReadCompareInt(F, ExtraHWFrames))
-        return false;
+    try {
+        file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, VideoTrack, false);
+        if (!F)
+            return false;
+        if (!ReadBSHeader(F, true))
+            return false;
+        if (!ReadCompareInt64(F, FileSize))
+            return false;
+        if (!ReadCompareInt(F, VideoTrack))
+            return false;
+        if (!ReadCompareInt(F, ViewID))
+            return false;
+        if (!ReadCompareString(F, HWDevice))
+            return false;
+        if (!ReadCompareInt(F, ExtraHWFrames))
+            return false;
 
-    int LAVFOptCount = ReadInt(F);
-    if (LAVFOptCount > 1000)
-        throw BestSourceException("Unreasonable number of LAVF options in index, file is corrupt");
-    std::map<std::string, std::string> IndexLAVFOptions;
-    for (int i = 0; i < LAVFOptCount; i++) {
-        std::string Key = ReadString(F);
-        IndexLAVFOptions[Key] = ReadString(F);
-    }
-    if (LAVFOptions != IndexLAVFOptions)
-        return false;
-    int64_t NumFrames = ReadInt64(F);
-    TrackIndex.LastFrameDuration = ReadInt64(F);
-    TrackIndex.Frames.reserve(NumFrames);
-
-    int DictSize = ReadInt(F);
-    if (DictSize > 0xFF)
-        throw BestSourceException("Unreasonable dictionary size in index, file is corrupt");
-
-    if (DictSize > 0) {
-        int64_t LastPTSValue = ReadInt64(F);
-        std::map<uint8_t, FrameInfo> Dict;
-        for (int i = 0; i < DictSize; i++) {
-            FrameInfo FI = {};
-            FI.PTS = ReadInt64(F);
-            FI.RepeatPict = ReadInt(F);
-            FI.Format = ReadInt(F);
-            FI.Width = ReadInt(F);
-            FI.Height = ReadInt(F);
-            uint8_t Flags = ReadByte(F);
-            FI.KeyFrame = !!(Flags & 1);
-            FI.TFF = !!(Flags & 2);
-            Dict[i] = FI;
+        int LAVFOptCount = ReadInt(F);
+        if (LAVFOptCount > 1000)
+            return false;
+        std::map<std::string, std::string> IndexLAVFOptions;
+        for (int i = 0; i < LAVFOptCount; i++) {
+            std::string Key = ReadString(F);
+            IndexLAVFOptions[Key] = ReadString(F);
         }
+        if (LAVFOptions != IndexLAVFOptions)
+            return false;
+        int64_t NumFrames = ReadInt64(F);
+        TrackIndex.LastFrameDuration = ReadInt64(F);
+        TrackIndex.Frames.reserve(NumFrames);
 
-        for (int i = 0; i < NumFrames; i++) {
-            uint8_t DictKey = ReadByte(F);
-            if (DictKey >= DictSize)
-                throw BestSourceException("Invalid dictionary key in index, file is corrupt");
-            FrameInfo FI = Dict.at(DictKey);
-            if (FI.PTS != AV_NOPTS_VALUE) {
-                FI.PTS += LastPTSValue;
-                LastPTSValue = FI.PTS;
+        int DictSize = ReadInt(F);
+        if (DictSize > 0xFF)
+            return false;
+
+        if (DictSize > 0) {
+            int64_t LastPTSValue = ReadInt64(F);
+            std::map<uint8_t, FrameInfo> Dict;
+            for (int i = 0; i < DictSize; i++) {
+                FrameInfo FI = {};
+                FI.PTS = ReadInt64(F);
+                FI.RepeatPict = ReadInt(F);
+                FI.Format = ReadInt(F);
+                FI.Width = ReadInt(F);
+                FI.Height = ReadInt(F);
+                uint8_t Flags = ReadByte(F);
+                FI.KeyFrame = !!(Flags & 1);
+                FI.TFF = !!(Flags & 2);
+                Dict[i] = FI;
             }
-            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-                return false;
-            TrackIndex.Frames.push_back(FI);
-        }
-    } else {
-        for (int i = 0; i < NumFrames; i++) {
-            FrameInfo FI = {};
-            if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
-                return false;
-            FI.PTS = ReadInt64(F);
-            FI.RepeatPict = ReadInt(F);
-            FI.Format = ReadInt(F);
-            FI.Width = ReadInt(F);
-            FI.Height = ReadInt(F);
-            uint8_t Flags = ReadByte(F);
-            FI.KeyFrame = !!(Flags & 1);
-            FI.TFF = !!(Flags & 2);
-            TrackIndex.Frames.push_back(FI);
-        }
-    }
 
-    return true;
+            for (int i = 0; i < NumFrames; i++) {
+                uint8_t DictKey = ReadByte(F);
+                if (DictKey >= DictSize)
+                    return false;
+                FrameInfo FI = Dict.at(DictKey);
+                if (FI.PTS != AV_NOPTS_VALUE) {
+                    FI.PTS += LastPTSValue;
+                    LastPTSValue = FI.PTS;
+                }
+                if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                    return false;
+                TrackIndex.Frames.push_back(FI);
+            }
+        } else {
+            for (int i = 0; i < NumFrames; i++) {
+                FrameInfo FI = {};
+                if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
+                    return false;
+                FI.PTS = ReadInt64(F);
+                FI.RepeatPict = ReadInt(F);
+                FI.Format = ReadInt(F);
+                FI.Width = ReadInt(F);
+                FI.Height = ReadInt(F);
+                uint8_t Flags = ReadByte(F);
+                FI.KeyFrame = !!(Flags & 1);
+                FI.TFF = !!(Flags & 2);
+                TrackIndex.Frames.push_back(FI);
+            }
+        }
+
+        return true;
+    } catch (const std::exception &) {
+        return false;
+    }
 }
 
 bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
