@@ -102,7 +102,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
                 throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             vsapi->freeFrame(Dst);
             vsapi->freeFrame(AlphaDst);
             vsapi->setFilterError(("VideoSource: " + std::string(e.what())).c_str(), FrameCtx);
@@ -274,7 +274,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             for (int64_t i = 0; i < D->VI.numFrames; i++)
                 vsapi->mapSetInt(Out, "timestamps", D->V->GetFrameInfo(i).PTS, maAppend);
         }
-    } catch (BestSourceException &e) {
+    } catch (const std::exception &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
@@ -306,7 +306,7 @@ static const VSFrame *VS_CC BestAudioSourceGetFrame(int n, int ActivationReason,
             Tmp.push_back(vsapi->getWritePtr(Dst, Channel));
         try {
             D->A->GetPlanarAudio(Tmp.data(), n * static_cast<int64_t>(VS_AUDIO_FRAME_SAMPLES), SamplesOut);
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             vsapi->setFilterError(("AudioSource: " + std::string(e.what())).c_str(), FrameCtx);
             vsapi->freeFrame(Dst);
             return nullptr;
@@ -398,7 +398,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         D->AI.numFrames = static_cast<int>((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES);
         if ((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES > std::numeric_limits<int>::max())
             throw BestSourceException("Too many audio samples, cut file into smaller parts");
-    } catch (BestSourceException &e) {
+    } catch (const std::exception &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("AudioSource: ") + e.what()).c_str());
         return;
@@ -434,7 +434,7 @@ static void VS_CC GetTrackInfo(const VSMap *In, VSMap *Out, void *, VSCore *core
             vsapi->mapSetInt(Out, "disposition", TI.Disposition, maAppend);
             vsapi->mapSetData(Out, "dispositionstr", TI.DispositionString.c_str(), -1, dtUtf8, maAppend);
         }
-    } catch (BestSourceException &e) {
+    } catch (const std::exception &e) {
         vsapi->mapSetError(Out, (std::string("TrackInfo: ") + e.what()).c_str());
     }
 }
@@ -463,7 +463,7 @@ static void VS_CC GetMetadata(const VSMap *In, VSMap *Out, void *, VSCore *core,
         for (const auto &Iter : Metadata) {
             vsapi->mapSetData(Out, Iter.first.c_str(), Iter.second.c_str(), -1, dtUtf8, maAppend);
         }
-    } catch (BestSourceException &e) {
+    } catch (const std::exception &e) {
         vsapi->mapSetError(Out, (std::string("Metadata: ") + e.what()).c_str());
     }
 }

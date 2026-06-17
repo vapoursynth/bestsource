@@ -197,7 +197,7 @@ public:
             if (Timecodes)
                 V->WriteTimecodes(CreateProbablyUTF8Path(Timecodes));
 
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
     }
@@ -267,7 +267,7 @@ public:
                 throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
             }
 
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             Env->ThrowError("BestVideoSource: %s", e.what());
         }
 
@@ -355,7 +355,7 @@ public:
             if (AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
                 VI.SetChannelMask(true, static_cast<unsigned>(AP.ChannelLayout));
 
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
         }
 
@@ -393,7 +393,7 @@ public:
             } else {
                 A->GetPackedAudio(reinterpret_cast<uint8_t *>(Buf), Start, Count);
             }
-        } catch (BestSourceException &e) {
+        } catch (const std::exception &e) {
             Env->ThrowError("BestAudioSource: %s", e.what());
         }
     }
