@@ -1504,24 +1504,38 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
 }
 
 bool BestVideoSource::InitializeRFF() {
-    assert(RFFState == RFFStateEnum::Uninitialized);
+    assert(RFFState == RFFStateEnum::Uninitialized && RFFFields.empty());
 
+    const bool UseSet = (VariableFormat >= 0 && FormatSets.size() > 1);
+    int ActiveFormat = 0, ActiveWidth = 0, ActiveHeight = 0;
+    if (UseSet) {
+        ActiveFormat = FormatSets[VariableFormat].Format;
+        ActiveWidth = FormatSets[VariableFormat].Width;
+        ActiveHeight = FormatSets[VariableFormat].Height;
+    }
+
+    const int64_t FieldFrames = VP.NumRFFFrames;
     int64_t DestFieldTop = 0;
     int64_t DestFieldBottom = 0;
-    RFFFields.resize(VP.NumRFFFrames);
+    RFFFields.resize(FieldFrames);
 
     int64_t N = 0;
     for (auto &Iter : TrackIndex.Frames) {
+        if (UseSet && (Iter.Format != ActiveFormat || Iter.Width != ActiveWidth || Iter.Height != ActiveHeight))
+            continue;
+
         int RepeatFields = Iter.RepeatPict + 2;
 
         bool DestTop = Iter.TFF;
         for (int i = 0; i < RepeatFields; i++) {
             if (DestTop) {
-                assert(DestFieldTop <= DestFieldBottom);
-                RFFFields[DestFieldTop++].first = N;
+                if (DestFieldTop < FieldFrames)
+                    RFFFields[DestFieldTop].first = N;
+                DestFieldTop++;
             } else {
-                assert(DestFieldTop >= DestFieldBottom);
-                RFFFields[DestFieldBottom++].second = N;
+                if (DestFieldBottom < FieldFrames)
+                    RFFFields[DestFieldBottom].second = N;
+                DestFieldBottom++;
             }
             DestTop = !DestTop;
         }
@@ -1529,15 +1543,14 @@ bool BestVideoSource::InitializeRFF() {
     }
 
     if (DestFieldTop > DestFieldBottom) {
-        RFFFields[DestFieldBottom].second = RFFFields[DestFieldBottom - 1].second;
+        if (DestFieldBottom > 0 && DestFieldBottom < FieldFrames)
+            RFFFields[DestFieldBottom].second = RFFFields[DestFieldBottom - 1].second;
         DestFieldBottom++;
     } else if (DestFieldTop < DestFieldBottom) {
-        RFFFields[DestFieldTop].first = RFFFields[DestFieldTop - 1].first;
+        if (DestFieldTop > 0 && DestFieldTop < FieldFrames)
+            RFFFields[DestFieldTop].first = RFFFields[DestFieldTop - 1].first;
         DestFieldTop++;
     }
-
-    assert(DestFieldTop == DestFieldBottom);
-    assert(DestFieldTop == VP.NumRFFFrames);
 
     RFFState = RFFStateEnum::Ready;
 
@@ -1644,6 +1657,11 @@ const std::vector<BestVideoSource::FormatSet> &BestVideoSource::GetFormatSets() 
 void BestVideoSource::SelectFormatSet(int Index) {
     if (Index >= static_cast<int>(FormatSets.size()) || Index < -1)
         throw BestSourceException("Invalid format set");
+
+    // Reset RFF state since the frame numbers will change and the existing RFF mapping will be invalid
+    RFFState = RFFStateEnum::Uninitialized;
+    RFFFields.clear();
+
     VariableFormat = Index;
     BestVideoSource::FormatSet &SrcSet = (Index < 0) ? DefaultFormatSet : FormatSets[Index];
 
