@@ -1785,6 +1785,8 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         return false;
 
     int LAVFOptCount = ReadInt(F);
+    if (LAVFOptCount > 1000)
+        throw BestSourceException("Unreasonable number of LAVF options in index, file is corrupt");
     std::map<std::string, std::string> IndexLAVFOptions;
     for (int i = 0; i < LAVFOptCount; i++) {
         std::string Key = ReadString(F);
@@ -1797,6 +1799,8 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
     TrackIndex.Frames.reserve(NumFrames);
 
     int DictSize = ReadInt(F);
+    if (DictSize > 0xFF)
+        throw BestSourceException("Unreasonable dictionary size in index, file is corrupt");
 
     if (DictSize > 0) {
         int64_t LastPTSValue = ReadInt64(F);
@@ -1815,7 +1819,10 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         }
 
         for (int i = 0; i < NumFrames; i++) {
-            FrameInfo FI = Dict.at(ReadByte(F));
+            uint8_t DictKey = ReadByte(F);
+            if (DictKey >= DictSize)
+                throw BestSourceException("Invalid dictionary key in index, file is corrupt");
+            FrameInfo FI = Dict.at(DictKey);
             if (FI.PTS != AV_NOPTS_VALUE) {
                 FI.PTS += LastPTSValue;
                 LastPTSValue = FI.PTS;

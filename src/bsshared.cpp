@@ -205,7 +205,7 @@ uint8_t ReadByte(file_ptr_t &F) {
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else
-        return 0;
+        throw BestSourceException("Invalid index file, failed to read byte");
 }
 
 int ReadInt(file_ptr_t &F) {
@@ -213,7 +213,7 @@ int ReadInt(file_ptr_t &F) {
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else
-        return -1;
+        throw BestSourceException("Invalid index file, failed to read int");
 }
 
 int64_t ReadInt64(file_ptr_t &F) {
@@ -221,7 +221,7 @@ int64_t ReadInt64(file_ptr_t &F) {
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else
-        return -1;
+        throw BestSourceException("Invalid index file, failed to read int64");
 }
 
 double ReadDouble(file_ptr_t &F) {
@@ -229,17 +229,19 @@ double ReadDouble(file_ptr_t &F) {
     if (fread(&Value, 1, sizeof(Value), F.get()) == sizeof(Value))
         return Value;
     else
-        return -1;
+        throw BestSourceException("Invalid index file, failed to read double");
 }
 
 std::string ReadString(file_ptr_t &F) {
     int Size = ReadInt(F);
+    if (Size < 0 || Size > 1000)
+        throw BestSourceException("Invalid index file, string size is unrealistic");
     std::string S;
     S.resize(Size);
     if (static_cast<int>(fread(&S[0], 1, Size, F.get())) == Size)
         return S;
     else
-        return "";
+        throw BestSourceException("Invalid index file, failed to read string");
 }
 
 bool ReadCompareInt(file_ptr_t &F, int Value) {
