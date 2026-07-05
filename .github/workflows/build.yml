@@ -20,9 +20,9 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
-    - uses: pypa/cibuildwheel@v3.4.0
+    - uses: pypa/cibuildwheel@v4.1.0
       env:
         CIBW_BUILD: cp314-*
         CIBW_BUILD_FRONTEND: uv
@@ -85,28 +85,28 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - uses: msys2/setup-msys2@v2
       with:
         msystem: CLANG64
         update: true
-        install: >-
-          mingw-w64-clang-x86_64-autotools
-          mingw-w64-clang-x86_64-cmake
-          mingw-w64-clang-x86_64-dav1d
-          mingw-w64-clang-x86_64-git
-          mingw-w64-clang-x86_64-lcms2
-          mingw-w64-clang-x86_64-libjxl
-          mingw-w64-clang-x86_64-libxml2
-          mingw-w64-clang-x86_64-nasm
-          mingw-w64-clang-x86_64-ninja
-          mingw-w64-clang-x86_64-opus
-          mingw-w64-clang-x86_64-python-wheel
-          mingw-w64-clang-x86_64-toolchain
-          mingw-w64-clang-x86_64-uv
-          mingw-w64-clang-x86_64-vulkan-headers
-          mingw-w64-clang-x86_64-xxhash
+        pacboy: >-
+          autotools:p
+          cmake:p
+          dav1d:p
+          git:p
+          lcms2:p
+          libjxl:p
+          libxml2:p
+          nasm:p
+          ninja:p
+          opus:p
+          python-wheel:p
+          toolchain:p
+          uv:p
+          vulkan-headers:p
+          xxhash:p
 
     - name: Install davs2
       run: |
