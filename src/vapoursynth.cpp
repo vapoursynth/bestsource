@@ -54,6 +54,7 @@ struct BestVideoSourceData {
     int64_t FPSDen = -1;
     bool RFF = false;
     bool RFFIsUsed = false;
+    bool RotationApplied = false;
 };
 
 static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason, void *InstanceData, void **, VSFrameContext *FrameCtx, VSCore *Core, const VSAPI *vsapi) {
@@ -113,7 +114,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
-        SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF),
+        SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF), D->RotationApplied,
             [Props, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, double V) { vsapi->mapSetFloat(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(Props, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
@@ -126,6 +127,46 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
 
 static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VSAPI *vsapi) {
     delete reinterpret_cast<BestVideoSourceData *>(InstanceData);
+}
+
+static const char *const OrientationFilters[2][4][2] = {
+    /* Not flipped */ { { nullptr, nullptr },        { "FlipVertical", "Transpose" }, { "Turn180", nullptr },        { "Transpose", "FlipVertical" } },
+    /* Flipped     */ { { "FlipVertical", nullptr }, { "Transpose", nullptr },        { "FlipHorizontal", nullptr }, { "Transpose", "Turn180" } }
+    /*                  0 degrees                     90 degrees                       180 degrees                    270 degrees */
+};
+
+// Always consumes Node and returns the oriented node, or nullptr with Error set on failure.
+static VSNode *ApplyOrientation(VSNode *Node, const BSVideoProperties &VP, VSCore *Core, const VSAPI *vsapi, std::string &Error) {
+    // Avisynth+ and VapourSynth alike only have filters for the multiples of 90 that a display
+    // matrix realistically contains, so anything else has to be left to the user.
+    if (VP.Rotation % 90) {
+        Error = "Can't apply the " + std::to_string(VP.Rotation) + " degree rotation of the video, only multiples of 90 are supported, set apply_rotation=False to get the untransformed video";
+        vsapi->freeNode(Node);
+        return nullptr;
+    }
+
+    // Read before the first invoke since a failed one frees the node and with it the properties.
+    const char *const *Filters = OrientationFilters[VP.FlipVertical][(VP.Rotation / 90) % 4];
+    VSPlugin *StdPlugin = vsapi->getPluginByID(VSH_STD_PLUGIN_ID, Core);
+
+    for (int i = 0; i < 2 && Filters[i]; i++) {
+        VSMap *Args = vsapi->createMap();
+        vsapi->mapConsumeNode(Args, "clip", Node, maAppend);
+        VSMap *Ret = vsapi->invoke(StdPlugin, Filters[i], Args);
+        vsapi->freeMap(Args);
+
+        const char *InvokeError = vsapi->mapGetError(Ret);
+        if (InvokeError) {
+            Error = InvokeError;
+            vsapi->freeMap(Ret);
+            return nullptr;
+        }
+
+        Node = vsapi->mapGetNode(Ret, "clip", 0, nullptr);
+        vsapi->freeMap(Ret);
+    }
+
+    return Node;
 }
 
 static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSCore *Core, const VSAPI *vsapi) {
@@ -162,6 +203,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         HWFallback = true;
     bool ExportTimestamps = !!vsapi->mapGetInt(In, "exporttimestamps", 0, &err);
+    bool ApplyRotation = !!vsapi->mapGetInt(In, "apply_rotation", 0, &err);
+    if (err)
+        ApplyRotation = true;
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -172,6 +216,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         Opts["start_number"] = std::to_string(StartNumber);
 
     BestVideoSourceData *D = new BestVideoSourceData();
+    D->RotationApplied = ApplyRotation;
 
     try {
         D->FPSNum = vsapi->mapGetInt(In, "fpsnum", 0, &err);
@@ -284,7 +329,19 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (!err && CacheSize >= 0)
         D->V->SetMaxCacheSize(CacheSize * 1024 * 1024);
 
-    vsapi->createVideoFilter(Out, "VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
+    VSNode *Node = vsapi->createVideoFilter2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
+
+    if (ApplyRotation) {
+        // The node owns D from here on, so the failure path has nothing left to clean up.
+        std::string Error;
+        Node = ApplyOrientation(Node, D->V->GetVideoProperties(), Core, vsapi, Error);
+        if (!Node) {
+            vsapi->mapSetError(Out, ("VideoSource: " + Error).c_str());
+            return;
+        }
+    }
+
+    vsapi->mapConsumeNode(Out, "clip", Node, maAppend);
 }
 
 struct BestAudioSourceData {
@@ -484,7 +541,7 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);

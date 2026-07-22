@@ -87,9 +87,8 @@ struct LWVideoProperties {
     unsigned ContentLightLevelMax;
     unsigned ContentLightLevelAverage;
 
-    /* Orientation */
+    /* Orientation, apply the flip first and then rotate clockwise */
     bool FlipVertical;
-    bool FlipHorizontal;
     int Rotation; /* A positive number in degrees */
 };
 

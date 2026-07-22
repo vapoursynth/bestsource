@@ -71,12 +71,13 @@ class AvisynthVideoSource : public IClip {
     int64_t FPSDen;
     bool RFF;
     bool RFFIsUsed;
+    bool ApplyRotation;
 public:
     AvisynthVideoSource(const char *RawSource, int Track, int ViewID,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
         int CacheMode, const char *RawCachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
-        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool HWFallback, IScriptEnvironment *Env)
-        : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF) {
+        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool HWFallback, bool ApplyRotation, IScriptEnvironment *Env)
+        : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF), ApplyRotation(ApplyRotation) {
 
         try {
             if (VariableFormat < 0)
@@ -202,6 +203,10 @@ public:
         }
     }
 
+    const BSVideoProperties &GetSourceVideoProperties() const {
+        return V->GetVideoProperties();
+    }
+
     bool __stdcall GetParity(int n) {
         return V->GetFrameIsTFF(n, RFF);
     }
@@ -273,7 +278,7 @@ public:
 
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        SetSynthFrameProperties(n, Src, *V, RFFIsUsed, V->GetFrameIsTFF(n, RFF),
+        SetSynthFrameProperties(n, Src, *V, RFFIsUsed, V->GetFrameIsTFF(n, RFF), ApplyRotation,
             [Props, Env](const char *Name, int64_t V) { Env->propSetInt(Props, Name, V, 1); },
             [Props, Env](const char *Name, double V) { Env->propSetFloat(Props, Name, V, 1); },
             [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetData(Props, Name, V, Size, 1); });
@@ -281,6 +286,26 @@ public:
         return Dst;
     }
 };
+
+static AVSValue InvokeOnClip(const char *Name, AVSValue Clip, IScriptEnvironment *Env) {
+    return Env->Invoke(Name, AVSValue(&Clip, 1));
+}
+
+static AVSValue ApplyOrientation(AVSValue Clip, const BSVideoProperties &VP, IScriptEnvironment *Env) {
+    if (VP.FlipVertical)
+        Clip = InvokeOnClip("FlipVertical", Clip, Env);
+
+    if (VP.Rotation == 90)
+        Clip = InvokeOnClip("TurnRight", Clip, Env);
+    else if (VP.Rotation == 180)
+        Clip = InvokeOnClip("Turn180", Clip, Env);
+    else if (VP.Rotation == 270)
+        Clip = InvokeOnClip("TurnLeft", Clip, Env);
+    else if (VP.Rotation != 0)
+        Env->ThrowError("BestVideoSource: Can't apply the %d degree rotation of the video, only multiples of 90 are supported, set apply_rotation=false to get the untransformed video", VP.Rotation);
+
+    return Clip;
+}
 
 static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     BSInit();
@@ -308,8 +333,15 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int ViewID = Args[17].AsInt(0);
     int MaxDecoders = Args[18].AsInt(0);
     bool HWFallback = Args[19].AsBool(true);
+    bool ApplyRotation = Args[20].AsBool(true);
 
-    return new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, MaxDecoders, HWFallback, Env);
+    AvisynthVideoSource *VideoSource = new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, MaxDecoders, HWFallback, ApplyRotation, Env);
+    AVSValue Clip = VideoSource;
+
+    if (ApplyRotation)
+        Clip = ApplyOrientation(Clip, VideoSource->GetSourceVideoProperties(), Env);
+
+    return Clip;
 }
 
 class AvisynthAudioSource : public IClip {
@@ -457,9 +489,9 @@ static constexpr auto PopulateArgNames() {
     return Result;
 }
 
-static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[hwfallback]b";
+static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b";
 static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[maxdecoders]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b";
 
 static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
 static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();

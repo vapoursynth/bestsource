@@ -422,35 +422,35 @@ void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
 
     /////////////////////////
     // Set rotation
-    const int32_t *ConstRotationMatrix = reinterpret_cast<const int32_t *>(av_packet_side_data_get(FormatContext->streams[TrackNumber]->codecpar->coded_side_data, FormatContext->streams[TrackNumber]->codecpar->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX));
-    if (ConstRotationMatrix) {
+    const AVPacketSideData *RotationSideData = av_packet_side_data_get(FormatContext->streams[TrackNumber]->codecpar->coded_side_data, FormatContext->streams[TrackNumber]->codecpar->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX);
+    if (RotationSideData && RotationSideData->size >= sizeof(int32_t) * 9) {
         int32_t RotationMatrix[9];
-        memcpy(RotationMatrix, ConstRotationMatrix, sizeof(RotationMatrix));
+        memcpy(RotationMatrix, RotationSideData->data, sizeof(RotationMatrix));
         int64_t det = (int64_t)RotationMatrix[0] * RotationMatrix[4] - (int64_t)RotationMatrix[1] * RotationMatrix[3];
-        if (det < 0) {
-            /* Always assume an horizontal flip for simplicity, it can be changed later if rotation is 180. */
-            VP.FlipHorizontal = true;
 
-            /* Flip the matrix to decouple flip and rotation operations. */
-            av_display_matrix_flip(RotationMatrix, 1, 0);
-        }
+        if (det != 0) {
+            if (det < 0) {
+                /* A negative determinant means the transform mirrors as well as rotates. Always
+                 * factor out a vertical flip, both because applying one is close to free compared
+                 * to a horizontal flip and because it's the axis that leaves nothing behind for
+                 * the common case of a file that's only mirrored vertically. */
+                VP.FlipVertical = true;
 
-        int rot = lround(av_display_rotation_get(RotationMatrix));
+                /* Flip the matrix to decouple flip and rotation operations. */
+                av_display_matrix_flip(RotationMatrix, 0, 1);
+            }
 
-        if (rot == 180 && det < 0) {
-            /* This is a vertical flip with no rotation. */
-            VP.FlipVertical = true;
-        } else {
-            /* It is possible to have a 90/270 rotation and a horizontal flip:
-             * in this case, the rotation angle applies to the video frame
-             * (rather than the rendering frame), so add this step to nullify
-             * the conversion below. */
-            if (VP.FlipHorizontal || VP.FlipVertical)
-                rot *= -1;
+            int rot = lround(av_display_rotation_get(RotationMatrix));
 
-            /* Return a positive value, noting that this converts angles
-             * from the rendering frame to the video frame. */
-            VP.Rotation = -rot;
+            /* av_display_rotation_get() counts counterclockwise so the sign is inverted to get a
+             * clockwise angle. When a flip was factored out the angle read off the matrix is the
+             * one that applies before it, and moving the rotation past the flip inverts it a
+             * second time. */
+            if (!VP.FlipVertical)
+                rot = -rot;
+
+            /* Return a positive value, to be applied clockwise after the flip. */
+            VP.Rotation = rot;
             if (VP.Rotation < 0)
                 VP.Rotation += 360;
         }

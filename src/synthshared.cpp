@@ -25,7 +25,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 }
 
-void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
+void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, bool RotationApplied, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData) {
     const BSVideoProperties VP = VS.GetVideoProperties();
 
     // Set AR variables
@@ -107,7 +107,6 @@ void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, 
         mapSetData("ICCProfile", reinterpret_cast<const char *>(Src->ICCProfile), static_cast<int>(Src->ICCProfileSize), false);
     }
 
-    mapSetInt("FlipVertical", VP.FlipVertical);
-    mapSetInt("FlipHorizontal", VP.FlipHorizontal);
-    mapSetInt("Rotation", VP.Rotation);
+    mapSetInt("FlipVertical", RotationApplied ? false : VP.FlipVertical);
+    mapSetInt("Rotation", RotationApplied ? 0 : VP.Rotation);
 }
