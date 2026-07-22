@@ -214,11 +214,15 @@ jobs:
     # vcpkg's ffmpeg port has no feature for libjxl/libdavs2/libuavs3d/libxevd either, so this
     # build decodes less than the CLANG64 one above.
     - name: Install dependencies
+      # --vcpkg-root is passed explicitly because the developer environment set up above exports
+      # VCPKG_ROOT pointing at the vcpkg bundled with Visual Studio, which is not the one being
+      # used here. Without it vcpkg warns about the mismatch, and anything that does honour the
+      # variable would look in the wrong tree.
       run: |
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet $env:VCPKG_TRIPLET `
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
           "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
           xxhash
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows pkgconf
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet x64-windows pkgconf
 
     # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
     # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
