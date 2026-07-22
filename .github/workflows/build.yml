@@ -287,6 +287,9 @@ jobs:
     - name: Attach Windows builds to the release
       env:
         GH_TOKEN: ${{ github.token }}
+        # This job only downloads artifacts, it never checks out, so gh has no git remote to
+        # infer the repository from and every command below would fail on "not a git repository".
+        GH_REPO: ${{ github.repository }}
       run: |
         tag="${{ github.ref_name }}"
         msvc_asset="BestSource-$tag-win64-msvc.dll"
