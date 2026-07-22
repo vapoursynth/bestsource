@@ -34,7 +34,7 @@ jobs:
           else
             apk add --no-cache libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-loader-dev xxhash-dev
           fi &&
-          git clone https://code.videolan.org/videolan/dav1d.git --depth 1 &&
+          git clone https://github.com/videolan/dav1d.git --depth 1 &&
           cd dav1d &&
           meson setup build -Dprefix=/usr -Denable_tools=false -Denable_tests=false &&
           meson compile -C build &&
