@@ -155,7 +155,7 @@ jobs:
 
     - name: Build
       run: |
-        uv build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static"
+        uv build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static" -Csetup-args="-Denable_avisynth=false"
 
     - name: Fix tag and strip dll
       run: |
@@ -176,6 +176,66 @@ jobs:
         name: bestsource-win_amd64
         path: dist/*.whl
 
+  build-windows-msvc:
+    runs-on: windows-latest
+
+    env:
+      VCPKG_TRIPLET: x64-windows-static
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
+
+    steps:
+    - uses: actions/checkout@v7
+
+    # The VapourSynth wheel is limited-API (cp312-abi3), so any Python >= 3.12 can import it
+    # for the vs.get_include() lookup in meson.build.
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+
+    - uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Install build tools
+      run: pip install meson ninja vapoursynth
+
+    - name: Prepare vcpkg binary cache
+      run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE
+
+    # A cold FFmpeg build here takes tens of minutes. vcpkg's binary cache is content addressed
+    # per package, so an older restore-keys hit still avoids rebuilding everything.
+    - uses: actions/cache@v4
+      with:
+        path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+        key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('.github/workflows/build.yml') }}
+        restore-keys: vcpkg-${{ env.VCPKG_TRIPLET }}-
+
+    # Dependency set as documented in README.md. Note this is without Little CMS2 support, and
+    # vcpkg's ffmpeg port has no feature for libjxl/libdavs2/libuavs3d/libxevd either, so this
+    # build decodes less than the CLANG64 one above.
+    - name: Install dependencies
+      run: |
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet $env:VCPKG_TRIPLET `
+          "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
+          xxhash
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows pkgconf
+
+    # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
+    # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
+    # that the x64-windows-static triplet builds its libraries against, and prefer_static makes
+    # meson ask pkgconf for Libs.private so the transitive static deps get linked.
+    - name: Build
+      run: |
+        $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\tools\pkgconf\pkgconf.exe"
+        $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\lib\pkgconfig"
+        meson setup build -Denable_plugin=true -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
+        meson compile -C build
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: msvc-win_amd64
+        path: build/bestsource.dll
+
   publish:
     permissions:
       id-token: write
@@ -184,9 +244,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # Only the wheel/sdist artifacts, so the raw dll from build-windows-msvc is left out.
     - uses: actions/download-artifact@v8
       with:
         path: dist
+        pattern: bestsource-*
         merge-multiple: true
 
     - uses: pypa/gh-action-pypi-publish@release/v1
+
+  release:
+    permissions:
+      contents: write
+    needs: [build-windows-wheel, build-windows-msvc]
+    if: ${{ startsWith(github.ref, 'refs/tags/R') }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: msvc-win_amd64
+        path: msvc
+
+    - uses: actions/download-artifact@v8
+      with:
+        name: bestsource-win_amd64
+        path: clang
+
+    # Both dlls are labelled by toolchain in the filename. The clang build targets
+    # x86_64-w64-windows-gnu, whose C++ ABI cannot match the MSVC built AviSynth+, so it
+    # is built with enable_avisynth=false and exports VapourSynthPluginInit2 only --
+    # hence vs-only. The clang dll is taken out of the wheel so the build job that
+    # produces it stays untouched. The release normally already exists by this point;
+    # create it if the tag was pushed on its own.
+    - name: Attach Windows builds to the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag="${{ github.ref_name }}"
+        msvc_asset="BestSource-$tag-win64-msvc.dll"
+        clang_asset="BestSource-$tag-win64-clang-vs-only.dll"
+
+        mv msvc/bestsource.dll "$msvc_asset"
+
+        # Matched loosely on purpose: the gnu toolchain names it libbestsource.dll, msvc
+        # would name it bestsource.dll. The wheel is statically linked so it holds one dll.
+        unzip -q clang/*.whl -d clang-extract
+        clang_dll="$(find clang-extract -name '*.dll' -print -quit)"
+        test -n "$clang_dll" || { echo "no dll inside the clang wheel"; exit 1; }
+        mv "$clang_dll" "$clang_asset"
+
+        gh release view "$tag" >/dev/null 2>&1 \
+          || gh release create "$tag" --title "$tag" --generate-notes
+        gh release upload "$tag" "$msvc_asset" "$clang_asset" --clobber

@@ -3,7 +3,7 @@ project('BestSource', 'cpp',
     license: 'MIT',
     license_files: 'LICENSE',
     meson_version: '>=1.2.3',
-    version: '19.0',
+    version: '20.0',
 )
 
 enable_plugin = get_option('enable_plugin')
@@ -30,17 +30,25 @@ sources = files(
 )
 
 if enable_plugin
-    deps += dependency('avisynthplus')
-
     incdir += include_directories(
         run_command(py, '-c', 'import vapoursynth as vs; print(vs.get_include())', check: true).stdout().strip(),
     )
 
     sources += files(
-        'src/avisynth.cpp',
         'src/synthshared.cpp',
         'src/vapoursynth.cpp',
     )
+
+    # AviSynth+ is entered through a C++ interface rather than a C one, so a build whose C++ ABI
+    # does not match the host AviSynth+ can never be loaded by it. Leave the interface out entirely
+    # in that case instead of exporting an AvisynthPluginInit3 that cannot work.
+    if get_option('enable_avisynth')
+        deps += dependency('avisynthplus')
+
+        sources += files(
+            'src/avisynth.cpp',
+        )
+    endif
 endif
 
 if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']

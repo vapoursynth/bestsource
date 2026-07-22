@@ -3,3 +3,9 @@ option('enable_plugin',
     value: true,
     description: 'Enable AviSynth and VapourSynth plugin',
 )
+
+option('enable_avisynth',
+    type: 'boolean',
+    value: true,
+    description: 'Include the AviSynth+ interface in the plugin. Turn this off for toolchains whose C++ ABI cannot match the host AviSynth+, such as mingw on Windows',
+)
