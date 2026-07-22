@@ -292,18 +292,23 @@ jobs:
         GH_REPO: ${{ github.repository }}
       run: |
         tag="${{ github.ref_name }}"
-        msvc_asset="BestSource-$tag-win64-msvc.dll"
-        clang_asset="BestSource-$tag-win64-clang-vs-only.dll"
+        msvc_name="BestSource-$tag-win64-msvc"
+        clang_name="BestSource-$tag-win64-clang-vs-only"
 
-        mv msvc/bestsource.dll "$msvc_asset"
+        mv msvc/bestsource.dll "$msvc_name.dll"
 
         # Matched loosely on purpose: the gnu toolchain names it libbestsource.dll, msvc
         # would name it bestsource.dll. The wheel is statically linked so it holds one dll.
         unzip -q clang/*.whl -d clang-extract
         clang_dll="$(find clang-extract -name '*.dll' -print -quit)"
         test -n "$clang_dll" || { echo "no dll inside the clang wheel"; exit 1; }
-        mv "$clang_dll" "$clang_asset"
+        mv "$clang_dll" "$clang_name.dll"
+
+        # One dll per zip, keeping the toolchain suffixed name inside: the two builds are
+        # alternatives, so unpacking both into a plugins directory must not collide.
+        zip -qj "$msvc_name.zip" "$msvc_name.dll"
+        zip -qj "$clang_name.zip" "$clang_name.dll"
 
         gh release view "$tag" >/dev/null 2>&1 \
           || gh release create "$tag" --title "$tag" --generate-notes
-        gh release upload "$tag" "$msvc_asset" "$clang_asset" --clobber
+        gh release upload "$tag" "$msvc_name.zip" "$clang_name.zip" --clobber
