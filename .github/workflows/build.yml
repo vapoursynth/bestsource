@@ -180,7 +180,10 @@ jobs:
     runs-on: windows-latest
 
     env:
-      VCPKG_TRIPLET: x64-windows-static
+      # x64-windows-static plus VCPKG_BUILD_TYPE release, shipped with vcpkg as a community
+      # triplet. Only the release configuration of each dependency is ever linked here, so
+      # building the debug one as well would roughly double the cold build for nothing.
+      VCPKG_TRIPLET: x64-windows-static-release
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
 
     steps:
@@ -222,15 +225,15 @@ jobs:
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
           "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
           xxhash
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet x64-windows pkgconf
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET pkgconf
 
     # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
     # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
-    # that the x64-windows-static triplet builds its libraries against, and prefer_static makes
-    # meson ask pkgconf for Libs.private so the transitive static deps get linked.
+    # that the triplet builds its libraries against, and prefer_static makes meson ask pkgconf
+    # for Libs.private so the transitive static deps get linked.
     - name: Build
       run: |
-        $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\tools\pkgconf\pkgconf.exe"
+        $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\pkgconf\pkgconf.exe"
         $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\lib\pkgconfig"
         meson setup build -Denable_plugin=true -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
         meson compile -C build
