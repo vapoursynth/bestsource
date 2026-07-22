@@ -130,9 +130,9 @@ static void VS_CC BestVideoSourceFree(void *InstanceData, VSCore *Core, const VS
 }
 
 static const char *const OrientationFilters[2][4][2] = {
-    /* Not flipped */ { { nullptr, nullptr },        { "FlipVertical", "Transpose" }, { "Turn180", nullptr },        { "Transpose", "FlipVertical" } },
-    /* Flipped     */ { { "FlipVertical", nullptr }, { "Transpose", nullptr },        { "FlipHorizontal", nullptr }, { "Transpose", "Turn180" } }
-    /*                  0 degrees                     90 degrees                       180 degrees                    270 degrees */
+    /* Not flipped */ { { nullptr, nullptr },        { "Turn90", nullptr },    { "Turn180", nullptr },        { "Turn270", nullptr } },
+    /* Flipped     */ { { "FlipVertical", nullptr }, { "Transpose", nullptr }, { "FlipHorizontal", nullptr }, { "FlipVertical", "Turn270" } }
+    /*                  0 degrees                     90 degrees                180 degrees                    270 degrees */
 };
 
 // Always consumes Node and returns the oriented node, or nullptr with Error set on failure.
