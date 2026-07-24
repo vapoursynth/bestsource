@@ -157,7 +157,7 @@ static VSNode *ApplyOrientation(VSNode *Node, const BSVideoProperties &VP, VSCor
 
         const char *InvokeError = vsapi->mapGetError(Ret);
         if (InvokeError) {
-            Error = InvokeError;
+            Error = std::string(InvokeError) + ", set apply_rotation=False to output the video without applying its orientation";
             vsapi->freeMap(Ret);
             return nullptr;
         }
@@ -217,6 +217,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
     BestVideoSourceData *D = new BestVideoSourceData();
     D->RotationApplied = ApplyRotation;
+    VSNode *Node = nullptr;
 
     try {
         D->FPSNum = vsapi->mapGetInt(In, "fpsnum", 0, &err);
@@ -319,17 +320,21 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             for (int64_t i = 0; i < D->VI.numFrames; i++)
                 vsapi->mapSetInt(Out, "timestamps", D->V->GetFrameInfo(i).PTS, maAppend);
         }
+
+        int64_t CacheSize = vsapi->mapGetInt(In, "cachesize", 0, &err);
+        if (!err && CacheSize >= 0)
+            D->V->SetMaxCacheSize(CacheSize * 1024 * 1024);
+
+        // Has to be the last thing that can fail while D is still owned here, since a successful
+        // call hands D over to the node and the cleanup below would then be a double free.
+        Node = vsapi->createVideoFilter2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
+        if (!Node)
+            throw BestSourceException("Failed to create filter");
     } catch (const std::exception &e) {
         delete D;
         vsapi->mapSetError(Out, (std::string("VideoSource: ") + e.what()).c_str());
         return;
     }
-
-    int64_t CacheSize = vsapi->mapGetInt(In, "cachesize", 0, &err);
-    if (!err && CacheSize >= 0)
-        D->V->SetMaxCacheSize(CacheSize * 1024 * 1024);
-
-    VSNode *Node = vsapi->createVideoFilter2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
 
     if (ApplyRotation) {
         // The node owns D from here on, so the failure path has nothing left to clean up.
