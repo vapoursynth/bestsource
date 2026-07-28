@@ -1081,7 +1081,7 @@ void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count
 }
 
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
-    if (AP.Format == 0 || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
+    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
         throw BestSourceException("GetPlanarAudio() can only be used when variable format is disabled");
 
     Start -= SampleDelay;
