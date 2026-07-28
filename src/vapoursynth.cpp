@@ -412,6 +412,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         CacheMode = 1;
     int MaxDecoders = vsapi->mapGetIntSaturated(In, "maxdecoders", 0, &err);
+    int VariableFormat = vsapi->mapGetIntSaturated(In, "variableformat", 0, &err);
+    if (err)
+        VariableFormat = 0;
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -424,6 +427,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
     BestAudioSourceData *D = new BestAudioSourceData();
 
     try {
+        if (VariableFormat < 0)
+            throw BestSourceException("Variable format number must be 0 or greater");
+
         if (ShowProgress) {
             auto NextUpdate = std::chrono::high_resolution_clock::now();
             int LastValue = -1;
@@ -449,7 +455,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         }
 
         D->A->SetMaxDecoderInstances(MaxDecoders);
-        D->A->SelectFormatSet(0);
+        D->A->SelectFormatSet(VariableFormat);
 
         const BSAudioProperties &AP = D->A->GetAudioProperties();
         D->Is8Bit = (AP.AF.Bits <= 8);
@@ -547,7 +553,7 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
-    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
+    vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;variableformat:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);
     vspapi->registerFunction("SetDebugOutput", "enable:int;", "", SetDebugOutput, nullptr, plugin);

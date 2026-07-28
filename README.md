@@ -43,7 +43,7 @@ meson install -C build
 
 ## VapourSynth usage
 
-`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0])`
+`bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0, int variableformat = 0])`
 
 `bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool hwfallback = True, exporttimestamps = False, bint apply_rotation = True])`
 
@@ -61,11 +61,11 @@ The *Metadata* function returns all the file or track metadata as key-value pair
 
 ## Avisynth+ usage
 
-`BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, int maxdecoders = 0])`
+`BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, int maxdecoders = 0, int variableformat = 0])`
 
 `BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool hwfallback = True, bool apply_rotation = True])`
 
-`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool hwfallback = True, bool apply_rotation = True])`
+`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool hwfallback = True, bool apply_rotation = True, int avariableformat = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 
@@ -79,9 +79,15 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
-*adjustdelay*: Adjust audio start time relative to a video track number. Pass -2 to disable and -1 to be relative to the first video track if one exists. Specifying a non-video track is equivalent to passing -2. Note that the offset is always relative to the first CPU-decodable frame in the stream meaning that it may not be the correct delay when *hwmode* and *variableformat* are used.
+*adjustdelay*: Adjust audio start time relative to a video track number. Pass -2 to disable and -1 to be relative to the first video track if one exists. Specifying a non-video track is equivalent to passing -2. Note that the offset is always relative to the first CPU-decodable frame in the stream meaning that it may not be the correct delay when *hwdevice* and *variableformat* are used.
 
-*variableformat*: Allow format changes in the output for video. To only allow fixed format output pass 0 or greater to choose the nth encountered format as the output format. Any frames not matching the chosen format are dropped. If the file is constant format (most are) this setting does nothing.
+*variableformat*: Selects which of the formats encountered in the track is used for the output. Pass 0 or greater to choose the nth one, and any frames not matching it are dropped. If the file is constant format (most are) this setting does nothing.
+
+For video, -1 additionally allows the format to change in the output instead of picking one, which is the default in VapourSynth. Avisynth+ has no variable format clips and rejects -1, so its default is 0.
+
+For audio the value must be 0 or greater in both plugins, since neither an Avisynth+ clip nor a VapourSynth audio node can change sample type, sample rate or channel count part way through. The default of 0 keeps the first format encountered and drops everything else.
+
+In *BSSource* the two tracks are set separately as *vvariableformat* and *avariableformat*, following the same convention as *vtrack*/*atrack* and *vcachesize*/*acachesize*. Note that this replaces the old unprefixed *variableformat* argument, which applied to the video track only.
 
 *fpsnum*: Convert the source material to constant framerate. Cannot be combined with *rff*.
 

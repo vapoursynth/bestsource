@@ -349,7 +349,10 @@ class AvisynthAudioSource : public IClip {
     std::unique_ptr<BestAudioSource> A;
 public:
     AvisynthAudioSource(const char *RawSource, int Track,
-        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, int CacheMode, const char *RawCachePath, int CacheSize, int MaxDecoders, IScriptEnvironment *Env) {
+        int AdjustDelay, int Threads, bool EnableDrefs, bool UseAbsolutePath, double DrcScale, int CacheMode, const char *RawCachePath, int CacheSize, int MaxDecoders, int VariableFormat, IScriptEnvironment *Env) {
+
+        if (VariableFormat < 0)
+            Env->ThrowError("BestAudioSource: Variable format number must be 0 or greater");
 
         std::map<std::string, std::string> Opts;
         if (EnableDrefs)
@@ -364,7 +367,7 @@ public:
             A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale));
 
             A->SetMaxDecoderInstances(MaxDecoders);
-            A->SelectFormatSet(0);
+            A->SelectFormatSet(VariableFormat);
 
             const BSAudioProperties &AP = A->GetAudioProperties();
             if (AP.AF.Float && AP.AF.Bits == 32) {
@@ -453,8 +456,9 @@ static AVSValue __cdecl CreateBSAudioSource(AVSValue Args, void *UserData, IScri
     const char *CachePath = Args[8].AsString("");
     int CacheSize = Args[9].AsInt(-1);
     int MaxDecoders = Args[10].AsInt(0);
+    int VariableFormat = Args[11].AsInt(0);
 
-    return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CacheMode, CachePath, CacheSize, MaxDecoders, Env);
+    return new AvisynthAudioSource(Source, Track, AdjustDelay, Threads, EnableDrefs, UseAbsolutePath, DrcScale, CacheMode, CachePath, CacheSize, MaxDecoders, VariableFormat, Env);
 }
 
 // Now some fun magic to parse things from Avisynth arg strings at compile time
@@ -490,14 +494,14 @@ static constexpr auto PopulateArgNames() {
 }
 
 static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b";
-static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[maxdecoders]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b";
+static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[maxdecoders]i[variableformat]i";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[vvariableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b[avariableformat]i";
 
 static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
 static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();
 static constexpr std::array BSArgNames = PopulateArgNames<BSSourceAvsArgs>();
 
-static_assert(BSVArgNames.size() + 4 == BSArgNames.size()); //avtrack, avcachesize, adjustdelay and drc_scale
+static_assert(BSVArgNames.size() + 5 == BSArgNames.size()); //avtrack, avcachesize, avariableformat, adjustdelay and drc_scale
 
 static constexpr auto GetVideoArgMapping() {
     auto GetArgPos = [](size_t Position) {
@@ -524,6 +528,25 @@ static constexpr auto GetAudioArgMapping() {
         Result[i] = GetArgPos(i);
     return Result;
 }
+
+// Nothing may be left unmapped, an unmapped argument would index Args with -1 at runtime.
+static_assert([]() { for (int i : GetVideoArgMapping()) if (i < 0) return false; return true; }());
+static_assert([]() { for (int i : GetAudioArgMapping()) if (i < 0) return false; return true; }());
+
+template<typename T>
+static constexpr size_t IndexOfArg(const T &Names, std::string_view Name) {
+    for (size_t i = 0; i < Names.size(); i++)
+        if (Names[i] == Name)
+            return i;
+    return static_cast<size_t>(-1);
+}
+
+static_assert(BSArgNames[GetVideoArgMapping()[IndexOfArg(BSVArgNames, "variableformat")]] == "vvariableformat");
+static_assert(BSArgNames[GetAudioArgMapping()[IndexOfArg(BSAArgNames, "variableformat")]] == "avariableformat");
+static_assert(BSArgNames[GetVideoArgMapping()[IndexOfArg(BSVArgNames, "track")]] == "vtrack");
+static_assert(BSArgNames[GetAudioArgMapping()[IndexOfArg(BSAArgNames, "track")]] == "atrack");
+static_assert(BSArgNames[GetVideoArgMapping()[IndexOfArg(BSVArgNames, "cachesize")]] == "vcachesize");
+static_assert(BSArgNames[GetAudioArgMapping()[IndexOfArg(BSAArgNames, "cachesize")]] == "acachesize");
 
 static AVSValue __cdecl CreateBSSource(AVSValue Args, void *UserData, IScriptEnvironment *Env) {
     static constexpr std::array VideoArgMapping = GetVideoArgMapping();
