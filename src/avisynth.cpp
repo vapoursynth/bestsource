@@ -64,6 +64,22 @@ static void BSInit() {
         });
 }
 
+static std::string DescribeYUVFormat(const BSVideoFormat &VF) {
+    static constexpr struct { int W; int H; const char *Name; } Layouts[] = {
+        { 0, 0, "4:4:4" }, { 1, 0, "4:2:2" }, { 1, 1, "4:2:0" },
+        { 2, 0, "4:1:1" }, { 2, 2, "4:1:0" }, { 0, 1, "4:4:0" },
+    };
+
+    std::string Subsampling;
+    for (const auto &Iter : Layouts)
+        if (Iter.W == VF.SubSamplingW && Iter.H == VF.SubSamplingH)
+            Subsampling = Iter.Name;
+    if (Subsampling.empty())
+        Subsampling = "chroma subsampled " + std::to_string(1 << VF.SubSamplingW) + "x" + std::to_string(1 << VF.SubSamplingH);
+
+    return std::to_string(VF.Bits) + (VF.Float ? " bit float " : " bit ") + Subsampling + (VF.Alpha ? " YUVA" : " YUV");
+}
+
 class AvisynthVideoSource : public IClip {
     VideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
@@ -135,24 +151,25 @@ public:
 
             // Settings subsampling for non-yuv will error out
             if (VP.VF.ColorFamily == cfYUV) {
-                if (VP.VF.SubSamplingH == 0) {
-                    VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
-                } else if (VP.VF.SubSamplingH == 1) {
-                    VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
-                } else if (VP.VF.SubSamplingH == 2) {
-                    VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
-                } else {
-                    throw BestSourceException("Unsupported output subsampling");
-                }
+                // Full list of actually supported avs+ formats can be foud in the source code here:
+                // https://github.com/AviSynth/AviSynthPlus/blob/master/avs_core/core/avisynth.cpp#L4377
+                const bool Supported =
+                    (VP.VF.SubSamplingW == 0 && VP.VF.SubSamplingH == 0) ||
+                    (VP.VF.SubSamplingW == 1 && VP.VF.SubSamplingH == 0) ||
+                    (VP.VF.SubSamplingW == 1 && VP.VF.SubSamplingH == 1) ||
+                    (VP.VF.SubSamplingW == 2 && VP.VF.SubSamplingH == 0 && VP.VF.Bits == 8 && !VP.VF.Float && !VP.VF.Alpha);
+
+                if (!Supported)
+                    throw BestSourceException("Avisynth+ has no " + DescribeYUVFormat(VP.VF) + " pixel format, only 4:2:0, 4:2:2 and 4:4:4 at every bitdepth and 8 bit 4:1:1 without alpha can be output");
+
+                VI.pixel_type |= (VP.VF.SubSamplingH == 0) ? VideoInfo::CS_Sub_Height_1 : VideoInfo::CS_Sub_Height_2;
 
                 if (VP.VF.SubSamplingW == 0) {
                     VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
                 } else if (VP.VF.SubSamplingW == 1) {
                     VI.pixel_type |= VideoInfo::CS_Sub_Width_2;
-                } else if (VP.VF.SubSamplingW == 2) {
-                    VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
                 } else {
-                    throw BestSourceException("Unsupported output subsampling");
+                    VI.pixel_type |= VideoInfo::CS_Sub_Width_4;
                 }
             }
 
