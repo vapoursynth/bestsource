@@ -219,15 +219,33 @@ jobs:
         key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('.github/workflows/build.yml') }}
         restore-keys: vcpkg-${{ env.VCPKG_TRIPLET }}-
 
-    # Dependency set as documented in README.md. Note this is without Little CMS2 support, and
-    # vcpkg's ffmpeg port has no feature for libjxl/libdavs2/libuavs3d/libxevd either, so this
-    # build decodes less than the CLANG64 one above.
+    # vcpkg's ffmpeg port has no lcms2 feature, so --enable-lcms2 is patched into the configure
+    # options in place rather than carrying a forked copy of the port. Editing portfile.cmake
+    # changes the port's ABI hash, so the binary cache invalidates on its own instead of serving
+    # an ffmpeg built without it. The substitution is asserted because a silently missed anchor
+    # would just quietly drop ICC profile support again.
+    - name: Enable lcms2 in the vcpkg ffmpeg port
+      run: |
+        $portfile = "$env:VCPKG_INSTALLATION_ROOT\ports\ffmpeg\portfile.cmake"
+        $old = Get-Content -Raw $portfile
+        $new = $old -replace '--disable-autodetect', '--disable-autodetect --enable-lcms2'
+        if ($new -eq $old) { throw "Anchor '--disable-autodetect' not found in $portfile" }
+        [System.IO.File]::WriteAllText($portfile, $new)
+
+    # Dependency set as documented in README.md. vcpkg's ffmpeg port has no feature for
+    # libjxl/libdavs2/libuavs3d/libxevd, so this build still decodes less than the CLANG64 one
+    # above.
     - name: Install dependencies
       # --vcpkg-root is passed explicitly because the developer environment set up above exports
       # VCPKG_ROOT pointing at the vcpkg bundled with Visual Studio, which is not the one being
       # used here. Without it vcpkg warns about the mismatch, and anything that does honour the
       # variable would look in the wrong tree.
       run: |
+        # lcms has to be built before ffmpeg. The patched port does not declare the dependency,
+        # and vcpkg is free to order two unrelated top level packages either way, so the separate
+        # invocation is what makes the order deterministic. --enable-lcms2 goes through
+        # require_pkg_config, so getting this wrong fails the ffmpeg configure loudly.
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET lcms
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
           "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
           xxhash
