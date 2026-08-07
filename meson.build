@@ -89,6 +89,7 @@ if enable_plugin
     sources += files(
         'src/synthshared.cpp',
         'src/vapoursynth.cpp',
+        'src/vsgpuexport.cpp',
     )
 
     # AviSynth+ is entered through a C++ interface rather than a C one, so a build whose C++ ABI

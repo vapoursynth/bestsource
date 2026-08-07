@@ -24,6 +24,12 @@
 #include "bsshared.h"
 #include "version.h"
 #include "synthshared.h"
+#include "vsgpuexport.h"
+/* Compiled against the 4.3 declarations so the GPU entry points exist, while configPlugin still
+   asks for 4.0 so the plugin keeps loading on older cores. Anything added in 4.3 is therefore only
+   touched after checking the running core's version, since on an older one those members are past
+   the end of the struct it handed us. */
+#define VS_USE_API_43
 #include <VapourSynth4.h>
 #include <VSHelper4.h>
 #include <vector>
@@ -50,6 +56,8 @@ static void BSInit() {
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
+    /* Non-null only when the frames are published GPU resident. */
+    std::unique_ptr<BSVSGpuExport> GpuExport;
     int64_t FPSNum = -1;
     int64_t FPSDen = -1;
     bool RFF = false;
@@ -82,6 +90,19 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
             vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core);
             VSVideoFormat AlphaFormat = {};
             vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, Core);
+
+            if (D->GpuExport) {
+                /* The decoder writes the planes on the device and publishes a producer pair, so
+                   nothing here touches pixels and the frame never crosses the bus. */
+                Dst = D->GpuExport->ExportFrame(Src.get(), &VideoFormat, Src->SSModWidth, Src->SSModHeight, Core, vsapi);
+
+                VSMap *GpuProps = vsapi->getFramePropertiesRW(Dst);
+                SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF), D->RotationApplied,
+                    [GpuProps, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(GpuProps, Name, V, maAppend); },
+                    [GpuProps, vsapi](const char *Name, double V) { vsapi->mapSetFloat(GpuProps, Name, V, maAppend); },
+                    [GpuProps, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(GpuProps, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
+                return Dst;
+            }
 
             Dst = vsapi->newVideoFrame(&VideoFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
             uint8_t *DstPtrs[3] = {};
@@ -206,6 +227,25 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     bool ApplyRotation = !!vsapi->mapGetInt(In, "apply_rotation", 0, &err);
     if (err)
         ApplyRotation = true;
+    bool GPUOutput = !!vsapi->mapGetInt(In, "gpu", 0, &err);
+
+    /* Asking the core which GPU it is on has to happen before the source is constructed, because
+       the answer is what pins the decoder to the same one: sharing memory between two Vulkan
+       devices only works when both come from the same physical device. An explicit selector in
+       hwdevice is left alone, and then the identity check in BSVSGpuExport::Create is what catches
+       a mismatch. */
+    std::string HWDeviceStr = HWDevice ? HWDevice : "";
+    if (GPUOutput) {
+        std::string DeviceName, GpuError;
+        if (!BSVSGpuExport::QueryDevice(Core, vsapi, DeviceName, GpuError)) {
+            vsapi->mapSetError(Out, ("VideoSource: gpu output requested but " + GpuError).c_str());
+            return;
+        }
+        if (HWDeviceStr.empty())
+            HWDeviceStr = "vulkan";
+        if (HWDeviceStr.find(':') == std::string::npos)
+            HWDeviceStr += ":" + DeviceName;
+    }
 
     std::map<std::string, std::string> Opts;
     if (vsapi->mapGetInt(In, "enable_drefs", 0, &err))
@@ -256,7 +296,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 return true;
                 };
             try {
-                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
+                D->V.reset(new BestVideoSource(Source, HWDeviceStr, ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
                     D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
@@ -267,7 +307,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             }
         } else {
             try {
-                D->V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+                D->V.reset(new BestVideoSource(Source, HWDeviceStr, ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
             } catch (BestSourceHWDecoderException &) {
                 if (HWFallback) {
                     D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
@@ -280,6 +320,17 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         D->V->SetMaxDecoderInstances(MaxDecoders);
         D->V->SelectFormatSet(VariableFormat);
+
+        if (GPUOutput) {
+            if (D->RFF)
+                throw BestSourceException("rff can't be combined with gpu output, since merging fields is a pixel operation");
+            std::string GpuError;
+            if (!D->V->SetKeepHardwareFrames(true))
+                throw BestSourceException("gpu output needs vulkan hardware decoding with GPU hashing, which isn't available here");
+            D->GpuExport = BSVSGpuExport::Create(D->V.get(), Core, vsapi, GpuError);
+            if (!D->GpuExport)
+                throw BestSourceException("gpu output unavailable: " + GpuError);
+        }
 
         const BSVideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 4)
@@ -327,7 +378,13 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         // Has to be the last thing that can fail while D is still owned here, since a successful
         // call hands D over to the node and the cleanup below would then be a double free.
-        Node = vsapi->createVideoFilter2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
+        /* ffGPUOutput has to match the declared vnode:all residency for this instance, or the core
+           kills the process at the function that lied. */
+        if (D->GpuExport)
+            Node = vsapi->createVideoFilterEx2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered,
+                ffGPUOutput, nullptr, 0, D, Core);
+        else
+            Node = vsapi->createVideoFilter2("VideoSource", &D->VI, BestVideoSourceGetFrame, BestVideoSourceFree, fmUnordered, nullptr, 0, D, Core);
         if (!Node)
             throw BestSourceException("Failed to create filter");
     } catch (const std::exception &e) {
@@ -552,7 +609,9 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;", "clip:vnode;", CreateBestVideoSource, nullptr, plugin);
+    /* vnode:all rather than vnode: the residency depends on the gpu argument, and ":all" is the
+       declaration for a return that is legitimately either, per instance. */
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;gpu:int:opt;", "clip:vnode:all;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;variableformat:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);
