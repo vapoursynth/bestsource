@@ -125,6 +125,17 @@ struct MappedBuffer {
     void *Mapped = nullptr;
 };
 
+/* Mirrors the push constant block in hashexport.comp.glsl. Declared here rather than inside the
+   dispatch so the pipeline layout can size itself with sizeof: a hand written byte count silently
+   stops covering the block the moment a field is added, and a layout that does not cover the whole
+   block makes the shader read garbage rather than fail. Strides and offsets are in samples. */
+struct BSHashExportPushConstants {
+    int32_t LumaW, LumaH, ChromaW, ChromaH;
+    int32_t StrideY, StrideUV;
+    int32_t OffsetY, OffsetU, OffsetV;
+    int32_t ExportShift;
+};
+
 } // namespace
 
 struct BSGpuHasher::Impl {
@@ -145,9 +156,10 @@ struct BSGpuHasher::Impl {
     VkCommandPool CmdPool = VK_NULL_HANDLE;
     VkCommandBuffer Cmd = VK_NULL_HANDLE;
 
-    /* One pipeline per sample size; created on first use of each. */
+    /* One pipeline per sample size and export mode, created on first use. do_export is a
+       specialization constant so the hash only path carries no plane writing code at all. */
     VkShaderModule Module[2] = {};
-    VkPipeline Pipeline[2] = {};
+    VkPipeline Pipeline[2][2] = {};
 
     MappedBuffer Acc, Status, Dummy[3];
 
@@ -159,9 +171,13 @@ struct BSGpuHasher::Impl {
     ~Impl();
     void CreateBuffer(VkDeviceSize Size, MappedBuffer &Out);
     void DestroyBuffer(MappedBuffer &B);
-    VkPipeline GetPipeline(int BytesPerSample);
+    VkPipeline GetPipeline(int BytesPerSample, bool DoExport);
     void LockQueue();
     void UnlockQueue();
+    /* Targets null means hash only. SignalTimeline null means only the frame's own semaphore is
+       signalled. Returns the hash either way, since the export pass computes it in the same read. */
+    uint64_t RunDispatch(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+                         VkSemaphore SignalTimeline, uint64_t SignalValue);
 };
 
 void BSGpuHasher::Impl::CreateBuffer(VkDeviceSize Size, MappedBuffer &Out) {
@@ -205,27 +221,28 @@ void BSGpuHasher::Impl::DestroyBuffer(MappedBuffer &B) {
     B = {};
 }
 
-VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample) {
+VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport) {
     const int Slot = (BytesPerSample == 2) ? 1 : 0;
-    if (Pipeline[Slot])
-        return Pipeline[Slot];
+    const int Mode = DoExport ? 1 : 0;
+    if (Pipeline[Slot][Mode])
+        return Pipeline[Slot][Mode];
 
-    const uint32_t *Code = Slot ? BSHashExportSpv16 : BSHashExportSpv8;
-    const size_t Size = Slot ? sizeof(BSHashExportSpv16) : sizeof(BSHashExportSpv8);
+    if (!Module[Slot]) {
+        const uint32_t *Code = Slot ? BSHashExportSpv16 : BSHashExportSpv8;
+        const size_t Size = Slot ? sizeof(BSHashExportSpv16) : sizeof(BSHashExportSpv8);
 
-    VkShaderModuleCreateInfo SMCI = {};
-    SMCI.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    SMCI.codeSize = Size;
-    SMCI.pCode = Code;
-    VkResult Res = VK.vkCreateShaderModule(Device, &SMCI, HWCtx->alloc, &Module[Slot]);
-    if (Res != VK_SUCCESS)
-        ThrowVk("vkCreateShaderModule", Res);
+        VkShaderModuleCreateInfo SMCI = {};
+        SMCI.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        SMCI.codeSize = Size;
+        SMCI.pCode = Code;
+        VkResult MRes = VK.vkCreateShaderModule(Device, &SMCI, HWCtx->alloc, &Module[Slot]);
+        if (MRes != VK_SUCCESS)
+            ThrowVk("vkCreateShaderModule", MRes);
+    }
 
-    /* do_export = 0. The plane writing half of the shader belongs to GPU frame output, which is
-       a later step; hashing alone is what removes the readback from indexing. */
-    const uint32_t DoExport = 0;
+    const uint32_t DoExportConst = DoExport ? 1u : 0u;
     VkSpecializationMapEntry Entry = { 0, 0, sizeof(uint32_t) };
-    VkSpecializationInfo Spec = { 1, &Entry, sizeof(uint32_t), &DoExport };
+    VkSpecializationInfo Spec = { 1, &Entry, sizeof(uint32_t), &DoExportConst };
 
     VkComputePipelineCreateInfo CPCI = {};
     CPCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -235,10 +252,10 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample) {
     CPCI.stage.pName = "main";
     CPCI.stage.pSpecializationInfo = &Spec;
     CPCI.layout = PipeLayout;
-    Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot]);
+    VkResult Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot][Mode]);
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreateComputePipelines", Res);
-    return Pipeline[Slot];
+    return Pipeline[Slot][Mode];
 }
 
 /* FFmpeg hands out a queue lock because its own submissions share these queues. It is deprecated
@@ -262,8 +279,9 @@ void BSGpuHasher::Impl::UnlockQueue() {
 BSGpuHasher::Impl::~Impl() {
     if (Device) {
         for (int i = 0; i < 2; i++) {
-            if (Pipeline[i])
-                VK.vkDestroyPipeline(Device, Pipeline[i], HWCtx->alloc);
+            for (int m = 0; m < 2; m++)
+                if (Pipeline[i][m])
+                    VK.vkDestroyPipeline(Device, Pipeline[i][m], HWCtx->alloc);
             if (Module[i])
                 VK.vkDestroyShaderModule(Device, Module[i], HWCtx->alloc);
         }
@@ -408,7 +426,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 
     VkPushConstantRange PCR = {};
     PCR.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    PCR.size = 6 * sizeof(int32_t);
+    PCR.size = sizeof(BSHashExportPushConstants);
     VkPipelineLayoutCreateInfo PLCI = {};
     PLCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     PLCI.setLayoutCount = 1;
@@ -438,24 +456,42 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 
 BSGpuHasher::~BSGpuHasher() = default;
 
-uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
-    if (!IsSupportedFrame(Frame))
-        throw BestSourceException("GPU hashing: unsupported frame");
-
-    std::lock_guard<std::mutex> Lock(P->Mutex);
+uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+    VkSemaphore SignalTimeline, uint64_t SignalValue) {
+    Impl *P = this;
+    const bool DoExport = (Targets != nullptr);
 
     AVHWFramesContext *Frames = reinterpret_cast<AVHWFramesContext *>(Frame->hw_frames_ctx->data);
     AVVkFrame *Vkf = reinterpret_cast<AVVkFrame *>(Frame->data[0]);
     const AVPixFmtDescriptor *Desc = av_pix_fmt_desc_get(Frames->sw_format);
-    const int BytesPerSample = (Desc->comp[0].depth > 8) ? 2 : 1;
+    const int Depth = Desc->comp[0].depth;
+    const int BytesPerSample = (Depth > 8) ? 2 : 1;
     const VkFormat *PlaneFmts = av_vkfmt_from_pixfmt(Frames->sw_format);
 
-    struct { int32_t LumaW, LumaH, ChromaW, ChromaH, StrideY, StrideUV; } PC = {
+    BSHashExportPushConstants PC = {
         Frame->width, Frame->height,
         AV_CEIL_RSHIFT(Frame->width, Desc->log2_chroma_w),
         AV_CEIL_RSHIFT(Frame->height, Desc->log2_chroma_h),
-        0, 0
+        0, 0, 0, 0, 0, 0
     };
+
+    if (DoExport) {
+        for (int i = 0; i < 3; i++) {
+            if (Targets[i].Stride % BytesPerSample || Targets[i].Offset % BytesPerSample)
+                throw BestSourceException("GPU export: plane stride and offset must be a whole number of samples");
+        }
+        PC.StrideY = static_cast<int32_t>(Targets[0].Stride / BytesPerSample);
+        PC.StrideUV = static_cast<int32_t>(Targets[1].Stride / BytesPerSample);
+        PC.OffsetY = static_cast<int32_t>(Targets[0].Offset / BytesPerSample);
+        PC.OffsetU = static_cast<int32_t>(Targets[1].Offset / BytesPerSample);
+        PC.OffsetV = static_cast<int32_t>(Targets[2].Offset / BytesPerSample);
+        if (Targets[1].Stride != Targets[2].Stride)
+            throw BestSourceException("GPU export: the two chroma planes must share a stride");
+        /* The P010 family stores samples MSB aligned in a 16 bit container while planar output
+           wants them LSB aligned. libp2p applies the same shift under the name nv_shift, which is
+           what keeps this agreeing with ExportAsPlanar. */
+        PC.ExportShift = (BytesPerSample == 2) ? (16 - Depth) : 0;
+    }
 
     /* Views are created per call. FFmpeg's frame pool recycles a bounded set of images so caching
        them by VkImage would pay off, but a cached view outliving its image after a decoder reset
@@ -499,7 +535,27 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
         }
         P->VK.vkUpdateDescriptorSets(P->Device, 2, Writes, 0, nullptr);
 
-        VkPipeline Pipe = P->GetPipeline(BytesPerSample);
+        /* Destination buffers are bound whole, at offset 0, with the plane offsets carried in the
+           push constants instead. Binding at the plane offset would have to satisfy
+           minStorageBufferOffsetAlignment, which an allocation imported from another device has no
+           reason to meet. */
+        if (DoExport) {
+            VkDescriptorBufferInfo DstInfo[3] = {};
+            VkWriteDescriptorSet DstWrites[3] = {};
+            for (int i = 0; i < 3; i++) {
+                DstInfo[i].buffer = Targets[i].Buffer;
+                DstInfo[i].range = VK_WHOLE_SIZE;
+                DstWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                DstWrites[i].dstSet = P->DescSet;
+                DstWrites[i].dstBinding = 2 + i;
+                DstWrites[i].descriptorCount = 1;
+                DstWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                DstWrites[i].pBufferInfo = &DstInfo[i];
+            }
+            P->VK.vkUpdateDescriptorSets(P->Device, 3, DstWrites, 0, nullptr);
+        }
+
+        VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport);
 
         VkResult Res = P->VK.vkResetCommandPool(P->Device, P->CmdPool, 0);
         if (Res != VK_SUCCESS)
@@ -550,27 +606,55 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
         P->VK.vkCmdDispatch(P->Cmd, (Frame->width + XPerGroup - 1) / XPerGroup,
             (Frame->height + 15) / 16, 2);
 
-        VkBufferMemoryBarrier HostBar = FillBar;
-        HostBar.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        HostBar.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        /* The accumulator has to become host readable; the exported planes have to become visible
+           to whatever reads them next, which may be another device picking them up after the
+           semaphore signal, hence MEMORY_READ rather than anything narrower. */
+        VkBufferMemoryBarrier OutBars[4] = {};
+        uint32_t NumOutBars = 0;
+        OutBars[NumOutBars] = FillBar;
+        OutBars[NumOutBars].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        OutBars[NumOutBars].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        NumOutBars++;
+        if (DoExport) {
+            for (int i = 0; i < 3; i++) {
+                /* Planes commonly share one buffer, so skip the duplicates. */
+                bool Seen = false;
+                for (int j = 0; j < i; j++)
+                    Seen = Seen || (Targets[j].Buffer == Targets[i].Buffer);
+                if (Seen)
+                    continue;
+                OutBars[NumOutBars] = FillBar;
+                OutBars[NumOutBars].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                OutBars[NumOutBars].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+                OutBars[NumOutBars].buffer = Targets[i].Buffer;
+                NumOutBars++;
+            }
+        }
         P->VK.vkCmdPipelineBarrier(P->Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &HostBar, 0, nullptr);
+            VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            0, 0, nullptr, NumOutBars, OutBars, 0, nullptr);
 
         Res = P->VK.vkEndCommandBuffer(P->Cmd);
         if (Res != VK_SUCCESS)
             ThrowVk("vkEndCommandBuffer", Res);
 
-        /* AVVkFrame's timeline contract: wait on sem_value, signal an incremented value. */
+        /* AVVkFrame's timeline contract: wait on sem_value, signal an incremented value. The
+           caller's timeline, when given, is signalled alongside it so a consumer on another device
+           can order its work against this without a host round trip. */
         const uint64_t WaitValue = Vkf->sem_value[0];
-        const uint64_t SignalValue = WaitValue + 1;
+        const uint64_t FrameSignalValue = WaitValue + 1;
         VkPipelineStageFlags WaitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+
+        VkSemaphore SignalSems[2] = { Vkf->sem[0], SignalTimeline };
+        uint64_t SignalValues[2] = { FrameSignalValue, SignalValue };
+        const uint32_t NumSignals = SignalTimeline ? 2u : 1u;
 
         VkTimelineSemaphoreSubmitInfo TL = {};
         TL.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         TL.waitSemaphoreValueCount = 1;
         TL.pWaitSemaphoreValues = &WaitValue;
-        TL.signalSemaphoreValueCount = 1;
-        TL.pSignalSemaphoreValues = &SignalValue;
+        TL.signalSemaphoreValueCount = NumSignals;
+        TL.pSignalSemaphoreValues = SignalValues;
 
         VkSubmitInfo SI = {};
         SI.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -580,8 +664,8 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
         SI.pWaitDstStageMask = &WaitStage;
         SI.commandBufferCount = 1;
         SI.pCommandBuffers = &P->Cmd;
-        SI.signalSemaphoreCount = 1;
-        SI.pSignalSemaphores = &Vkf->sem[0];
+        SI.signalSemaphoreCount = NumSignals;
+        SI.pSignalSemaphores = SignalSems;
 
         P->LockQueue();
         Res = P->VK.vkQueueSubmit(P->Queue, 1, &SI, VK_NULL_HANDLE);
@@ -593,7 +677,7 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
         SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         SWI.semaphoreCount = 1;
         SWI.pSemaphores = &Vkf->sem[0];
-        SWI.pValues = &SignalValue;
+        SWI.pValues = &FrameSignalValue;
         Res = P->VK.vkWaitSemaphores(P->Device, &SWI, UINT64_MAX);
         if (Res != VK_SUCCESS)
             ThrowVk("vkWaitSemaphores", Res);
@@ -603,7 +687,7 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
            transfer path runs on a transfer only queue where SHADER_READ is not a legal access.
            Zero is also correct in its own right, since availability operations exist for writes
            and this pass only reads. */
-        Vkf->sem_value[0] = SignalValue;
+        Vkf->sem_value[0] = FrameSignalValue;
         Vkf->layout[0] = VK_IMAGE_LAYOUT_GENERAL;
         Vkf->access[0] = {};
 
@@ -621,6 +705,23 @@ uint64_t BSGpuHasher::HashFrame(AVFrame *Frame) {
     return Result;
 }
 
+uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
+    if (!IsSupportedFrame(Frame))
+        throw BestSourceException("GPU hashing: unsupported frame");
+    std::lock_guard<std::mutex> Lock(P->Mutex);
+    return P->RunDispatch(Frame, nullptr, VK_NULL_HANDLE, 0);
+}
+
+uint64_t BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+    VkSemaphore SignalTimeline, uint64_t SignalValue) {
+    if (!IsSupportedFrame(Frame))
+        throw BestSourceException("GPU export: unsupported frame");
+    if (!Targets)
+        throw BestSourceException("GPU export: no plane targets");
+    std::lock_guard<std::mutex> Lock(P->Mutex);
+    return P->RunDispatch(Frame, Targets, SignalTimeline, SignalValue);
+}
+
 #else /* !BS_GPU_HASH */
 
 /* Built without vulkan headers or without glslangValidator. Constructing one is an error rather
@@ -635,7 +736,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *) {
 
 BSGpuHasher::~BSGpuHasher() = default;
 
-uint64_t BSGpuHasher::HashFrame(AVFrame *) {
+uint64_t BSGpuHasher::HashFrame(const AVFrame *) {
     throw BestSourceException("GPU hashing was not compiled into this build");
 }
 

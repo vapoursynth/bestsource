@@ -22,10 +22,36 @@
 #define BSGPUHASH_H
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
+
+/* The GPU frame export API is typed in terms of Vulkan objects, so it only exists in a build that
+   has the headers. The class itself is declared either way so BestVideoSource holds the same
+   members regardless, and adding a member function does not change its layout. */
+#if BS_GPU_HASH
+#include <vulkan/vulkan.h>
+#endif
 
 struct AVBufferRef;
 struct AVFrame;
+
+#if BS_GPU_HASH
+/* Where one exported plane goes.
+ *
+ * Buffer must live on the device BSGpuHasher was constructed with. It is NOT a handle from another
+ * device: Vulkan handles are per VkDevice, and a VkBuffer from another device is meaningless here
+ * even when both devices come from the same VkPhysicalDevice. To send frames to another device the
+ * caller exports that device's allocation as an OS handle, imports it into this one with
+ * vkAllocateMemory, and creates a VkBuffer here bound to the imported memory.
+ *
+ * Planes usually share a single allocation, since an imported allocation is imported whole and
+ * addressed by offset, so the same Buffer with three different Offsets is the expected case. */
+struct BSGpuPlaneTarget {
+    VkBuffer Buffer;
+    uint64_t Offset;  /* bytes from the start of Buffer */
+    ptrdiff_t Stride; /* bytes */
+};
+#endif
 
 /*
 Hashes Vulkan resident frames on the GPU, so hardware decoding does not have to read every frame
@@ -61,7 +87,25 @@ public:
        until the GPU has finished, then returns the hash. Also advances the frame's timeline
        semaphore and updates its layout and access bookkeeping, which is the caller's
        responsibility once an image has been transitioned. */
-    [[nodiscard]] uint64_t HashFrame(AVFrame *Frame);
+    [[nodiscard]] uint64_t HashFrame(const AVFrame *Frame);
+
+#if BS_GPU_HASH
+    /* Writes the frame's planes into Targets in VapourSynth's planar layout -- the interleaved
+       chroma of an nv12/p010 decode output split into separate U and V planes, and the P010 family
+       shifted from MSB to LSB alignment -- and returns the same hash HashFrame would.
+       Both happen in one pass over the image, so the hash costs no additional bandwidth.
+
+       Targets must have three entries, in Y U V order.
+
+       SignalTimeline, when not VK_NULL_HANDLE, is signalled with SignalValue once the export
+       completes, in addition to the frame's own semaphore. That is what lets a consumer on another
+       device wait on the device rather than on the host; pass the semaphore it imported for this.
+
+       Still blocks until the GPU is done, because the hash has to be read back to be returned. The
+       signal is useful anyway: it is what the consumer's later work orders against. */
+    [[nodiscard]] uint64_t ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+        VkSemaphore SignalTimeline, uint64_t SignalValue);
+#endif
 
     /* Whether the frame's format and residency are something HashFrame can handle. */
     [[nodiscard]] static bool IsSupportedFrame(const AVFrame *Frame);

@@ -97,6 +97,22 @@ layout (push_constant, scalar) uniform Push {
     ivec2 chroma_size;    /* in samples, per component */
     int   dst_stride_y;   /* in samples, not bytes */
     int   dst_stride_uv;
+    /* Where each plane starts, in samples. Planes commonly share one allocation -- when the
+     * destination memory is imported from another device it is imported whole and addressed by
+     * offset -- and carrying the offset here rather than in VkDescriptorBufferInfo avoids having
+     * to satisfy minStorageBufferOffsetAlignment, which a foreign allocation's plane offsets have
+     * no reason to meet. */
+    int   dst_offset_y;
+    int   dst_offset_u;
+    int   dst_offset_v;
+    /* Bits to shift right when writing the export planes. The P010/P012 family stores its samples
+     * MSB aligned in a 16 bit container, while planar output wants them LSB aligned, so this is
+     * 16 - depth for those and 0 otherwise. libp2p calls the same quantity nv_shift and applies it
+     * identically, which is what keeps this agreeing with ExportAsPlanar.
+     *
+     * Deliberately applied only to the exported samples and never to the hash, which stays defined
+     * on the stored bits so that it does not depend on the output format. */
+    int   export_shift;
 } pc;
 
 /* NOTE: nothing position-dependent may enter the hash -- no frame number, no PTS. SeekAndDecode
@@ -171,11 +187,14 @@ void main()
 
         if (do_export != 0 && status.failed == 0u) {
             if (plane == 0) {
-                dst_y.data[pos.y * pc.dst_stride_y + pos.x] = sample_t(texel.x);
+                dst_y.data[pc.dst_offset_y + pos.y * pc.dst_stride_y + pos.x] =
+                    sample_t(texel.x >> pc.export_shift);
             } else {
                 /* The split that makes this a shader and not a copy command. */
-                dst_u.data[pos.y * pc.dst_stride_uv + pos.x] = sample_t(texel.x);
-                dst_v.data[pos.y * pc.dst_stride_uv + pos.x] = sample_t(texel.y);
+                dst_u.data[pc.dst_offset_u + pos.y * pc.dst_stride_uv + pos.x] =
+                    sample_t(texel.x >> pc.export_shift);
+                dst_v.data[pc.dst_offset_v + pos.y * pc.dst_stride_uv + pos.x] =
+                    sample_t(texel.y >> pc.export_shift);
             }
         }
     }
