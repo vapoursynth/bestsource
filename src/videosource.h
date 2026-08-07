@@ -109,6 +109,8 @@ struct BSVideoProperties : public LWVideoProperties {
     bool TFF;
 };
 
+class BSGpuHasher;
+
 class LWVideoDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
@@ -125,13 +127,38 @@ private:
     bool IsLayered = false;
     std::vector<LWVideoProperties::ViewIDInfo> ViewIDs;
 
-    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts);
+    BSGpuHasher *GpuHasher = nullptr; /* Borrowed, owned by BestVideoSource */
+    bool DiscardPixels = false;
+    uint64_t LastGpuHash = 0;
+    bool LastGpuHashValid = false;
+
+    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
 public:
-    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    /* SharedHWDevice, when non-null, is used instead of creating a device of this decoder's own.
+       Several decoder instances are kept alive at once and a device per instance would mean their
+       frames live on different devices, which makes them mutually unusable and multiplies VRAM
+       use by the decoder count. */
+    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
+    [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
+
+    /* Hashes hardware frames on the GPU while they are still resident, so the frame never has to
+       be read back purely to identify it. Borrowed; must outlive the decoder. */
+    void SetGpuHasher(BSGpuHasher *Hasher);
+
+    /* Indexing discards the pixels immediately after hashing them, so with a GPU hash there is no
+       reason to pay for the transfer at all. The frame handed back by GetNextFrame() is then the
+       hardware frame itself and only its properties are meaningful. */
+    void SetDiscardPixels(bool Discard);
+
+    /* Valid for the frame most recently returned by GetNextFrame(), and only when that frame was
+       hashed on the GPU. Callers must use this in preference to hashing the returned AVFrame:
+       once any hash in an index came from the GPU they all have to. */
+    [[nodiscard]] bool HasGpuHash() const;
+    [[nodiscard]] uint64_t GetLastGpuHash() const;
     [[nodiscard]] int64_t GetSourceSize() const;
     [[nodiscard]] int64_t GetSourcePosition() const;
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
@@ -297,6 +324,10 @@ private:
     uint64_t DecoderSequenceNum = 0;
     uint64_t DecoderLastUse[MaxVideoDecoders] = {};
     std::unique_ptr<LWVideoDecoder> Decoders[MaxVideoDecoders];
+    /* Adopted from the first decoder and handed to every later one, so all decoder instances put
+       their frames on the same device. Also what the GPU hasher is built on. */
+    AVBufferRef *SharedHWDeviceContext = nullptr;
+    std::unique_ptr<BSGpuHasher> GpuHasher;
     int64_t PreRoll = 20;
     int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
@@ -312,6 +343,8 @@ private:
     void InitializeFormatSets();
 public:
     BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
+    ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
     void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to */

@@ -102,6 +102,7 @@ jobs:
           cmake:p
           dav1d:p
           git:p
+          glslang:p
           lcms2:p
           libjxl:p
           libxml2:p
@@ -161,7 +162,7 @@ jobs:
 
     - name: Build
       run: |
-        uv build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static" -Csetup-args="-Denable_avisynth=false"
+        uv build -Csetup-args="-Dprefer_static=true" -Csetup-args="-Db_lto=true" -Csetup-args="-Dcpp_link_args=-static" -Csetup-args="-Denable_avisynth=false" -Csetup-args="-Denable_gpu_hash=enabled"
 
     - name: Fix tag and strip dll
       run: |
@@ -250,6 +251,9 @@ jobs:
           "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
           xxhash
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET pkgconf
+        # glslangValidator compiles the GPU hashing shader. enable_gpu_hash is an auto feature, so
+        # without this the GPU path silently is not built and would rot untested.
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET "glslang[tools]"
 
     # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
     # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
@@ -259,7 +263,10 @@ jobs:
       run: |
         $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\pkgconf\pkgconf.exe"
         $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\lib\pkgconfig"
-        meson setup build -Denable_plugin=true -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
+        $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\glslang;$env:PATH"
+        # enable_gpu_hash is requested rather than left on auto so a missing glslangValidator or
+        # missing vulkan headers fails the build instead of quietly dropping the feature.
+        meson setup build -Denable_plugin=true -Denable_gpu_hash=enabled -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
         meson compile -C build
 
     - uses: actions/upload-artifact@v7

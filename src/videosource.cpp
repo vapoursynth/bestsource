@@ -19,6 +19,7 @@
 //  THE SOFTWARE.
 
 #include "videosource.h"
+#include "gpuhash.h"
 #include "version.h"
 #include <algorithm>
 #include <thread>
@@ -34,6 +35,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/opt.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/stereo3d.h>
 #include <libavutil/display.h>
@@ -115,9 +117,26 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
         if (Ret == 0) {
             if (HWMode) {
                 if (!SkipOutput) {
-                    if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
-                        return false;
-                    av_frame_copy_props(DecodeFrame, HWFrame);
+                    /* Hash first, while the frame is still device resident. Doing it here rather
+                       than at the call sites means every consumer of a hash gets the same one
+                       whether or not the pixels were also transferred. */
+                    LastGpuHashValid = false;
+                    if (GpuHasher && BSGpuHasher::IsSupportedFrame(HWFrame)) {
+                        LastGpuHash = GpuHasher->HashFrame(HWFrame);
+                        LastGpuHashValid = true;
+                    }
+
+                    if (DiscardPixels && LastGpuHashValid) {
+                        /* Nothing will read the pixels, so skip the readback and move the
+                           hardware frame across instead. Properties, dimensions and the frames
+                           context all come along, which is everything indexing looks at. */
+                        av_frame_unref(DecodeFrame);
+                        av_frame_move_ref(DecodeFrame, HWFrame);
+                    } else {
+                        if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
+                            return false;
+                        av_frame_copy_props(DecodeFrame, HWFrame);
+                    }
                 }
             }
             return true;
@@ -136,7 +155,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     TrackNumber = Track;
 
     AVHWDeviceType Type = AV_HWDEVICE_TYPE_NONE;
@@ -144,6 +163,14 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
         Type = av_hwdevice_find_type_by_name(HWDeviceName.c_str());
         if (Type == AV_HWDEVICE_TYPE_NONE)
             throw BestSourceException("Unknown HW device: " + HWDeviceName);
+        /* Vulkan is the only supported backend. Every other one would need its own path to get
+           frames out of device memory and several cannot avoid a full readback per frame at all,
+           so supporting them and eliminating readbacks are mutually exclusive. A recognized but
+           unsupported backend is a HW decoder exception rather than a plain one, so hwfallback
+           treats it like a decoder that cannot do hardware decoding instead of failing outright.
+           A name that is not a device type at all stays a hard error since that is a typo. */
+        if (Type != AV_HWDEVICE_TYPE_VULKAN)
+            throw BestSourceHWDecoderException("Only vulkan is supported for hardware decoding, got " + HWDeviceName);
     }
 
     HWMode = (Type != AV_HWDEVICE_TYPE_NONE);
@@ -252,8 +279,19 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     if (HWMode) {
         CodecContext->extra_hw_frames = ExtraHWFrames;
         CodecContext->pix_fmt = hw_pix_fmt;
-        if (av_hwdevice_ctx_create(&HWDeviceContext, Type, nullptr, nullptr, 0) < 0)
-            throw BestSourceException("Failed to create specified HW device");
+        if (SharedHWDevice) {
+            HWDeviceContext = av_buffer_ref(SharedHWDevice);
+            if (!HWDeviceContext)
+                throw BestSourceException("Couldn't reference the shared HW device");
+        } else {
+            /* Also a HW decoder exception: with vulkan the only backend there is no other device to
+               fall back to, so a build without vulkan support or a driver that cannot provide one has
+               to degrade to CPU decoding rather than fail the whole source. Note that
+               av_hwdevice_find_type_by_name matches against an unconditional name table, so "vulkan"
+               resolves even in an FFmpeg built without it and only fails here. */
+            if (av_hwdevice_ctx_create(&HWDeviceContext, Type, nullptr, nullptr, 0) < 0)
+                throw BestSourceHWDecoderException("Failed to create a vulkan HW device, it may be missing from this FFmpeg build or unsupported by the installed drivers");
+        }
         CodecContext->hw_device_ctx = av_buffer_ref(HWDeviceContext);
 
         HWFrame = av_frame_alloc();
@@ -297,14 +335,42 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, const std
     }
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, ViewID, Threads, LAVFOpts);
+        OpenFile(SourceFile, HWDeviceName, ExtraHWFrames, Track, ViewID, Threads, LAVFOpts, SharedHWDevice);
     } catch (...) {
         Free();
         throw;
     }
+}
+
+AVBufferRef *LWVideoDecoder::GetHWDeviceContext() const {
+    return HWDeviceContext;
+}
+
+void LWVideoDecoder::SetGpuHasher(BSGpuHasher *Hasher) {
+    GpuHasher = HWMode ? Hasher : nullptr;
+}
+
+void LWVideoDecoder::SetDiscardPixels(bool Discard) {
+    DiscardPixels = Discard;
+}
+
+bool LWVideoDecoder::HasGpuHash() const {
+    return LastGpuHashValid;
+}
+
+uint64_t LWVideoDecoder::GetLastGpuHash() const {
+    return LastGpuHash;
+}
+
+BestVideoSource::~BestVideoSource() {
+    /* The hasher holds its own reference to the device, but it also owns Vulkan objects created
+       from it, so it has to go first. */
+    GpuHasher.reset();
+    /* Decoders hold their own references too; this only drops the one adopted from the first. */
+    av_buffer_unref(&SharedHWDeviceContext);
 }
 
 void LWVideoDecoder::Free() {
@@ -864,6 +930,31 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
     return Result;
 }
 
+/* Hardware frames report AV_PIX_FMT_VULKAN, whose descriptor is a placeholder with no components,
+   so anything that wants to know what the pixels actually are has to go through the frames
+   context instead. */
+static AVPixelFormat GetEffectivePixelFormat(const AVFrame *Frame) {
+    if (Frame->format == AV_PIX_FMT_VULKAN && Frame->hw_frames_ctx)
+        return reinterpret_cast<const AVHWFramesContext *>(Frame->hw_frames_ctx->data)->sw_format;
+    return static_cast<AVPixelFormat>(Frame->format);
+}
+
+/* Prefers the hash the decoder already computed on the GPU. This must be used everywhere a frame
+   is hashed for comparison against the index, because the two algorithms are different by design
+   and an index is written entirely with one or entirely with the other. Frames that were also
+   transferred still use the GPU hash, so seek identification and linear verification agree with
+   what indexing wrote. */
+static std::array<uint8_t, HashSize> HashDecodedFrame(const LWVideoDecoder *Decoder, const AVFrame *Frame) {
+    if (Decoder && Decoder->HasGpuHash()) {
+        std::array<uint8_t, HashSize> Result;
+        const uint64_t GpuHash = Decoder->GetLastGpuHash();
+        static_assert(sizeof(Result) == sizeof(GpuHash));
+        memcpy(Result.data(), &GpuHash, sizeof(GpuHash));
+        return Result;
+    }
+    return GetHash(Frame);
+}
+
 BestVideoSource::Cache::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Frame) : FrameNumber(FrameNumber), Frame(Frame) {
     for (int i = 0; i < AV_NUM_DATA_POINTERS; i++)
         if (Frame->buf[i])
@@ -958,7 +1049,27 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, const 
     if (ViewID < 0)
         throw BestSourceException("ViewID must be 0 or greater");
 
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+
+    /* The first decoder creates the device, which keeps all the hardware decoder error handling
+       and the hwfallback path in one place, and every later decoder is handed the same one. */
+    if (Decoder->GetHWDeviceContext()) {
+        SharedHWDeviceContext = av_buffer_ref(Decoder->GetHWDeviceContext());
+        if (!SharedHWDeviceContext)
+            throw BestSourceException("Couldn't reference the HW device");
+
+        /* Optional by design. A driver or build that cannot support it simply means frames are
+           hashed on the CPU as before, at the cost of a readback per frame. */
+        try {
+            GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
+            BSDebugPrint("GPU frame hashing enabled");
+        } catch (const BestSourceException &e) {
+            GpuHasher.reset();
+            BSDebugPrint(std::string("GPU frame hashing unavailable, falling back to CPU hashing: ") + e.what());
+        }
+
+        Decoder->SetGpuHasher(GpuHasher.get());
+    }
 
     Decoder->GetVideoProperties(VP);
     VideoTrack = Decoder->GetTrack();
@@ -1080,7 +1191,12 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+    Decoder->SetGpuHasher(GpuHasher.get());
+    /* Indexing looks at nothing but frame properties and the hash, so with a GPU hash the whole
+       readback can go. This is the pass that most obviously does not need it: every frame is
+       transferred and then immediately freed. */
+    Decoder->SetDiscardPixels(true);
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
@@ -1104,7 +1220,7 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
         HasKeyFrames = HasKeyFrames || !!(F->flags & AV_FRAME_FLAG_KEY);
         if (TrackIndex.Frames.size() < 100)
             HasEarlyKeyFrames = HasKeyFrames;
-        TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), F->format, F->width, F->height, GetHash(F) });
+        TrackIndex.Frames.push_back({ F->pts, F->repeat_pict, !!(F->flags & AV_FRAME_FLAG_KEY), !!(F->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST), GetEffectivePixelFormat(F), F->width, F->height, HashDecodedFrame(Decoder.get(), F) });
         TrackIndex.LastFrameDuration = F->duration;
 
         av_frame_free(&F);
@@ -1234,8 +1350,10 @@ namespace {
             Data.clear();
         }
 
-        void push_back(AVFrame *F) {
-            Data.push_back(std::make_pair(F, GetHash(F)));
+        /* The hash is passed in rather than computed here so that hardware frames use the one the
+           decoder already produced on the GPU. */
+        void push_back(AVFrame *F, const std::array<uint8_t, HashSize> &Hash) {
+            Data.push_back(std::make_pair(F, Hash));
         }
 
         [[nodiscard]] size_t size() {
@@ -1296,7 +1414,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
         std::set<int64_t> Matches;
 
         if (F) {
-            MatchFrames.push_back(F);
+            MatchFrames.push_back(F, HashDecodedFrame(Decoder.get(), F));
 
             for (size_t i = 0; i <= TrackIndex.Frames.size() - MatchFrames.size(); i++) {
                 bool HashMatch = true;
@@ -1424,7 +1542,8 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
     if (!Decoders[Index])
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index]->SetGpuHasher(GpuHasher.get());
 
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
@@ -1449,7 +1568,8 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
         Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions));
+        Decoders[Index].reset(new LWVideoDecoder(Source, HWDevice, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index]->SetGpuHasher(GpuHasher.get());
     }
 
     std::unique_ptr<LWVideoDecoder> &Decoder = Decoders[Index];
@@ -1466,7 +1586,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
             // when a decoder has successfully seeked and had its location identified but
             // still returns frames out of order. Possibly open gop related but hard to tell.
 
-            if (!Frame || TrackIndex.Frames[FrameNumber].Hash != GetHash(Frame)) {
+            if (!Frame || TrackIndex.Frames[FrameNumber].Hash != HashDecodedFrame(Decoder.get(), Frame)) {
                 av_frame_free(&Frame);
 
                 if (Decoder->HasSeeked()) {
@@ -1720,6 +1840,10 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
     WriteInt(F, ViewID);
     WriteString(F, HWDevice);
     WriteInt(F, ExtraHWFrames);
+    /* Which hash the stored per frame hashes were produced with. The GPU hash is a different
+       algorithm to the CPU XXH3 and deliberately so, since the two are never compared against
+       each other, but an index written by one must not be read back by the other. */
+    WriteInt(F, GpuHasher ? 1 : 0);
 
     WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
@@ -1806,6 +1930,8 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         if (!ReadCompareString(F, HWDevice))
             return false;
         if (!ReadCompareInt(F, ExtraHWFrames))
+            return false;
+        if (!ReadCompareInt(F, GpuHasher ? 1 : 0))
             return false;
 
         int LAVFOptCount = ReadInt(F);
