@@ -277,7 +277,21 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
 
     if (HWMode) {
         CodecContext->extra_hw_frames = ExtraHWFrames;
-        CodecContext->pix_fmt = hw_pix_fmt;
+        /* Hardware decoding has to be selected through the get_format callback: presetting
+           pix_fmt happens to work for the h264/hevc decoders, but the av1 decoder only ever
+           considers a hwaccel when the callback picks it from the offered list and otherwise
+           fails every frame with "Your platform doesn't support hardware accelerated AV1
+           decoding". The callback returning NONE when the wanted format is not offered makes
+           the decode fail rather than silently continue on the CPU, which is what routes an
+           undecodable profile into the same CPU fallback as every other hardware failure. */
+        CodecContext->opaque = reinterpret_cast<void *>(static_cast<intptr_t>(hw_pix_fmt));
+        CodecContext->get_format = [](AVCodecContext *Ctx, const enum AVPixelFormat *PixFmts) {
+            const AVPixelFormat Wanted = static_cast<AVPixelFormat>(reinterpret_cast<intptr_t>(Ctx->opaque));
+            for (const enum AVPixelFormat *p = PixFmts; *p != AV_PIX_FMT_NONE; p++)
+                if (*p == Wanted)
+                    return *p;
+            return AV_PIX_FMT_NONE;
+        };
         if (SharedHWDevice) {
             HWDeviceContext = av_buffer_ref(SharedHWDevice);
             if (!HWDeviceContext)
@@ -1149,6 +1163,23 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
     if (ViewID < 0)
         throw BestSourceException("ViewID must be 0 or greater");
 
+    /* Throwing out of a constructor never runs the destructor, so the device reference adopted
+       below has to be released by hand on the way out. This is not a corner case: gpufallback
+       opens every file the GPU cannot decode exactly this way, and each leaked reference keeps its
+       vulkan device alive for the rest of the process. The driver stops handing out new ones after
+       a handful, at which point every later source reports that the device could not be created
+       and silently decodes on the CPU instead. Dismissed on the last line, once the destructor
+       becomes responsible for it. */
+    struct DeviceGuard {
+        BestVideoSource *Self;
+        ~DeviceGuard() {
+            if (!Self)
+                return;
+            Self->GpuHasher.reset();
+            av_buffer_unref(&Self->SharedHWDeviceContext);
+        }
+    } Guard{ this };
+
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
 
     /* The first decoder creates the device, which keeps all the hardware decoder error handling
@@ -1290,6 +1321,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         VP.FPS = OriginalFPS;
 
     Decoders[0] = std::move(Decoder);
+
+    Guard.Self = nullptr;
 }
 
 int BestVideoSource::GetTrack() const {
