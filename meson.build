@@ -45,7 +45,8 @@ glslang = find_program('glslangValidator', 'glslang', required: gpu_hash_opt)
 # Checked against libavutil rather than bare: the vulkan headers normally arrive through the same
 # include path as FFmpeg rather than being on the compiler's default search path, and hwcontext_
 # vulkan.h includes them, so that is the path that actually matters.
-has_vulkan_headers = meson.get_compiler('cpp').has_header('vulkan/vulkan.h', dependencies: libavutil_dep)
+cc = meson.get_compiler('cpp')
+has_vulkan_headers = cc.has_header('vulkan/vulkan.h', dependencies: libavutil_dep)
 
 if gpu_hash_opt.enabled() and not has_vulkan_headers
     error('enable_gpu_hash was requested but vulkan/vulkan.h was not found')
@@ -84,6 +85,16 @@ if enable_gpu_hash
 endif
 
 if enable_plugin
+    # VSVulkan4.h is written against Vulkan 1.4: it declares VS_VULKAN_API_VERSION as
+    # VK_API_VERSION_1_4 and names vkMapMemory2/vkUnmapMemory2, which are core only from 1.4 having
+    # been promoted out of VK_KHR_map_memory2. Older headers fail several levels deep inside the
+    # macro that builds the function pointer table, which says nothing about the real problem, so
+    # the version is checked up front. Only the plugin includes that header; a library only build
+    # with GPU hashing is happy with older ones.
+    if enable_gpu_hash and not cc.has_header_symbol('vulkan/vulkan.h', 'VK_API_VERSION_1_4', dependencies: libavutil_dep)
+        error('The VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
+    endif
+
     # Bundled rather than taken from vs.get_include(), because the GPU frame path needs the API 4.3
     # declarations and the VapourSynth wheel still ships 4.2. A stale VSVulkan4.h is not a link
     # error either: it declares the same VS_VULKAN_API_VERSION with its members in a different
@@ -110,7 +121,7 @@ if enable_plugin
     endif
 endif
 
-if meson.get_compiler('cpp').get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
+if cc.get_linker_id() in ['ld.bfd', 'ld.gold', 'ld.mold']
     link_args += '-Wl,-Bsymbolic'
 endif
 

@@ -33,23 +33,31 @@ jobs:
         # A platform specific value replaces the generic one outright, hence the repeated b_lto.
         CIBW_CONFIG_SETTINGS_LINUX: setup-args="-Db_lto=true" setup-args="-Denable_gpu_hash=enabled"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
-        # vulkan-headers is packaged on both, but glslang only on Alpine, so manylinux builds it.
-        # The manylinux image is AlmaLinux 8, which has no glslang in BaseOS, AppStream or EPEL,
-        # and no prebuilt Khronos release covers aarch64. ENABLE_OPT=OFF is what lets cmake
-        # configure without first running update_glslang_sources.py to fetch SPIRV-Tools, which is
-        # only needed for spirv-opt. That build installs the binary as 'glslang' with a
-        # glslangValidator symlink, while Alpine's package installs only glslangValidator, which
-        # is why meson.build accepts either name.
+        # The vulkan headers come from source on both images because VSVulkan4.h is written against
+        # Vulkan 1.4 -- vkMapMemory2 and vkUnmapMemory2 are only core there, having been promoted
+        # from VK_KHR_map_memory2 -- and both distros still package 1.3.x. Headers only, so this
+        # is a configure and an install with nothing to compile. The loader package stays: it is
+        # what provides vulkan.pc for ffmpeg's --enable-vulkan check.
+        # glslang is packaged on Alpine but not on AlmaLinux 8, which has it in neither BaseOS,
+        # AppStream nor EPEL, and no prebuilt Khronos release covers aarch64. ENABLE_OPT=OFF is
+        # what lets cmake configure without first running update_glslang_sources.py to fetch
+        # SPIRV-Tools, which is only needed for spirv-opt. That build installs the binary as
+        # 'glslang' with a glslangValidator symlink, while Alpine's package installs only
+        # glslangValidator, which is why meson.build accepts either name.
         CIBW_BEFORE_ALL_LINUX: >
           if command -v dnf >/dev/null 2>&1; then
-            dnf -y install cmake libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-headers vulkan-loader-devel xxhash-devel &&
+            dnf -y install cmake libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
             git clone https://github.com/KhronosGroup/glslang.git --depth 1 &&
             cmake -S glslang -B glslang/build -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/usr &&
             cmake --build glslang/build --target install -j$(nproc) &&
             rm -rf glslang
           else
-            apk add --no-cache glslang libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-headers vulkan-loader-dev xxhash-dev
+            apk add --no-cache cmake glslang libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-loader-dev xxhash-dev
           fi &&
+          git clone https://github.com/KhronosGroup/Vulkan-Headers.git --depth 1 &&
+          cmake -S Vulkan-Headers -B Vulkan-Headers/build -DCMAKE_INSTALL_PREFIX=/usr &&
+          cmake --install Vulkan-Headers/build &&
+          rm -rf Vulkan-Headers &&
           git clone https://github.com/videolan/dav1d.git --depth 1 &&
           cd dav1d &&
           meson setup build -Dprefix=/usr -Denable_tools=false -Denable_tests=false &&

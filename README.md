@@ -15,7 +15,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 Optional, and only needed for *gpu*:
 
-- Vulkan headers, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build.
+- Vulkan headers, 1.4 or newer, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build. Distributions often still package 1.3.x, which is too old, since the VapourSynth GPU frame API uses entry points that only became core in 1.4.
 - `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the frame hashing shader to SPIR-V.
 
 Both are picked up automatically. Pass `-Denable_gpu_hash=enabled` to make a missing one fail the build rather than quietly drop GPU decoding.
