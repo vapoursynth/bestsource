@@ -13,10 +13,22 @@ It can be used as either a C++ library directly or through the combined VapourSy
 - FFmpeg 8.1.x and FFmpeg 8.0.x supported. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
 - xxHash
 
+Optional, and only needed for *gpu*:
+
+- Vulkan headers, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build.
+- `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the frame hashing shader to SPIR-V.
+
+Both are picked up automatically. Pass `-Denable_gpu_hash=enabled` to make a missing one fail the build rather than quietly drop GPU decoding.
+
+Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
+
+The VapourSynth headers are bundled in `include/vapoursynth` rather than taken from the installed VapourSynth, because GPU frames need API 4.3 and the released headers are still 4.2. See the README there; this is temporary.
+
 ### Windows Compilation
 
-On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]:x64-windows-static` and `xxhash:x64-windows-static`. Do however note that this is without Little CMS2 support.
+On Windows the easiest way to compile the the dependencies is to use [vcpkg](https://vcpkg.io) to install `ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,vulkan,openssl,xml2]:x64-windows-static`, `vulkan-headers:x64-windows-static` and `xxhash:x64-windows-static`. Do however note that this is without Little CMS2 support.
 Use the latest version of Visual Studio. It should automatically find all the required libraries if you used vcpkg.
+For GPU decoding also install `glslang[tools]:x64-windows-static` and put its `tools/glslang` directory on `PATH` so `glslangValidator` is found.
 
 ### Linux and MacOS Compilation
 

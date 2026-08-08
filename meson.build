@@ -39,7 +39,9 @@ cpp_args = []
 # resolved through AVVulkanDeviceContext::get_proc_addr at runtime, so FFmpeg's loader is always
 # the one used.
 gpu_hash_opt = get_option('enable_gpu_hash')
-glslang = find_program('glslangValidator', required: gpu_hash_opt)
+# Both names are accepted because upstream glslang renamed the binary to 'glslang' and distros are
+# split on which one they ship, with the old name only sometimes kept as a compatibility symlink.
+glslang = find_program('glslangValidator', 'glslang', required: gpu_hash_opt)
 # Checked against libavutil rather than bare: the vulkan headers normally arrive through the same
 # include path as FFmpeg rather than being on the compiler's default search path, and hwcontext_
 # vulkan.h includes them, so that is the path that actually matters.
@@ -82,9 +84,13 @@ if enable_gpu_hash
 endif
 
 if enable_plugin
-    incdir += include_directories(
-        run_command(py, '-c', 'import vapoursynth as vs; print(vs.get_include())', check: true).stdout().strip(),
-    )
+    # Bundled rather than taken from vs.get_include(), because the GPU frame path needs the API 4.3
+    # declarations and the VapourSynth wheel still ships 4.2. A stale VSVulkan4.h is not a link
+    # error either: it declares the same VS_VULKAN_API_VERSION with its members in a different
+    # order, so the plugin builds and then calls through the wrong offsets. See
+    # include/vapoursynth/README.md; this goes back to vs.get_include() once a release ships the
+    # GPU API.
+    incdir += include_directories('include/vapoursynth')
 
     sources += files(
         'src/synthshared.cpp',

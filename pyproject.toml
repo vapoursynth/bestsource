@@ -1,5 +1,7 @@
 [build-system]
-requires = ["meson-python", "VapourSynth>=74"]
+# VapourSynth is not a build requirement: the headers are vendored in include/vapoursynth rather
+# than queried from vs.get_include(). Put it back here if that directory ever goes away.
+requires = ["meson-python"]
 build-backend = "mesonpy"
 
 [project]

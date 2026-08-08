@@ -27,12 +27,17 @@ jobs:
         CIBW_BUILD: cp314-*
         CIBW_BUILD_FRONTEND: uv
         CIBW_CONFIG_SETTINGS: setup-args="-Db_lto=true"
+        # Linux is the only cibuildwheel target that can do GPU decoding, so it is the only one
+        # that demands the feature rather than leaving it on auto -- a missing glslang or missing
+        # vulkan headers should fail here rather than silently ship a wheel without the GPU path.
+        # A platform specific value replaces the generic one outright, hence the repeated b_lto.
+        CIBW_CONFIG_SETTINGS_LINUX: setup-args="-Db_lto=true" setup-args="-Denable_gpu_hash=enabled"
         CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=15
         CIBW_BEFORE_ALL_LINUX: >
           if command -v dnf >/dev/null 2>&1; then
-            dnf -y install libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel
+            dnf -y install glslang libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-headers vulkan-loader-devel xxhash-devel
           else
-            apk add --no-cache libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-loader-dev xxhash-dev
+            apk add --no-cache glslang libjpeg-turbo-dev libjxl-dev libxml2-dev meson nasm opus-dev tiff-dev vulkan-headers vulkan-loader-dev xxhash-dev
           fi &&
           git clone https://github.com/videolan/dav1d.git --depth 1 &&
           cd dav1d &&
@@ -48,19 +53,16 @@ jobs:
           meson install -C build &&
           cd .. &&
           rm -rf Little-CMS &&
-          git clone https://github.com/FFmpeg/nv-codec-headers.git --depth 1 &&
-          cd nv-codec-headers &&
-          make -j$(nproc) &&
-          make install -j$(nproc) &&
-          cd .. &&
-          rm -rf nv-codec-headers &&
           git clone https://github.com/FFmpeg/FFmpeg.git --branch n9.0 --depth 1 &&
           cd FFmpeg &&
-          ./configure --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libjxl --enable-libopus --enable-libxml2 --disable-nvenc --enable-pic --disable-debug &&
+          ./configure --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libjxl --enable-libopus --enable-libxml2 --enable-vulkan --enable-pic --disable-debug &&
           make -j$(nproc) &&
           make install -j$(nproc) &&
           cd .. &&
           rm -rf FFmpeg
+        # No vulkan headers or glslang here on purpose. MoltenVK does not implement
+        # VK_KHR_video_decode_queue, so the GPU path could not work at runtime on macOS, and
+        # forcing --enable-vulkan would only risk failing the configure for nothing.
         CIBW_BEFORE_ALL_MACOS: >
           brew install dav1d jpeg-xl libxml2 little-cms2 nasm opus vulkan-loader xxhash &&
           git clone https://github.com/FFmpeg/FFmpeg.git --branch n9.0 --depth 1 &&
@@ -124,14 +126,6 @@ jobs:
         popd
         rm -rf davs2
 
-    - name: Install nv-codec-headers
-      run: |
-        git clone https://github.com/FFmpeg/nv-codec-headers.git --depth 1
-        pushd nv-codec-headers
-        make install -j$(nproc) PREFIX=/clang64
-        popd
-        rm -rf nv-codec-headers
-
     - name: Install uavs3d
       run: |
         git clone https://github.com/uavs3/uavs3d.git --depth 1
@@ -155,7 +149,7 @@ jobs:
       run: |
         git clone https://github.com/FFmpeg/FFmpeg.git --branch n9.0 --depth 1
         pushd FFmpeg
-        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libdavs2 --enable-libjxl --enable-libopus --enable-libuavs3d --enable-libxevd --enable-libxml2 --disable-nvenc --cc=clang --cxx=clang++ --pkg-config-flags=--static --enable-pic --disable-debug
+        ./configure --prefix=/clang64 --enable-gpl --enable-version3 --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-avfilter --disable-encoders --disable-muxers --enable-lcms2 --enable-libdav1d --enable-libdavs2 --enable-libjxl --enable-libopus --enable-libuavs3d --enable-libxevd --enable-libxml2 --enable-vulkan --cc=clang --cxx=clang++ --pkg-config-flags=--static --enable-pic --disable-debug
         make install -j$(nproc)
         popd
         rm -rf FFmpeg
@@ -196,8 +190,9 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    # The VapourSynth wheel is limited-API (cp312-abi3), so any Python >= 3.12 can import it
-    # for the vs.get_include() lookup in meson.build.
+    # Python is needed for meson itself and for tools/spv2c.py, which turns the compiled shaders
+    # into a header. The VapourSynth package is deliberately not installed: the headers are
+    # vendored in include/vapoursynth, see the README there.
     - uses: actions/setup-python@v6
       with:
         python-version: '3.14'
@@ -207,7 +202,7 @@ jobs:
         arch: x64
 
     - name: Install build tools
-      run: pip install meson ninja vapoursynth
+      run: pip install meson ninja
 
     - name: Prepare vcpkg binary cache
       run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE
@@ -247,9 +242,12 @@ jobs:
         # invocation is what makes the order deterministic. --enable-lcms2 goes through
         # require_pkg_config, so getting this wrong fails the ffmpeg configure loudly.
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET lcms
+        # vulkan-headers is listed on its own as well as through ffmpeg's vulkan feature, because
+        # meson probes for vulkan/vulkan.h directly and the GPU path needs it whether or not
+        # ffmpeg's feature happens to keep pulling it in.
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
-          "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,nvcodec,qsv,vulkan,openssl,xml2]" `
-          xxhash
+          "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,vulkan,openssl,xml2]" `
+          vulkan-headers xxhash
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET pkgconf
         # glslangValidator compiles the GPU hashing shader. enable_gpu_hash is an auto feature, so
         # without this the GPU path silently is not built and would rot untested.
