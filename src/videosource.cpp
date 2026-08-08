@@ -256,13 +256,10 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
         throw BestSourceException("Could not copy video codec parameters");
 
     if (Threads < 1) {
-        int HardwareConcurrency = std::thread::hardware_concurrency();
-        if (Type != AV_HWDEVICE_TYPE_CUDA)
-            Threads = std::min(HardwareConcurrency, 16);
-        else if (CodecContext->codec_id == AV_CODEC_ID_H264)
-            Threads = 1;
-        else
-            Threads = std::min(HardwareConcurrency, 2);
+        /* Zero when the count can't be determined, which is what FFmpeg reads as "decide for me",
+           so it is deliberately passed through rather than clamped to one. */
+        const int HardwareConcurrency = std::thread::hardware_concurrency();
+        Threads = std::min(HardwareConcurrency, 16);
     }
     CodecContext->thread_count = Threads;
 
