@@ -664,6 +664,7 @@ BestVideoFrame::BestVideoFrame(AVFrame *F) {
 BestVideoFrame::~BestVideoFrame() {
     av_frame_free(&Frame);
     av_frame_free(&CPUFrame);
+    av_frame_free(&FieldSrcFrame);
     av_freep(&HDR10Plus);
 }
 
@@ -673,6 +674,51 @@ const AVFrame *BestVideoFrame::GetAVFrame() const {
 
 bool BestVideoFrame::IsGPUResident() const {
     return Frame->format == AV_PIX_FMT_VULKAN;
+}
+
+bool BestVideoFrame::HasPendingFieldMerge() const {
+    return FieldSrcFrame != nullptr;
+}
+
+/* Frame keeps whichever parity FieldSrcFrame does not supply. FieldSrcIsTop means the donor
+   supplies the top field, which is the even rows. */
+const AVFrame *BestVideoFrame::GetEvenRowsAVFrame() const {
+    return FieldSrcIsTop ? FieldSrcFrame : Frame;
+}
+
+const AVFrame *BestVideoFrame::GetOddRowsAVFrame() const {
+    return FieldSrcIsTop ? Frame : FieldSrcFrame;
+}
+
+/* Copies the rows of FieldSrc with the selected parity over the same rows of Dst. Both have to be
+   addressable and writable; the caller owns that. Factored out because the merge happens either in
+   MergeField, on two frames as decoded, or later on two readbacks when the decode was device
+   resident and MergeField could only record it. */
+static void MergeFieldInto(AVFrame *Dst, const AVFrame *FieldSrc, bool Top) {
+    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Dst->format));
+
+    for (int Plane = 0; Plane < 4; Plane++) {
+        uint8_t *DstData = Dst->data[Plane];
+        int DstLineSize = Dst->linesize[Plane];
+        uint8_t *SrcData = FieldSrc->data[Plane];
+        int SrcLineSize = FieldSrc->linesize[Plane];
+        int MinLineSize = std::min(SrcLineSize, DstLineSize);
+
+        if (!Top) {
+            DstData += DstLineSize;
+            SrcData += SrcLineSize;
+        }
+
+        int PlaneHeight = Dst->height;
+        if (Plane == 1 || Plane == 2)
+            PlaneHeight >>= Desc->log2_chroma_h;
+
+        for (int h = Top ? 0 : 1; h < PlaneHeight; h += 2) {
+            memcpy(DstData, SrcData, MinLineSize);
+            DstData += 2 * DstLineSize;
+            SrcData += 2 * SrcLineSize;
+        }
+    }
 }
 
 /* Reads the frame back on first use and keeps the copy, so a consumer that asks for pixels more
@@ -691,46 +737,58 @@ const AVFrame *BestVideoFrame::GetCPUFrame() const {
         throw BestSourceException("Failed to transfer frame from the GPU");
     }
     av_frame_copy_props(CPUFrame, Frame);
+
+    /* A merge MergeField could not perform on the device. Both sides come back and the interleave
+       happens on the readback, which is ours alone and therefore safe to write. Two transfers is
+       the price of RFF without a GPU consumer, and it is still what CPU decoding would have cost. */
+    if (FieldSrcFrame) {
+        AVFrame *Donor = av_frame_alloc();
+        if (!Donor) {
+            av_frame_free(&CPUFrame);
+            throw BestSourceException("Couldn't allocate frame");
+        }
+        if (av_hwframe_transfer_data(Donor, FieldSrcFrame, 0) < 0) {
+            av_frame_free(&Donor);
+            av_frame_free(&CPUFrame);
+            throw BestSourceException("Failed to transfer frame from the GPU");
+        }
+        MergeFieldInto(CPUFrame, Donor, FieldSrcIsTop);
+        av_frame_free(&Donor);
+    }
+
     return CPUFrame;
 }
 
 void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
-    /* Interleaving rows is a pixel operation, and on a hardware frame av_frame_make_writable would
-       force a device to device copy before a memcpy that cannot address the result anyway. RFF and
-       GPU residency are mutually exclusive until this becomes a Vulkan pass. */
-    if (IsGPUResident() || AFieldSrc->IsGPUResident())
-        throw BestSourceException("RFF can't be combined with GPU resident frames");
+    if (IsGPUResident() != AFieldSrc->IsGPUResident())
+        throw BestSourceException("Merged frames must both be device resident or neither");
 
     const AVFrame *FieldSrc = AFieldSrc->GetAVFrame();
     if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
         throw BestSourceException("Merged frames must have same format");
+
+    if (IsGPUResident()) {
+        /* Nothing is written here. Interleaving rows into Frame would mean writing into an image
+           from FFmpeg's frame pool, which the decoder and every other holder of that frame still
+           see, so the merge is recorded and performed by whoever asks for the pixels: two dispatches
+           into the destination for a GPU consumer, or two readbacks for a CPU one. Holding a
+           reference is what keeps the donor's image alive until then, and it is why RFF needs one
+           more hardware frame in flight than plain decoding. */
+        if (FieldSrcFrame)
+            throw BestSourceException("Only one field can be merged into a frame");
+        FieldSrcFrame = av_frame_clone(FieldSrc);
+        if (!FieldSrcFrame)
+            throw BestSourceException("Couldn't reference the field source frame");
+        FieldSrcIsTop = Top;
+        /* A readback taken before the merge was recorded would be missing it. */
+        av_frame_free(&CPUFrame);
+        return;
+    }
+
     if (av_frame_make_writable(Frame) < 0)
         throw BestSourceException("Failed to make AVFrame writable");
 
-    auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Frame->format));
-
-    for (int Plane = 0; Plane < 4; Plane++) {
-        uint8_t *DstData = Frame->data[Plane];
-        int DstLineSize = Frame->linesize[Plane];
-        uint8_t *SrcData = FieldSrc->data[Plane];
-        int SrcLineSize = FieldSrc->linesize[Plane];
-        int MinLineSize = std::min(SrcLineSize, DstLineSize);
-
-        if (!Top) {
-            DstData += DstLineSize;
-            SrcData += SrcLineSize;
-        }
-
-        int PlaneHeight = Frame->height;
-        if (Plane == 1 || Plane == 2)
-            PlaneHeight >>= Desc->log2_chroma_h;
-
-        for (int h = Top ? 0 : 1; h < PlaneHeight; h += 2) {
-            memcpy(DstData, SrcData, MinLineSize);
-            DstData += 2 * DstLineSize;
-            SrcData += 2 * SrcLineSize;
-        }
-    }
+    MergeFieldInto(Frame, FieldSrc, Top);
 }
 
 static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
@@ -1127,8 +1185,18 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
     FileSize = Decoder->GetSourceSize();
 
     if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
-        if (!IndexTrack(Progress))
-            throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed, if gpu is set this may also be an indication that GPU decoding is unsupported");
+        if (!IndexTrack(Progress)) {
+            /* On a GPU source this is nearly always the driver refusing the codec profile rather
+               than a broken file: avcodec_open2 accepts the codec, and only the first decode call
+               discovers that this particular chroma subsampling or bit depth has no video decode
+               profile. Thrown as a hardware decoder exception so it reaches the same fallback as
+               every other way GPU decoding turns out to be impossible, instead of failing a script
+               that asked to fall back. */
+            const std::string What = "Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed";
+            if (GPU)
+                throw BestSourceHWDecoderException(What + ", which usually means the GPU can't decode this track");
+            throw BestSourceException(What);
+        }
 
         if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
             if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
@@ -1603,9 +1671,10 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
     }
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-    if (!Decoders[Index])
+    if (!Decoders[Index]) {
         Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
         Decoders[Index]->SetGpuHasher(GpuHasher.get());
+    }
 
     DecoderLastUse[Index] = DecoderSequenceNum++;
 

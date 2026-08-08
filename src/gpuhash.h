@@ -92,23 +92,41 @@ public:
 #if BS_GPU_HASH
     /* Writes the frame's planes into Targets in VapourSynth's planar layout -- the interleaved
        chroma of an nv12/p010 decode output split into separate U and V planes, and the P010 family
-       shifted from MSB to LSB alignment -- and returns the same hash HashFrame would.
-       Both happen in one pass over the image, so the hash costs no additional bandwidth.
+       shifted from MSB to LSB alignment.
 
        Targets must have three entries, in Y U V order.
+
+       Deliberately does not hash: every frame is hashed by HashFrame at decode time, before anything
+       can ask for its pixels, so a hash computed here would be a value nobody reads.
 
        SignalTimeline, when not VK_NULL_HANDLE, is signalled with SignalValue once the export
        completes, in addition to the frame's own semaphore. That is what lets a consumer on another
        device wait on the device rather than on the host; pass the semaphore it imported for this.
 
-       Still blocks until the GPU is done, because the hash has to be read back to be returned. The
-       signal is useful anyway: it is what the consumer's later work orders against. */
-    [[nodiscard]] uint64_t ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+       Still blocks until the GPU is done, because the image views this creates cannot be destroyed
+       before the dispatch that reads them has finished. The signal is what the consumer's later work
+       orders against regardless. */
+    void ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
         VkSemaphore SignalTimeline, uint64_t SignalValue);
+
+    /* The RFF form: writes the even rows of the output from EvenRows and the odd rows from OddRows,
+       which is what MergeField produces on the CPU. The two frames must agree on format and size.
+
+       One submission, two dispatches, writing disjoint rows of the same destination. Neither source
+       is modified, which is the point -- on a device resident frame the images belong to FFmpeg's
+       pool and merging into one of them would corrupt it for every other holder. */
+    void ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
+        const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue);
 #endif
 
     /* Whether the frame's format and residency are something HashFrame can handle. */
     [[nodiscard]] static bool IsSupportedFrame(const AVFrame *Frame);
+
+    /* The format half of that test, for a software pixel format on its own. Lets a caller reject a
+       source before decoding rather than discovering it one frame at a time, which is the difference
+       between falling back to the CPU and failing halfway through a script. Takes an int so the
+       header does not drag in libavutil; pass an AVPixelFormat. */
+    [[nodiscard]] static bool IsSupportedSwFormat(int PixelFormat);
 
 private:
     struct Impl;

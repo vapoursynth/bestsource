@@ -57,10 +57,16 @@ public:
     static bool QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &DeviceName, std::string &Error);
 
     /* Returns nullptr with Error set when GPU output cannot be used -- no Vulkan API in this core,
-       no export support on the device, or the decoder did not land on the same physical device.
-       All of those are reasons to fall back to CPU frames rather than to fail. */
-    static std::unique_ptr<BSVSGpuExport> Create(BestVideoSource *Source, VSCore *Core,
-        const VSAPI *vsapi, std::string &Error);
+       no export support on the device, the decoder did not land on the same physical device, or the
+       track holds a format the export pass cannot write. All of those are reasons to fall back to
+       CPU frames rather than to fail.
+
+       VariableFormat is the format set the caller will select, or -1 for all of them, and decides
+       which formats have to be exportable. Checking that here rather than per frame is what keeps a
+       format the shader cannot handle from surfacing after the node exists, at which point falling
+       back is no longer possible. */
+    static std::unique_ptr<BSVSGpuExport> Create(BestVideoSource *Source, int VariableFormat,
+        VSCore *Core, const VSAPI *vsapi, std::string &Error);
 
     ~BSVSGpuExport();
     BSVSGpuExport(const BSVSGpuExport &) = delete;

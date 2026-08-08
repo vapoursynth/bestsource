@@ -309,13 +309,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? DeviceSelector : std::string(), ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
             };
 
-        /* rff is refused outright rather than falling back, because it is a contradiction in the
-           call rather than something the machine cannot do: gpufallback is about hardware being
-           unavailable, and silently ignoring one of two incompatible arguments would hide a
-           mistake in the script. */
-        if (GPU && D->RFF)
-            throw BestSourceException("rff can't be combined with gpu decoding, since merging fields is a pixel operation");
-
         try {
             MakeSource(GPU);
         } catch (BestSourceHWDecoderException &) {
@@ -328,7 +321,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (GPU) {
             std::string GpuError;
-            D->GpuExport = BSVSGpuExport::Create(D->V.get(), Core, vsapi, GpuError);
+            D->GpuExport = BSVSGpuExport::Create(D->V.get(), VariableFormat, Core, vsapi, GpuError);
             if (!D->GpuExport) {
                 if (!GPUFallback)
                     throw BestSourceException("gpu decoding unavailable: " + GpuError);

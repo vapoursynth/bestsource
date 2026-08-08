@@ -177,6 +177,12 @@ private:
     /* Only used when Frame is hardware resident: the readback, made on demand so that a consumer
        which never touches the pixels never pays for one. */
     mutable AVFrame *CPUFrame = nullptr;
+    /* Set by MergeField on a device resident frame, where the merge cannot be done by writing into
+       Frame: the image belongs to FFmpeg's pool and every other holder of it would see the result.
+       The merge is deferred to whoever consumes the pixels instead -- ExportGPUFields does it in the
+       shader, GetCPUFrame does it on the readback. */
+    AVFrame *FieldSrcFrame = nullptr;
+    bool FieldSrcIsTop = false;
     [[nodiscard]] const AVFrame *GetCPUFrame() const;
 public:
     BestVideoFrame(AVFrame *Frame);
@@ -187,6 +193,11 @@ public:
        the device. Use IsGPUResident() before assuming the pixels are addressable. */
     [[nodiscard]] const AVFrame *GetAVFrame() const;
     [[nodiscard]] bool IsGPUResident() const;
+    /* Whether MergeField deferred a field merge, and the two frames it has to be made from, in
+       output row order. Both are hardware resident when this returns true. */
+    [[nodiscard]] bool HasPendingFieldMerge() const;
+    [[nodiscard]] const AVFrame *GetEvenRowsAVFrame() const;
+    [[nodiscard]] const AVFrame *GetOddRowsAVFrame() const;
     void MergeField(bool Top, const BestVideoFrame *FieldSrc); // Useful for RFF and other such things where fields from multiple decoded frames need to be combined, retains original frame's properties
     /* Transfers the frame back from the device first if it is GPU resident, so this keeps working
        unchanged for consumers that want pixels in memory. */

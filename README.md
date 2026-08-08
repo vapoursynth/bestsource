@@ -117,7 +117,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *cachesize*: Maximum internal cache size in MB.
 
-*gpufallback*: Decode on the CPU when *gpu* was asked for but isn't possible, whether because the core is too old, the driver can't decode the codec, the device can't share memory, or the decoder ends up on a different graphics card than VapourSynth. On by default, and it does nothing unless *gpu* is set. VapourSynth only.
+*gpufallback*: Decode on the CPU when *gpu* was asked for but isn't possible, whether because the core is too old, the driver can't decode the codec or that codec's chroma subsampling, the format can't be exported, the device can't share memory, or the decoder ends up on a different graphics card than VapourSynth. On by default, and it does nothing unless *gpu* is set. VapourSynth only.
 
 **With this enabled the returned clip's frames may be either GPU resident or not, and handling that is up to you.** A script that unconditionally feeds the clip to a filter taking GPU frames will fail on a machine that fell back. Either check the residency and branch, or pass `gpufallback=False` so that anything preventing GPU decoding is an error instead and the residency is whatever you asked for. Note that falling back means the file is indexed for CPU decoding, since the index records which decoder wrote it.
 
@@ -137,7 +137,11 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 The frames are written directly into VapourSynth's own GPU memory by the decoder and never travel over the bus. They can be fed to any filter taking a GPU clip, and `std.GPUDownload` brings them back to memory.
 
-There is deliberately no mode that decodes on the graphics card and reads the frames back: anything that wants pixels in memory is better off decoding on the CPU, which gets them there without the round trip. Can't be combined with *rff*, because merging fields is a pixel operation, and that combination is an error regardless of *gpufallback* since it is a contradiction in the call rather than something the machine can't do.
+There is deliberately no mode that decodes on the graphics card and reads the frames back: anything that wants pixels in memory is better off decoding on the CPU, which gets them there without the round trip.
+
+Every argument works with this, *rff* included. RFF interleaves the two fields of two decoded frames, which is done in the export shader rather than by writing into one of them, so it costs an extra hardware frame in flight and nothing else. Raise *extrahwframes* if a file using RFF runs out.
+
+Only the formats FFmpeg's Vulkan decoder produces can be output, which in practice means 4:2:0 and 4:2:2 at 8 to 12 bits. Anything else, monochrome included, is rejected when the source is opened rather than partway through a script, so *gpufallback* can still act on it.
 
 What happens when GPU decoding isn't possible at all depends on *gpufallback*, which is on by default, so the returned frames are only guaranteed to be GPU resident when *gpufallback* is also turned off.
 

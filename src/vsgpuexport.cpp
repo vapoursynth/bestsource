@@ -50,6 +50,7 @@
 extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vulkan.h>
+#include <libavutil/pixdesc.h>
 }
 
 namespace {
@@ -314,8 +315,8 @@ bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &D
     return true;
 }
 
-std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, VSCore *Core,
-    const VSAPI *vsapi, std::string &Error) {
+std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, int VariableFormat,
+    VSCore *Core, const VSAPI *vsapi, std::string &Error) {
     std::unique_ptr<BSVSGpuExport> Self(new BSVSGpuExport());
     Impl *P = Self->P.get();
 
@@ -332,6 +333,32 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, VS
     if (!P->Hasher || !Source->GetHWDeviceContext()) {
         Error = "the source isn't using vulkan hardware decoding with GPU hashing";
         return nullptr;
+    }
+
+    /* Every format the track contains is checked here rather than per frame, because a frame time
+       refusal comes after the node exists, where falling back to CPU decoding is no longer an
+       option and a script simply fails partway through. The index already lists every format set
+       the track holds, so a variable format file is covered as well as a constant one. */
+    const auto &FormatSets = Source->GetFormatSets();
+    for (size_t i = 0; i < FormatSets.size(); i++) {
+        /* A specific selection drops every other format, so only that one has to be exportable. */
+        if (VariableFormat >= 0 && static_cast<size_t>(VariableFormat) != i)
+            continue;
+        const auto &Set = FormatSets[i];
+        if (!BSGpuHasher::IsSupportedSwFormat(Set.Format)) {
+            Error = std::string("the decoder produces ") +
+                (av_get_pix_fmt_name(static_cast<AVPixelFormat>(Set.Format)) ?
+                    av_get_pix_fmt_name(static_cast<AVPixelFormat>(Set.Format)) : "an unnamed format") +
+                ", and only two plane semi-planar formats can be exported";
+            return nullptr;
+        }
+        /* The export shader writes three planes and nothing else, so anything that is not YUV is
+           out. Alpha has no representation in a two plane decode output, so a format claiming it
+           would mean the plane count assumption is wrong somewhere upstream. */
+        if (Set.VF.ColorFamily != 3 || Set.VF.Alpha) {
+            Error = "only three plane YUV output can be exported to the GPU";
+            return nullptr;
+        }
     }
     if (!P->VkAPI) {
         Error = "this VapourSynth core has no Vulkan API";
@@ -479,7 +506,14 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
         }
 
         const uint64_t SignalValue = ++P->SignalCounter;
-        (void)P->Hasher->ExportAsPlanarGPU(Src->GetAVFrame(), Targets, P->ImportedTimeline, SignalValue);
+        if (Src->HasPendingFieldMerge()) {
+            /* RFF. MergeField could not write into either decoded image, so the interleave happens
+               here instead: one dispatch per source frame, each writing its own parity of rows. */
+            P->Hasher->ExportMergedFieldsAsPlanarGPU(Src->GetEvenRowsAVFrame(), Src->GetOddRowsAVFrame(),
+                Targets, P->ImportedTimeline, SignalValue);
+        } else {
+            P->Hasher->ExportAsPlanarGPU(Src->GetAVFrame(), Targets, P->ImportedTimeline, SignalValue);
+        }
 
         /* Every plane is produced by the same submission, so they share the pair. Each takes its
            own reference to the timeline, which is what lets this object release its reference in
@@ -501,7 +535,7 @@ bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, std::string &, std::str
     return false;
 }
 
-std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, VSCore *, const VSAPI *, std::string &Error) {
+std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, VSCore *, const VSAPI *, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
     return nullptr;
 }

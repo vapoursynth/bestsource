@@ -134,7 +134,20 @@ struct BSHashExportPushConstants {
     int32_t StrideY, StrideUV;
     int32_t OffsetY, OffsetU, OffsetV;
     int32_t ExportShift;
+    int32_t RowOffset, RowStep;
 };
+
+/* One frame feeding one dispatch, and which rows of the output it supplies. A whole frame is
+   (0, 1); a field merge is two of these, (0, 2) and (1, 2). */
+struct DispatchSource {
+    const AVFrame *Frame;
+    int32_t RowOffset;
+    int32_t RowStep;
+};
+
+/* RFF merges two frames and nothing merges more, so every array here is sized for that rather than
+   being a vector. */
+constexpr int MaxDispatchSources = 2;
 
 } // namespace
 
@@ -151,15 +164,19 @@ struct BSGpuHasher::Impl {
 
     VkDescriptorSetLayout SetLayout = VK_NULL_HANDLE;
     VkDescriptorPool DescPool = VK_NULL_HANDLE;
-    VkDescriptorSet DescSet = VK_NULL_HANDLE;
+    /* One per possible source frame. A merge binds a different image pair per dispatch, and a
+       descriptor set cannot be rewritten between two dispatches already recorded into the same
+       command buffer, so the sets have to be distinct rather than reused. */
+    VkDescriptorSet DescSet[MaxDispatchSources] = {};
     VkPipelineLayout PipeLayout = VK_NULL_HANDLE;
     VkCommandPool CmdPool = VK_NULL_HANDLE;
     VkCommandBuffer Cmd = VK_NULL_HANDLE;
 
-    /* One pipeline per sample size and export mode, created on first use. do_export is a
-       specialization constant so the hash only path carries no plane writing code at all. */
+    /* One pipeline per sample size, export mode and hash mode, created on first use. Both modes are
+       specialization constants, so the hash only path carries no plane writing code and the export
+       only path carries no hashing code at all. */
     VkShaderModule Module[2] = {};
-    VkPipeline Pipeline[2][2] = {};
+    VkPipeline Pipeline[2][2][2] = {};
 
     MappedBuffer Acc, Status, Dummy[3];
 
@@ -171,12 +188,14 @@ struct BSGpuHasher::Impl {
     ~Impl();
     void CreateBuffer(VkDeviceSize Size, MappedBuffer &Out);
     void DestroyBuffer(MappedBuffer &B);
-    VkPipeline GetPipeline(int BytesPerSample, bool DoExport);
+    VkPipeline GetPipeline(int BytesPerSample, bool DoExport, bool DoHash);
     void LockQueue();
     void UnlockQueue();
-    /* Targets null means hash only. SignalTimeline null means only the frame's own semaphore is
-       signalled. Returns the hash either way, since the export pass computes it in the same read. */
-    uint64_t RunDispatch(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+    /* Targets null means hash only. SignalTimeline null means only the frames' own semaphores are
+       signalled. Returns the hash, which is only meaningful with a single whole frame source --
+       hashing is off for every other shape, and the result is then zero. */
+    uint64_t RunDispatch(const DispatchSource *Sources, int NumSources,
+                         const BSGpuPlaneTarget *Targets, bool DoHash,
                          VkSemaphore SignalTimeline, uint64_t SignalValue);
 };
 
@@ -221,11 +240,12 @@ void BSGpuHasher::Impl::DestroyBuffer(MappedBuffer &B) {
     B = {};
 }
 
-VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport) {
+VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport, bool DoHash) {
     const int Slot = (BytesPerSample == 2) ? 1 : 0;
     const int Mode = DoExport ? 1 : 0;
-    if (Pipeline[Slot][Mode])
-        return Pipeline[Slot][Mode];
+    const int Hash = DoHash ? 1 : 0;
+    if (Pipeline[Slot][Mode][Hash])
+        return Pipeline[Slot][Mode][Hash];
 
     if (!Module[Slot]) {
         const uint32_t *Code = Slot ? BSHashExportSpv16 : BSHashExportSpv8;
@@ -240,9 +260,12 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport) {
             ThrowVk("vkCreateShaderModule", MRes);
     }
 
-    const uint32_t DoExportConst = DoExport ? 1u : 0u;
-    VkSpecializationMapEntry Entry = { 0, 0, sizeof(uint32_t) };
-    VkSpecializationInfo Spec = { 1, &Entry, sizeof(uint32_t), &DoExportConst };
+    const uint32_t Consts[2] = { DoExport ? 1u : 0u, DoHash ? 1u : 0u };
+    VkSpecializationMapEntry Entries[2] = {
+        { 0, 0, sizeof(uint32_t) },
+        { 1, sizeof(uint32_t), sizeof(uint32_t) },
+    };
+    VkSpecializationInfo Spec = { 2, Entries, sizeof(Consts), Consts };
 
     VkComputePipelineCreateInfo CPCI = {};
     CPCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -252,10 +275,10 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport) {
     CPCI.stage.pName = "main";
     CPCI.stage.pSpecializationInfo = &Spec;
     CPCI.layout = PipeLayout;
-    VkResult Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot][Mode]);
+    VkResult Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot][Mode][Hash]);
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreateComputePipelines", Res);
-    return Pipeline[Slot][Mode];
+    return Pipeline[Slot][Mode][Hash];
 }
 
 /* FFmpeg hands out a queue lock because its own submissions share these queues. It is deprecated
@@ -280,8 +303,9 @@ BSGpuHasher::Impl::~Impl() {
     if (Device) {
         for (int i = 0; i < 2; i++) {
             for (int m = 0; m < 2; m++)
-                if (Pipeline[i][m])
-                    VK.vkDestroyPipeline(Device, Pipeline[i][m], HWCtx->alloc);
+                for (int h = 0; h < 2; h++)
+                    if (Pipeline[i][m][h])
+                        VK.vkDestroyPipeline(Device, Pipeline[i][m][h], HWCtx->alloc);
             if (Module[i])
                 VK.vkDestroyShaderModule(Device, Module[i], HWCtx->alloc);
         }
@@ -301,15 +325,20 @@ BSGpuHasher::Impl::~Impl() {
     av_buffer_unref(&DeviceRef);
 }
 
+bool BSGpuHasher::IsSupportedSwFormat(int PixelFormat) {
+    const AVPixelFormat Fmt = static_cast<AVPixelFormat>(PixelFormat);
+    if (av_pix_fmt_count_planes(Fmt) != 2)
+        return false;
+    const VkFormat *PlaneFmts = av_vkfmt_from_pixfmt(Fmt);
+    return PlaneFmts && UintViewFormat(PlaneFmts[0]) != VK_FORMAT_UNDEFINED &&
+        UintViewFormat(PlaneFmts[1]) != VK_FORMAT_UNDEFINED;
+}
+
 bool BSGpuHasher::IsSupportedFrame(const AVFrame *Frame) {
     if (!Frame || Frame->format != AV_PIX_FMT_VULKAN || !Frame->hw_frames_ctx)
         return false;
     const AVHWFramesContext *Frames = reinterpret_cast<const AVHWFramesContext *>(Frame->hw_frames_ctx->data);
-    if (av_pix_fmt_count_planes(Frames->sw_format) != 2)
-        return false;
-    const VkFormat *PlaneFmts = av_vkfmt_from_pixfmt(Frames->sw_format);
-    return PlaneFmts && UintViewFormat(PlaneFmts[0]) != VK_FORMAT_UNDEFINED &&
-        UintViewFormat(PlaneFmts[1]) != VK_FORMAT_UNDEFINED;
+    return IsSupportedSwFormat(Frames->sw_format);
 }
 
 BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
@@ -387,42 +416,48 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
         ThrowVk("vkCreateDescriptorSetLayout", Res);
 
     VkDescriptorPoolSize PoolSizes[2] = {
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * MaxDispatchSources },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5 * MaxDispatchSources },
     };
     VkDescriptorPoolCreateInfo DPCI = {};
     DPCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    DPCI.maxSets = 1;
+    DPCI.maxSets = MaxDispatchSources;
     DPCI.poolSizeCount = 2;
     DPCI.pPoolSizes = PoolSizes;
     Res = P->VK.vkCreateDescriptorPool(P->Device, &DPCI, P->HWCtx->alloc, &P->DescPool);
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreateDescriptorPool", Res);
 
+    VkDescriptorSetLayout SetLayouts[MaxDispatchSources];
+    for (auto &L : SetLayouts)
+        L = P->SetLayout;
     VkDescriptorSetAllocateInfo DSAI = {};
     DSAI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     DSAI.descriptorPool = P->DescPool;
-    DSAI.descriptorSetCount = 1;
-    DSAI.pSetLayouts = &P->SetLayout;
-    Res = P->VK.vkAllocateDescriptorSets(P->Device, &DSAI, &P->DescSet);
+    DSAI.descriptorSetCount = MaxDispatchSources;
+    DSAI.pSetLayouts = SetLayouts;
+    Res = P->VK.vkAllocateDescriptorSets(P->Device, &DSAI, P->DescSet);
     if (Res != VK_SUCCESS)
         ThrowVk("vkAllocateDescriptorSets", Res);
 
-    /* The buffer half of the descriptor set never changes; only the two images do, per frame. */
+    /* The buffer half of every descriptor set never changes; only the two images do, per frame. */
     VkBuffer BufOrder[5] = { P->Dummy[0].Buffer, P->Dummy[1].Buffer, P->Dummy[2].Buffer, P->Acc.Buffer, P->Status.Buffer };
     VkDescriptorBufferInfo BufInfo[5] = {};
-    VkWriteDescriptorSet Writes[5] = {};
+    VkWriteDescriptorSet Writes[5 * MaxDispatchSources] = {};
     for (int i = 0; i < 5; i++) {
         BufInfo[i].buffer = BufOrder[i];
         BufInfo[i].range = VK_WHOLE_SIZE;
-        Writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        Writes[i].dstSet = P->DescSet;
-        Writes[i].dstBinding = i + 2;
-        Writes[i].descriptorCount = 1;
-        Writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        Writes[i].pBufferInfo = &BufInfo[i];
+        for (int s = 0; s < MaxDispatchSources; s++) {
+            VkWriteDescriptorSet &W = Writes[s * 5 + i];
+            W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            W.dstSet = P->DescSet[s];
+            W.dstBinding = i + 2;
+            W.descriptorCount = 1;
+            W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            W.pBufferInfo = &BufInfo[i];
+        }
     }
-    P->VK.vkUpdateDescriptorSets(P->Device, 5, Writes, 0, nullptr);
+    P->VK.vkUpdateDescriptorSets(P->Device, 5 * MaxDispatchSources, Writes, 0, nullptr);
 
     VkPushConstantRange PCR = {};
     PCR.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -456,23 +491,39 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 
 BSGpuHasher::~BSGpuHasher() = default;
 
-uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSources,
+    const BSGpuPlaneTarget *Targets, bool DoHash,
     VkSemaphore SignalTimeline, uint64_t SignalValue) {
     Impl *P = this;
     const bool DoExport = (Targets != nullptr);
+    const AVFrame *Frame = Sources[0].Frame;
 
     AVHWFramesContext *Frames = reinterpret_cast<AVHWFramesContext *>(Frame->hw_frames_ctx->data);
-    AVVkFrame *Vkf = reinterpret_cast<AVVkFrame *>(Frame->data[0]);
     const AVPixFmtDescriptor *Desc = av_pix_fmt_desc_get(Frames->sw_format);
     const int Depth = Desc->comp[0].depth;
     const int BytesPerSample = (Depth > 8) ? 2 : 1;
     const VkFormat *PlaneFmts = av_vkfmt_from_pixfmt(Frames->sw_format);
 
+    /* Every source writes into one destination, so they have to agree on geometry. Distinct images
+       matter too: the submission below waits on and signals each source's timeline once, and doing
+       that twice for the same semaphore in one submit is not a legal thing to ask for. */
+    AVVkFrame *Vkf[MaxDispatchSources] = {};
+    for (int s = 0; s < NumSources; s++) {
+        const AVFrame *F = Sources[s].Frame;
+        const AVHWFramesContext *FC = reinterpret_cast<const AVHWFramesContext *>(F->hw_frames_ctx->data);
+        if (F->width != Frame->width || F->height != Frame->height || FC->sw_format != Frames->sw_format)
+            throw BestSourceException("GPU export: merged frames must have the same format and size");
+        Vkf[s] = reinterpret_cast<AVVkFrame *>(F->data[0]);
+        for (int t = 0; t < s; t++)
+            if (Vkf[t] == Vkf[s])
+                throw BestSourceException("GPU export: merged frames must be distinct images");
+    }
+
     BSHashExportPushConstants PC = {
         Frame->width, Frame->height,
         AV_CEIL_RSHIFT(Frame->width, Desc->log2_chroma_w),
         AV_CEIL_RSHIFT(Frame->height, Desc->log2_chroma_h),
-        0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 1
     };
 
     if (DoExport) {
@@ -496,66 +547,80 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
     /* Views are created per call. FFmpeg's frame pool recycles a bounded set of images so caching
        them by VkImage would pay off, but a cached view outliving its image after a decoder reset
        is a worse bug than the allocation is a cost. */
-    VkImageView Views[2] = {};
+    VkImageView Views[MaxDispatchSources][2] = {};
     const VkImageAspectFlagBits Aspects[2] = { VK_IMAGE_ASPECT_PLANE_0_BIT, VK_IMAGE_ASPECT_PLANE_1_BIT };
-    for (int p = 0; p < 2; p++) {
-        VkImageViewUsageCreateInfo Usage = {};
-        Usage.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
-        Usage.usage = VK_IMAGE_USAGE_STORAGE_BIT;
-        VkImageViewCreateInfo CI = {};
-        CI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        CI.pNext = &Usage;
-        CI.image = Vkf->img[0];
-        CI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        CI.format = UintViewFormat(PlaneFmts[p]);
-        CI.subresourceRange.aspectMask = Aspects[p];
-        CI.subresourceRange.levelCount = 1;
-        CI.subresourceRange.layerCount = 1;
-        VkResult Res = P->VK.vkCreateImageView(P->Device, &CI, P->HWCtx->alloc, &Views[p]);
-        if (Res != VK_SUCCESS) {
-            for (int q = 0; q < p; q++)
-                P->VK.vkDestroyImageView(P->Device, Views[q], P->HWCtx->alloc);
-            ThrowVk("vkCreateImageView", Res);
+    auto DestroyViews = [&]() {
+        for (int s = 0; s < MaxDispatchSources; s++)
+            for (int p = 0; p < 2; p++)
+                if (Views[s][p])
+                    P->VK.vkDestroyImageView(P->Device, Views[s][p], P->HWCtx->alloc);
+        };
+    for (int s = 0; s < NumSources; s++) {
+        for (int p = 0; p < 2; p++) {
+            VkImageViewUsageCreateInfo Usage = {};
+            Usage.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
+            Usage.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+            VkImageViewCreateInfo CI = {};
+            CI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            CI.pNext = &Usage;
+            CI.image = Vkf[s]->img[0];
+            CI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            CI.format = UintViewFormat(PlaneFmts[p]);
+            CI.subresourceRange.aspectMask = Aspects[p];
+            CI.subresourceRange.levelCount = 1;
+            CI.subresourceRange.layerCount = 1;
+            VkResult Res = P->VK.vkCreateImageView(P->Device, &CI, P->HWCtx->alloc, &Views[s][p]);
+            if (Res != VK_SUCCESS) {
+                Views[s][p] = VK_NULL_HANDLE;
+                DestroyViews();
+                ThrowVk("vkCreateImageView", Res);
+            }
         }
     }
 
     uint64_t Result = 0;
     try {
-        VkDescriptorImageInfo ImgInfo[2] = {};
-        VkWriteDescriptorSet Writes[2] = {};
-        for (int p = 0; p < 2; p++) {
-            ImgInfo[p].imageView = Views[p];
-            ImgInfo[p].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-            Writes[p].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            Writes[p].dstSet = P->DescSet;
-            Writes[p].dstBinding = p;
-            Writes[p].descriptorCount = 1;
-            Writes[p].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            Writes[p].pImageInfo = &ImgInfo[p];
+        VkDescriptorImageInfo ImgInfo[MaxDispatchSources][2] = {};
+        VkWriteDescriptorSet Writes[MaxDispatchSources * 2] = {};
+        for (int s = 0; s < NumSources; s++) {
+            for (int p = 0; p < 2; p++) {
+                ImgInfo[s][p].imageView = Views[s][p];
+                ImgInfo[s][p].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                VkWriteDescriptorSet &W = Writes[s * 2 + p];
+                W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                W.dstSet = P->DescSet[s];
+                W.dstBinding = p;
+                W.descriptorCount = 1;
+                W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                W.pImageInfo = &ImgInfo[s][p];
+            }
         }
-        P->VK.vkUpdateDescriptorSets(P->Device, 2, Writes, 0, nullptr);
+        P->VK.vkUpdateDescriptorSets(P->Device, NumSources * 2, Writes, 0, nullptr);
 
         /* Destination buffers are bound whole, at offset 0, with the plane offsets carried in the
            push constants instead. Binding at the plane offset would have to satisfy
            minStorageBufferOffsetAlignment, which an allocation imported from another device has no
-           reason to meet. */
+           reason to meet. Every source writes into the same destination, so every set gets them. */
         if (DoExport) {
             VkDescriptorBufferInfo DstInfo[3] = {};
-            VkWriteDescriptorSet DstWrites[3] = {};
+            VkWriteDescriptorSet DstWrites[MaxDispatchSources * 3] = {};
             for (int i = 0; i < 3; i++) {
                 DstInfo[i].buffer = Targets[i].Buffer;
                 DstInfo[i].range = VK_WHOLE_SIZE;
-                DstWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                DstWrites[i].dstSet = P->DescSet;
-                DstWrites[i].dstBinding = 2 + i;
-                DstWrites[i].descriptorCount = 1;
-                DstWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                DstWrites[i].pBufferInfo = &DstInfo[i];
+                for (int s = 0; s < NumSources; s++) {
+                    VkWriteDescriptorSet &W = DstWrites[s * 3 + i];
+                    W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    W.dstSet = P->DescSet[s];
+                    W.dstBinding = 2 + i;
+                    W.descriptorCount = 1;
+                    W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    W.pBufferInfo = &DstInfo[i];
+                }
             }
-            P->VK.vkUpdateDescriptorSets(P->Device, 3, DstWrites, 0, nullptr);
+            P->VK.vkUpdateDescriptorSets(P->Device, NumSources * 3, DstWrites, 0, nullptr);
         }
 
-        VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport);
+        VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport, DoHash);
 
         VkResult Res = P->VK.vkResetCommandPool(P->Device, P->CmdPool, 0);
         if (Res != VK_SUCCESS)
@@ -571,20 +636,23 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
         P->VK.vkCmdFillBuffer(P->Cmd, P->Acc.Buffer, 0, VK_WHOLE_SIZE, 0);
 
         /* Frames arrive in VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR; a compute read needs GENERAL.
-           One barrier covers both planes. queue_family is VK_QUEUE_FAMILY_IGNORED because FFmpeg
-           allocates CONCURRENT, so there is no ownership transfer to perform. */
-        VkImageMemoryBarrier ImgBar = {};
-        ImgBar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        ImgBar.srcAccessMask = static_cast<VkAccessFlags>(Vkf->access[0]);
-        ImgBar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        ImgBar.oldLayout = Vkf->layout[0];
-        ImgBar.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        ImgBar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ImgBar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ImgBar.image = Vkf->img[0];
-        ImgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT;
-        ImgBar.subresourceRange.levelCount = 1;
-        ImgBar.subresourceRange.layerCount = 1;
+           One barrier per source covers both of its planes. queue_family is
+           VK_QUEUE_FAMILY_IGNORED because FFmpeg allocates CONCURRENT, so there is no ownership
+           transfer to perform. */
+        VkImageMemoryBarrier ImgBar[MaxDispatchSources] = {};
+        for (int s = 0; s < NumSources; s++) {
+            ImgBar[s].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            ImgBar[s].srcAccessMask = static_cast<VkAccessFlags>(Vkf[s]->access[0]);
+            ImgBar[s].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            ImgBar[s].oldLayout = Vkf[s]->layout[0];
+            ImgBar[s].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+            ImgBar[s].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ImgBar[s].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ImgBar[s].image = Vkf[s]->img[0];
+            ImgBar[s].subresourceRange.aspectMask = VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT;
+            ImgBar[s].subresourceRange.levelCount = 1;
+            ImgBar[s].subresourceRange.layerCount = 1;
+        }
 
         VkBufferMemoryBarrier FillBar = {};
         FillBar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -596,15 +664,26 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
         FillBar.size = VK_WHOLE_SIZE;
 
         P->VK.vkCmdPipelineBarrier(P->Cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &FillBar, 1, &ImgBar);
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &FillBar,
+            static_cast<uint32_t>(NumSources), ImgBar);
 
         P->VK.vkCmdBindPipeline(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipe);
-        P->VK.vkCmdBindDescriptorSets(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, P->PipeLayout, 0, 1, &P->DescSet, 0, nullptr);
-        P->VK.vkCmdPushConstants(P->Cmd, P->PipeLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PC), &PC);
         /* Each workgroup covers 16 invocations of BS_GPU_HASH_SAMPLES_X samples along x. */
         const int XPerGroup = 16 * BS_GPU_HASH_SAMPLES_X;
-        P->VK.vkCmdDispatch(P->Cmd, (Frame->width + XPerGroup - 1) / XPerGroup,
-            (Frame->height + 15) / 16, 2);
+        for (int s = 0; s < NumSources; s++) {
+            PC.RowOffset = Sources[s].RowOffset;
+            PC.RowStep = Sources[s].RowStep;
+            /* Rows this source actually supplies, which is every RowStep'th one from RowOffset. */
+            const int Rows = (Frame->height - PC.RowOffset + PC.RowStep - 1) / PC.RowStep;
+            if (Rows <= 0)
+                continue;
+            P->VK.vkCmdBindDescriptorSets(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, P->PipeLayout, 0, 1, &P->DescSet[s], 0, nullptr);
+            P->VK.vkCmdPushConstants(P->Cmd, P->PipeLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PC), &PC);
+            /* No barrier between the dispatches: they read different images and write disjoint rows
+               of the same buffers, so there is nothing for them to race over. */
+            P->VK.vkCmdDispatch(P->Cmd, (Frame->width + XPerGroup - 1) / XPerGroup,
+                (Rows + 15) / 16, 2);
+        }
 
         /* The accumulator has to become host readable; the exported planes have to become visible
            to whatever reads them next, which may be another device picking them up after the
@@ -638,30 +717,44 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
         if (Res != VK_SUCCESS)
             ThrowVk("vkEndCommandBuffer", Res);
 
-        /* AVVkFrame's timeline contract: wait on sem_value, signal an incremented value. The
-           caller's timeline, when given, is signalled alongside it so a consumer on another device
-           can order its work against this without a host round trip. */
-        const uint64_t WaitValue = Vkf->sem_value[0];
-        const uint64_t FrameSignalValue = WaitValue + 1;
-        VkPipelineStageFlags WaitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-
-        VkSemaphore SignalSems[2] = { Vkf->sem[0], SignalTimeline };
-        uint64_t SignalValues[2] = { FrameSignalValue, SignalValue };
-        const uint32_t NumSignals = SignalTimeline ? 2u : 1u;
+        /* AVVkFrame's timeline contract: wait on sem_value, signal an incremented value. Each source
+           gets that treatment separately, since they are separate frames with separate timelines.
+           The caller's timeline, when given, is signalled alongside them so a consumer on another
+           device can order its work against this without a host round trip. */
+        VkSemaphore WaitSems[MaxDispatchSources] = {};
+        uint64_t WaitValues[MaxDispatchSources] = {};
+        VkPipelineStageFlags WaitStages[MaxDispatchSources] = {};
+        VkSemaphore SignalSems[MaxDispatchSources + 1] = {};
+        uint64_t SignalValues[MaxDispatchSources + 1] = {};
+        uint64_t FrameSignalValues[MaxDispatchSources] = {};
+        for (int s = 0; s < NumSources; s++) {
+            WaitSems[s] = Vkf[s]->sem[0];
+            WaitValues[s] = Vkf[s]->sem_value[0];
+            WaitStages[s] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            FrameSignalValues[s] = WaitValues[s] + 1;
+            SignalSems[s] = Vkf[s]->sem[0];
+            SignalValues[s] = FrameSignalValues[s];
+        }
+        uint32_t NumSignals = static_cast<uint32_t>(NumSources);
+        if (SignalTimeline) {
+            SignalSems[NumSignals] = SignalTimeline;
+            SignalValues[NumSignals] = SignalValue;
+            NumSignals++;
+        }
 
         VkTimelineSemaphoreSubmitInfo TL = {};
         TL.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        TL.waitSemaphoreValueCount = 1;
-        TL.pWaitSemaphoreValues = &WaitValue;
+        TL.waitSemaphoreValueCount = static_cast<uint32_t>(NumSources);
+        TL.pWaitSemaphoreValues = WaitValues;
         TL.signalSemaphoreValueCount = NumSignals;
         TL.pSignalSemaphoreValues = SignalValues;
 
         VkSubmitInfo SI = {};
         SI.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         SI.pNext = &TL;
-        SI.waitSemaphoreCount = 1;
-        SI.pWaitSemaphores = &Vkf->sem[0];
-        SI.pWaitDstStageMask = &WaitStage;
+        SI.waitSemaphoreCount = static_cast<uint32_t>(NumSources);
+        SI.pWaitSemaphores = WaitSems;
+        SI.pWaitDstStageMask = WaitStages;
         SI.commandBufferCount = 1;
         SI.pCommandBuffers = &P->Cmd;
         SI.signalSemaphoreCount = NumSignals;
@@ -675,9 +768,9 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
 
         VkSemaphoreWaitInfo SWI = {};
         SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        SWI.semaphoreCount = 1;
-        SWI.pSemaphores = &Vkf->sem[0];
-        SWI.pValues = &FrameSignalValue;
+        SWI.semaphoreCount = static_cast<uint32_t>(NumSources);
+        SWI.pSemaphores = WaitSems;
+        SWI.pValues = FrameSignalValues;
         Res = P->VK.vkWaitSemaphores(P->Device, &SWI, UINT64_MAX);
         if (Res != VK_SUCCESS)
             ThrowVk("vkWaitSemaphores", Res);
@@ -687,20 +780,20 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
            transfer path runs on a transfer only queue where SHADER_READ is not a legal access.
            Zero is also correct in its own right, since availability operations exist for writes
            and this pass only reads. */
-        Vkf->sem_value[0] = FrameSignalValue;
-        Vkf->layout[0] = VK_IMAGE_LAYOUT_GENERAL;
-        Vkf->access[0] = {};
+        for (int s = 0; s < NumSources; s++) {
+            Vkf[s]->sem_value[0] = FrameSignalValues[s];
+            Vkf[s]->layout[0] = VK_IMAGE_LAYOUT_GENERAL;
+            Vkf[s]->access[0] = {};
+        }
 
         const uint32_t *Lanes = static_cast<const uint32_t *>(P->Acc.Mapped);
         Result = (static_cast<uint64_t>(Lanes[1]) << 32) | Lanes[0];
     } catch (...) {
-        for (auto &V : Views)
-            P->VK.vkDestroyImageView(P->Device, V, P->HWCtx->alloc);
+        DestroyViews();
         throw;
     }
 
-    for (auto &V : Views)
-        P->VK.vkDestroyImageView(P->Device, V, P->HWCtx->alloc);
+    DestroyViews();
 
     return Result;
 }
@@ -708,18 +801,31 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const AVFrame *Frame, const BSGpuPlaneTa
 uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
     if (!IsSupportedFrame(Frame))
         throw BestSourceException("GPU hashing: unsupported frame");
+    const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    return P->RunDispatch(Frame, nullptr, VK_NULL_HANDLE, 0);
+    return P->RunDispatch(&Source, 1, nullptr, true, VK_NULL_HANDLE, 0);
 }
 
-uint64_t BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
     VkSemaphore SignalTimeline, uint64_t SignalValue) {
     if (!IsSupportedFrame(Frame))
         throw BestSourceException("GPU export: unsupported frame");
     if (!Targets)
         throw BestSourceException("GPU export: no plane targets");
+    const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    return P->RunDispatch(Frame, Targets, SignalTimeline, SignalValue);
+    (void)P->RunDispatch(&Source, 1, Targets, false, SignalTimeline, SignalValue);
+}
+
+void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
+    const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue) {
+    if (!IsSupportedFrame(EvenRows) || !IsSupportedFrame(OddRows))
+        throw BestSourceException("GPU export: unsupported frame");
+    if (!Targets)
+        throw BestSourceException("GPU export: no plane targets");
+    const DispatchSource Sources[2] = { { EvenRows, 0, 2 }, { OddRows, 1, 2 } };
+    std::lock_guard<std::mutex> Lock(P->Mutex);
+    (void)P->RunDispatch(Sources, 2, Targets, false, SignalTimeline, SignalValue);
 }
 
 #else /* !BS_GPU_HASH */
@@ -741,6 +847,10 @@ uint64_t BSGpuHasher::HashFrame(const AVFrame *) {
 }
 
 bool BSGpuHasher::IsSupportedFrame(const AVFrame *) {
+    return false;
+}
+
+bool BSGpuHasher::IsSupportedSwFormat(int) {
     return false;
 }
 

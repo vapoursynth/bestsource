@@ -74,6 +74,14 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 /* Indexing only needs the hash; skip the plane writes entirely. */
 layout (constant_id = 0) const int do_export = 1;
 
+/* Publishing only needs the planes. Every frame was already hashed at decode time -- HashFrame runs
+   in DecodeNextFrame, before anything can ask for the pixels -- so hashing again while exporting
+   computes a value nobody reads. Off for export, it drops the per sample mixing, the shared memory
+   reduction and the two atomics per workgroup.
+   It is also what makes the field merge below meaningful at all: a merge pass sees half the rows of
+   each source, so any hash it produced would be of neither frame. */
+layout (constant_id = 1) const int do_hash = 1;
+
 /* Two separate bindings rather than an array: the planes have different formats, and a GLSL
  * image declaration carries exactly one format qualifier. */
 layout (set = 0, binding = 0, LUMA_FMT)   uniform readonly uimage2D src_luma;
@@ -113,6 +121,19 @@ layout (push_constant, scalar) uniform Push {
      * Deliberately applied only to the exported samples and never to the hash, which stays defined
      * on the stored bits so that it does not depend on the output format. */
     int   export_shift;
+    /* Which rows this dispatch covers, as first row and step. (0, 1) is a whole frame.
+     *
+     * RFF output interleaves the two fields of two decoded frames, which on a device resident frame
+     * cannot be a copy into one of them: the images belong to FFmpeg's frame pool and are read by
+     * whoever else holds them. Instead both frames are exported into the same destination, one
+     * dispatch each, with (0, 2) and (1, 2). The two write disjoint rows so they need no ordering
+     * against each other, and the source row is the destination row, so nothing else changes.
+     *
+     * Chroma steps by the same amount in its own plane coordinates, which is what MergeField does on
+     * the CPU -- the merge has to agree with it row for row, whatever one thinks of interleaving
+     * subsampled chroma by parity. */
+    int   row_offset;
+    int   row_step;
 } pc;
 
 /* NOTE: nothing position-dependent may enter the hash -- no frame number, no PTS. SeekAndDecode
@@ -154,7 +175,7 @@ void main()
     const int plane = int(gl_GlobalInvocationID.z);
     const ivec2 size = (plane == 0) ? pc.luma_size : pc.chroma_size;
     const int base_x = int(gl_GlobalInvocationID.x) * SAMPLES_X;
-    const int y = int(gl_GlobalInvocationID.y);
+    const int y = pc.row_offset + int(gl_GlobalInvocationID.y) * pc.row_step;
 
     uvec2 h = uvec2(0u);
 
@@ -167,23 +188,25 @@ void main()
         const uvec4 texel = (plane == 0) ? imageLoad(src_luma, pos)
                                          : imageLoad(src_chroma, pos);
 
-        /* Coordinates and plane index are folded in so a transposed or shifted frame cannot
-         * collide, and so sample order cannot be confused by the commutative combine below. */
-        uint seed = mix32(uint(pos.x), uint(pos.y));
-        seed = mix32(seed, uint(plane));
+        if (do_hash != 0) {
+            /* Coordinates and plane index are folded in so a transposed or shifted frame cannot
+             * collide, and so sample order cannot be confused by the commutative combine below. */
+            uint seed = mix32(uint(pos.x), uint(pos.y));
+            seed = mix32(seed, uint(plane));
 
-        uint h0 = mix32(seed ^ PRIME32_4, texel.x);
-        uint h1 = mix32(seed ^ PRIME32_5, texel.x);
+            uint h0 = mix32(seed ^ PRIME32_4, texel.x);
+            uint h1 = mix32(seed ^ PRIME32_5, texel.x);
 
-        if (plane == 1) {
-            h0 = mix32(h0, texel.y);
-            h1 = mix32(h1, texel.y);
+            if (plane == 1) {
+                h0 = mix32(h0, texel.y);
+                h1 = mix32(h1, texel.y);
+            }
+
+            /* Avalanched and folded in here, so the per invocation accumulator is the XOR of its own
+             * samples and the reduction below stays a plain XOR tree. */
+            h.x ^= avalanche32(h0);
+            h.y ^= avalanche32(h1);
         }
-
-        /* Avalanched and folded in here, so the per invocation accumulator is the XOR of its own
-         * samples and the reduction below stays a plain XOR tree. */
-        h.x ^= avalanche32(h0);
-        h.y ^= avalanche32(h1);
 
         if (do_export != 0 && status.failed == 0u) {
             if (plane == 0) {
@@ -198,6 +221,11 @@ void main()
             }
         }
     }
+
+    /* do_hash is a specialization constant, so this is uniform across the whole dispatch and the
+     * barriers below stay in uniform control flow. */
+    if (do_hash == 0)
+        return;
 
     /* Already avalanched per sample above, so an invocation with no samples in bounds contributes
      * zero, which is the XOR identity. */
