@@ -1,4 +1,4 @@
-//  Copyright (c) 2022-2025 Fredrik Mellbin
+﻿//  Copyright (c) 2022-2025 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -1164,165 +1164,161 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         throw BestSourceException("ViewID must be 0 or greater");
 
     /* Throwing out of a constructor never runs the destructor, so the device reference adopted
-       below has to be released by hand on the way out. This is not a corner case: gpufallback
+       inside has to be released by hand on the way out. This is not a corner case: gpufallback
        opens every file the GPU cannot decode exactly this way, and each leaked reference keeps its
        vulkan device alive for the rest of the process. The driver stops handing out new ones after
        a handful, at which point every later source reports that the device could not be created
-       and silently decodes on the CPU instead. Dismissed on the last line, once the destructor
-       becomes responsible for it. */
-    struct DeviceGuard {
-        BestVideoSource *Self;
-        ~DeviceGuard() {
-            if (!Self)
-                return;
-            Self->GpuHasher.reset();
-            av_buffer_unref(&Self->SharedHWDeviceContext);
-        }
-    } Guard{ this };
+       and silently decodes on the CPU instead. */
+    try {
+        std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
 
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        /* The first decoder creates the device, which keeps all the hardware decoder error handling
+           and the hwfallback path in one place, and every later decoder is handed the same one. */
+        if (Decoder->GetHWDeviceContext()) {
+            SharedHWDeviceContext = av_buffer_ref(Decoder->GetHWDeviceContext());
+            if (!SharedHWDeviceContext)
+                throw BestSourceException("Couldn't reference the HW device");
 
-    /* The first decoder creates the device, which keeps all the hardware decoder error handling
-       and the hwfallback path in one place, and every later decoder is handed the same one. */
-    if (Decoder->GetHWDeviceContext()) {
-        SharedHWDeviceContext = av_buffer_ref(Decoder->GetHWDeviceContext());
-        if (!SharedHWDeviceContext)
-            throw BestSourceException("Couldn't reference the HW device");
+            /* Not optional any more. Without it every frame would have to come back to be identified,
+               which is exactly the cost decoding on the GPU exists to avoid, so a device that cannot
+               hash counts as one that cannot decode: thrown as a HW decoder exception so callers treat
+               it the same as hardware decoding being unavailable. */
+            try {
+                GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
+            } catch (const BestSourceException &e) {
+                throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
+            }
 
-        /* Not optional any more. Without it every frame would have to come back to be identified,
-           which is exactly the cost decoding on the GPU exists to avoid, so a device that cannot
-           hash counts as one that cannot decode: thrown as a HW decoder exception so callers treat
-           it the same as hardware decoding being unavailable. */
-        try {
-            GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
-        } catch (const BestSourceException &e) {
-            throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
-        }
+            /* Each cached frame holds a surface from the decoder's fixed pool, and exhausting it
+               deadlocks the decoder rather than merely wasting memory. ExtraHWFrames is the slack asked
+               for beyond what the codec needs, so bound the cache by it and leave a couple in hand for
+               the frames in flight. A deeper seek preroll cache needs a larger extrahwframes. */
+            FrameCache.SetMaxFrames(static_cast<size_t>(std::max(1, ExtraHWFrames - 2)));
 
-        /* Each cached frame holds a surface from the decoder's fixed pool, and exhausting it
-           deadlocks the decoder rather than merely wasting memory. ExtraHWFrames is the slack asked
-           for beyond what the codec needs, so bound the cache by it and leave a couple in hand for
-           the frames in flight. A deeper seek preroll cache needs a larger extrahwframes. */
-        FrameCache.SetMaxFrames(static_cast<size_t>(std::max(1, ExtraHWFrames - 2)));
-
-        Decoder->SetGpuHasher(GpuHasher.get());
-    }
-
-    Decoder->GetVideoProperties(VP);
-    VideoTrack = Decoder->GetTrack();
-    FileSize = Decoder->GetSourceSize();
-
-    if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
-        if (!IndexTrack(Progress)) {
-            /* On a GPU source this is nearly always the driver refusing the codec profile rather
-               than a broken file: avcodec_open2 accepts the codec, and only the first decode call
-               discovers that this particular chroma subsampling or bit depth has no video decode
-               profile. Thrown as a hardware decoder exception so it reaches the same fallback as
-               every other way GPU decoding turns out to be impossible, instead of failing a script
-               that asked to fall back. */
-            const std::string What = "Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed";
-            if (GPU)
-                throw BestSourceHWDecoderException(What + ", which usually means the GPU can't decode this track");
-            throw BestSourceException(What);
+            Decoder->SetGpuHasher(GpuHasher.get());
         }
 
-        if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
-            if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
-                throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+        Decoder->GetVideoProperties(VP);
+        VideoTrack = Decoder->GetTrack();
+        FileSize = Decoder->GetSourceSize();
+
+        if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
+            if (!IndexTrack(Progress)) {
+                /* On a GPU source this is nearly always the driver refusing the codec profile rather
+                   than a broken file: avcodec_open2 accepts the codec, and only the first decode call
+                   discovers that this particular chroma subsampling or bit depth has no video decode
+                   profile. Thrown as a hardware decoder exception so it reaches the same fallback as
+                   every other way GPU decoding turns out to be impossible, instead of failing a script
+                   that asked to fall back. */
+                const std::string What = "Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed";
+                if (GPU)
+                    throw BestSourceHWDecoderException(What + ", which usually means the GPU can't decode this track");
+                throw BestSourceException(What);
+            }
+
+            if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
+                if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
+                    throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+            }
         }
-    }
 
-    if (TrackIndex.Frames[0].RepeatPict < 0)
-        throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
-    
-    for (const auto &Iter : TrackIndex.Frames) {
-        if (Iter.PTS == AV_NOPTS_VALUE) {
-            CanSeekByTime = false;
-            break;
-        }
-    }
+        if (TrackIndex.Frames[0].RepeatPict < 0)
+            throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
 
-    // Framerate and last frame duration guessing fun
-    const auto OriginalFPS = VP.FPS;
-    std::map<int64_t, size_t> DurationHistogram;
-
-    // This part is to compensate for files that most likely have timestamps attached to the wrong frame due to b-frame reordering and timecode attachment fun in broken tools
-    // Does nothing for most files
-    std::vector<int64_t> SortedPTS;
-    SortedPTS.resize(TrackIndex.Frames.size());
-    for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
-        SortedPTS[i] = TrackIndex.Frames[i].PTS;
-    std::sort(SortedPTS.begin(), SortedPTS.end());
-
-    for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
-        if (SortedPTS[i] == AV_NOPTS_VALUE || SortedPTS[i + 1] == AV_NOPTS_VALUE)
-            ++DurationHistogram[AV_NOPTS_VALUE];
-        else
-            ++DurationHistogram[SortedPTS[i + 1] - SortedPTS[i]];
-
-    std::pair<int64_t, size_t> MostCommonDuration(1, 1);
-    if (!DurationHistogram.empty())
-        MostCommonDuration = *std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
-
-    int64_t LastFrameDuration = TrackIndex.LastFrameDuration;
-    if (LastFrameDuration <= 0 && !DurationHistogram.empty() && MostCommonDuration.first > 0)
-        LastFrameDuration = MostCommonDuration.first;
-    LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
-
-    if (TrackIndex.Frames.front().PTS != AV_NOPTS_VALUE && TrackIndex.Frames.back().PTS != AV_NOPTS_VALUE)
-        VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
-    
-    if (DurationHistogram.size() == 1 && MostCommonDuration.first > 0) {
-        // It's true CFR so make sure the frame rate matches the frame durations
-        av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, MostCommonDuration.first * VP.TimeBase.Num, INT_MAX);
-    } else if (TrackIndex.Frames.size() >= 20 && DurationHistogram.size() > 1) {
-        // If the clip is long enough discard as many small duration bins as possible but less than 5% of the total number of frame durations and calculate a frame rate from that
-        size_t TotalHistogramFrames = TrackIndex.Frames.size() - 1;
-        size_t UsedHistogramFrames = TotalHistogramFrames - DurationHistogram[AV_NOPTS_VALUE];
-        DurationHistogram.erase(AV_NOPTS_VALUE);
-
-        while (DurationHistogram.size() > 1) {
-            const auto MinKey = std::min_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
-            if (((UsedHistogramFrames - MinKey->second) * 100) / TotalHistogramFrames < 95)
+        for (const auto &Iter : TrackIndex.Frames) {
+            if (Iter.PTS == AV_NOPTS_VALUE) {
+                CanSeekByTime = false;
                 break;
-            UsedHistogramFrames -= MinKey->second;
-            DurationHistogram.erase(MinKey);
+            }
         }
 
-        if (!DurationHistogram.empty()) {
-            int64_t HistDuration = 0;
-            for (const auto &Iter : DurationHistogram)
-                HistDuration += Iter.first * Iter.second;
+        // Framerate and last frame duration guessing fun
+        const auto OriginalFPS = VP.FPS;
+        std::map<int64_t, size_t> DurationHistogram;
 
-            // FIXME, can this realistically overflow?
-            av_reduce(&VP.FPS.Num, &VP.FPS.Den, UsedHistogramFrames * VP.TimeBase.Den, HistDuration * VP.TimeBase.Num, INT_MAX);
-            NearestCommonFrameRate(VP.FPS);
+        // This part is to compensate for files that most likely have timestamps attached to the wrong frame due to b-frame reordering and timecode attachment fun in broken tools
+        // Does nothing for most files
+        std::vector<int64_t> SortedPTS;
+        SortedPTS.resize(TrackIndex.Frames.size());
+        for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
+            SortedPTS[i] = TrackIndex.Frames[i].PTS;
+        std::sort(SortedPTS.begin(), SortedPTS.end());
+
+        for (size_t i = 0; i < TrackIndex.Frames.size() - 1; i++)
+            if (SortedPTS[i] == AV_NOPTS_VALUE || SortedPTS[i + 1] == AV_NOPTS_VALUE)
+                ++DurationHistogram[AV_NOPTS_VALUE];
+            else
+                ++DurationHistogram[SortedPTS[i + 1] - SortedPTS[i]];
+
+        std::pair<int64_t, size_t> MostCommonDuration(1, 1);
+        if (!DurationHistogram.empty())
+            MostCommonDuration = *std::max_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+
+        int64_t LastFrameDuration = TrackIndex.LastFrameDuration;
+        if (LastFrameDuration <= 0 && !DurationHistogram.empty() && MostCommonDuration.first > 0)
+            LastFrameDuration = MostCommonDuration.first;
+        LastFrameDuration = std::max<int64_t>(1, LastFrameDuration);
+
+        if (TrackIndex.Frames.front().PTS != AV_NOPTS_VALUE && TrackIndex.Frames.back().PTS != AV_NOPTS_VALUE)
+            VP.Duration = (TrackIndex.Frames.back().PTS - TrackIndex.Frames.front().PTS) + LastFrameDuration;
+
+        if (DurationHistogram.size() == 1 && MostCommonDuration.first > 0) {
+            // It's true CFR so make sure the frame rate matches the frame durations
+            av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, MostCommonDuration.first * VP.TimeBase.Num, INT_MAX);
+        } else if (TrackIndex.Frames.size() >= 20 && DurationHistogram.size() > 1) {
+            // If the clip is long enough discard as many small duration bins as possible but less than 5% of the total number of frame durations and calculate a frame rate from that
+            size_t TotalHistogramFrames = TrackIndex.Frames.size() - 1;
+            size_t UsedHistogramFrames = TotalHistogramFrames - DurationHistogram[AV_NOPTS_VALUE];
+            DurationHistogram.erase(AV_NOPTS_VALUE);
+
+            while (DurationHistogram.size() > 1) {
+                const auto MinKey = std::min_element(DurationHistogram.begin(), DurationHistogram.end(), [](const std::pair<int64_t, size_t> &p1, const std::pair<int64_t, size_t> &p2) { return p1.second < p2.second; });
+                if (((UsedHistogramFrames - MinKey->second) * 100) / TotalHistogramFrames < 95)
+                    break;
+                UsedHistogramFrames -= MinKey->second;
+                DurationHistogram.erase(MinKey);
+            }
+
+            if (!DurationHistogram.empty()) {
+                int64_t HistDuration = 0;
+                for (const auto &Iter : DurationHistogram)
+                    HistDuration += Iter.first * Iter.second;
+
+                // FIXME, can this realistically overflow?
+                av_reduce(&VP.FPS.Num, &VP.FPS.Den, UsedHistogramFrames * VP.TimeBase.Den, HistDuration * VP.TimeBase.Num, INT_MAX);
+                NearestCommonFrameRate(VP.FPS);
+            }
+        } else if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
+            // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
+            // It's a fallback to make even obviously wrong mpeg timebase files have a saner framerate
+            int64_t F1 = TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS;
+            int64_t F2 = TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS;
+            if (F1 != AV_NOPTS_VALUE && F2 != AV_NOPTS_VALUE) {
+                av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, (F1 - F2) * VP.TimeBase.Num, INT_MAX);
+                NearestCommonFrameRate(VP.FPS);
+            }
         }
-    } else if (VP.FPS.Num == 90000 && VP.FPS.Den == 1 && TrackIndex.Frames.size() >= 2) {
-        // This is the mpeg timebase and definitely not anywhere near the real fps so just fill in something more sane based on the duration of a single frame in the middle of the clip and hope it's good enough
-        // It's a fallback to make even obviously wrong mpeg timebase files have a saner framerate
-        int64_t F1 = TrackIndex.Frames[TrackIndex.Frames.size() / 2].PTS;
-        int64_t F2 = TrackIndex.Frames[TrackIndex.Frames.size() / 2 - 1].PTS;
-        if (F1 != AV_NOPTS_VALUE && F2 != AV_NOPTS_VALUE) {
-            av_reduce(&VP.FPS.Num, &VP.FPS.Den, VP.TimeBase.Den, (F1 - F2) * VP.TimeBase.Num, INT_MAX);
-            NearestCommonFrameRate(VP.FPS);
-        }
+
+        InitializeFormatSets();
+        SelectFormatSet(-1);
+
+        // Sanity check reported framerate for mpeg timebase files, if it's ridiculous just use the original one
+        if (OriginalFPS.Num > 0 && VP.FPS.ToDouble() > 300 && VP.TimeBase.Num == 1 && VP.TimeBase.Den == 90000)
+            VP.FPS = OriginalFPS;
+
+        // Restore the original FPS since it's generally always correct for files with RFF set
+        if (DefaultFormatSet.NumFrames != DefaultFormatSet.NumRFFFrames)
+            VP.FPS = OriginalFPS;
+
+        Decoders[0] = std::move(Decoder);
+    } catch (...) {
+        /* The hasher first: it holds its own reference to the device, and owns vulkan objects
+           created from it. Unreffing a null SharedHWDeviceContext is fine, so this needs no
+           guard for the paths that throw before the device was ever adopted. */
+        GpuHasher.reset();
+        av_buffer_unref(&SharedHWDeviceContext);
+        throw;
     }
-
-    InitializeFormatSets();
-    SelectFormatSet(-1);
-
-    // Sanity check reported framerate for mpeg timebase files, if it's ridiculous just use the original one
-    if (OriginalFPS.Num > 0 && VP.FPS.ToDouble() > 300 && VP.TimeBase.Num == 1 && VP.TimeBase.Den == 90000)
-        VP.FPS = OriginalFPS;
-
-    // Restore the original FPS since it's generally always correct for files with RFF set
-    if (DefaultFormatSet.NumFrames != DefaultFormatSet.NumRFFFrames)
-        VP.FPS = OriginalFPS;
-
-    Decoders[0] = std::move(Decoder);
-
-    Guard.Self = nullptr;
 }
 
 int BestVideoSource::GetTrack() const {
