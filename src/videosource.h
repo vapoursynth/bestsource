@@ -128,11 +128,10 @@ private:
     std::vector<LWVideoProperties::ViewIDInfo> ViewIDs;
 
     BSGpuHasher *GpuHasher = nullptr; /* Borrowed, owned by BestVideoSource */
-    bool KeepHardwareFrames = false;
     uint64_t LastGpuHash = 0;
     bool LastGpuHashValid = false;
 
-    void OpenFile(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, const std::string &HWDeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
+    void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
@@ -141,21 +140,17 @@ public:
        Several decoder instances are kept alive at once and a device per instance would mean their
        frames live on different devices, which makes them mutually unusable and multiplies VRAM
        use by the decoder count. */
-    /* HWDeviceSelector picks which physical device, in the form FFmpeg's device string takes: a
-       bare index, or a name substring. Empty means let FFmpeg choose. */
-    LWVideoDecoder(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, const std::string &HWDeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    /* GPU selects vulkan hardware decoding, which always keeps frames on the device: there is no
+       mode that decodes on hardware and reads back, since anything wanting pixels in memory is
+       better off decoding on the CPU. DeviceSelector picks which physical device in the form
+       FFmpeg's device string takes, a bare index or a name substring; empty lets FFmpeg choose. */
+    LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
 
     /* Hashes hardware frames on the GPU while they are still resident, so the frame never has to
        be read back purely to identify it. Borrowed; must outlive the decoder. */
     void SetGpuHasher(BSGpuHasher *Hasher);
-
-    /* Stop reading decoded frames back from the device, so GetNextFrame() hands out the hardware
-       frame itself. Used both by indexing, which discards the pixels straight after hashing them
-       and has no reason to pay for a transfer, and by GPU frame output. Requires a GPU hasher,
-       since without one the frame still has to come back to be hashed. */
-    void SetKeepHardwareFrames(bool Keep);
 
     /* Valid for the frame most recently returned by GetNextFrame(), and only when that frame was
        hashed on the GPU. Callers must use this in preference to hashing the returned AVFrame:
@@ -331,7 +326,7 @@ private:
     std::map<std::string, std::string> LAVFOptions;
     BSVideoProperties VP = {};
     std::filesystem::path Source;
-    std::string HWDevice;
+    bool GPU;
     int ExtraHWFrames;
     int VideoTrack;
     int VariableFormat = -1;
@@ -346,11 +341,9 @@ private:
        their frames on the same device. Also what the GPU hasher is built on. */
     AVBufferRef *SharedHWDeviceContext = nullptr;
     std::unique_ptr<BSGpuHasher> GpuHasher;
-    bool KeepHardwareFrames = false;
-    /* Which physical device to put the decoder on, split out of HWDeviceName so that only the
-       interface name reaches the index: the selector picks hardware, it does not change what gets
-       decoded, and baking it into the index would rebuild the index whenever it changed. */
-    std::string HWDeviceSelector;
+    /* Which physical device to put the decoder on. Kept out of the index because it picks
+       hardware rather than changing what is decoded. */
+    std::string DeviceSelector;
     int64_t PreRoll = 20;
     int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
@@ -365,26 +358,20 @@ private:
     bool NearestCommonFrameRate(BSRational &FPS);
     void InitializeFormatSets();
 public:
-    /* HWDeviceName may carry a physical device selector after a colon, as in "vulkan:1" or
-       "vulkan:Radeon RX 6900 XT", using the same forms FFmpeg's device string accepts. Only the
-       part before the colon is recorded in the index, since the selector picks hardware rather
-       than changing what is decoded. */
-    BestVideoSource(const std::filesystem::path &SourceFile, const std::string &HWDeviceName, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    /* GPU turns on vulkan hardware decoding with GPU resident output. DeviceSelector picks which
+       physical device, in the form FFmpeg's device string takes; a consumer that has to share
+       memory with the decoder passes the name of the device it is itself on. Only GPU is recorded
+       in the index, since the selector picks hardware rather than changing what is decoded. */
+    BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
     ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
-    /* Stop reading decoded frames back from the device, so GetFrame() returns hardware resident
-       frames. Off by default. Only has an effect with vulkan hardware decoding and GPU hashing
-       available, and returns whether it took effect.
-       Note that the frame cache then holds surfaces from the decoder's fixed pool, so it is capped
-       by count as well as by bytes; raise extrahwframes if a deep seek preroll cache matters. RFF
-       is not supported in this mode, since merging fields is a pixel operation. */
-    bool SetKeepHardwareFrames(bool Keep);
-    [[nodiscard]] bool GetKeepHardwareFrames() const;
-    /* Null unless vulkan hardware decoding is in use and GPU hashing is available. Borrowed; it
-       lives as long as this source does. A binding needs it to run the planar GPU export, which is
-       typed in terms of Vulkan objects and so cannot live on this interface. */
+    /* Whether this source is decoding on the GPU, and therefore handing out GPU resident frames. */
+    [[nodiscard]] bool IsGPU() const;
+    /* Null unless decoding on the GPU. Borrowed; it lives as long as this source does. A binding
+       needs it to run the planar GPU export, which is typed in terms of Vulkan objects and so
+       cannot live on this interface. */
     [[nodiscard]] BSGpuHasher *GetGpuHasher() const;
     /* The vulkan device the decoders are on, for a consumer that has to import memory into it.
        Null when not hardware decoding. */

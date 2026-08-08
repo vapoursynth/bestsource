@@ -45,7 +45,7 @@ meson install -C build
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0, int variableformat = 0])`
 
-`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool hwfallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
+`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool gpufallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -63,9 +63,9 @@ The *Metadata* function returns all the file or track metadata as key-value pair
 
 `BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, int maxdecoders = 0, int variableformat = 0])`
 
-`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool hwfallback = True, bool apply_rotation = True])`
+`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True])`
 
-`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string hwdevice, int extrahwframes = 9, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool hwfallback = True, bool apply_rotation = True, int avariableformat = 0])`
+`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True, int avariableformat = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 
@@ -79,7 +79,7 @@ Note that the *BSSource* function by default will silently ignore errors when op
 
 *track*: Either a positive number starting from 0 specifying the absolute track number or a negative number to select the nth audio or video track. Throws an error on wrong type or no matching track.
 
-*adjustdelay*: Adjust audio start time relative to a video track number. Pass -2 to disable and -1 to be relative to the first video track if one exists. Specifying a non-video track is equivalent to passing -2. Note that the offset is always relative to the first CPU-decodable frame in the stream meaning that it may not be the correct delay when *hwdevice* and *variableformat* are used.
+*adjustdelay*: Adjust audio start time relative to a video track number. Pass -2 to disable and -1 to be relative to the first video track if one exists. Specifying a non-video track is equivalent to passing -2. Note that the offset is always relative to the first CPU-decodable frame in the stream meaning that it may not be the correct delay when *gpu* and *variableformat* are used.
 
 *variableformat*: Selects which of the formats encountered in the track is used for the output. Pass 0 or greater to choose the nth one, and any frames not matching it are dropped. If the file is constant format (most are) this setting does nothing.
 
@@ -117,9 +117,11 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *cachesize*: Maximum internal cache size in MB.
 
-*hwdevice*: The interface to use for hardware decoding. Only `vulkan` is supported, covering H264, HEVC and AV1 where the driver provides it. Defaults to CPU decoding. Will throw errors for formats where hardware decoding isn't possible. Other FFmpeg device types such as `d3d11va`, `cuda` and `qsv` were previously accepted and are now rejected: supporting them requires reading every decoded frame back from device memory, which defeats the purpose of hardware decoding here. A request for one of them is treated as hardware decoding being unavailable, so it is subject to *hwfallback* rather than being a hard error. A specific graphics card can be picked by appending a colon and either a device index or part of its name, as in `vulkan:1` or `vulkan:Radeon RX 6900 XT`; without one FFmpeg chooses. The selector is not part of the index, so switching cards doesn't rebuild it. Only worth enabling on a reasonably fast discrete graphics card. Vulkan decoding is not necessarily faster than CPU decoding, and on integrated graphics it is usually slower, so its real benefits are freeing up the CPU and keeping frames in video memory.
+*gpufallback*: Decode on the CPU when *gpu* was asked for but isn't possible, whether because the core is too old, the driver can't decode the codec, the device can't share memory, or the decoder ends up on a different graphics card than VapourSynth. On by default, and it does nothing unless *gpu* is set. VapourSynth only.
 
-*extrahwframes*: The number of additional frames to allocate when *hwdevice* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
+**With this enabled the returned clip's frames may be either GPU resident or not, and handling that is up to you.** A script that unconditionally feeds the clip to a filter taking GPU frames will fail on a machine that fell back. Either check the residency and branch, or pass `gpufallback=False` so that anything preventing GPU decoding is an error instead and the residency is whatever you asked for. Note that falling back means the file is indexed for CPU decoding, since the index records which decoder wrote it.
+
+*extrahwframes*: The number of additional frames to allocate when *gpu* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
 
 *timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option will produce an error if any frame has an unknown timestamp which would result in an invalid timecode file.
 
@@ -131,9 +133,15 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. Passing a number outside the 1-4 range will set it to the biggest number supported.
 
-*hwfallback*: Automatically fall back to CPU decoding if hardware decoding can't be used for the current video track when *hwdevice* is set. This covers a decoder that has no hardware support for the codec, a *hwdevice* other than `vulkan`, and a vulkan device that can't be created because the FFmpeg build lacks vulkan support or the drivers don't provide one. It does not cover other categories of error, such as *hwdevice* naming something that isn't an FFmpeg device type at all.
+*gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires VapourSynth API 4.3 or later, a driver with Vulkan video decoding for the codec, and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one.
 
-*gpu*: Output GPU resident frames instead of reading every decoded frame back into memory. VapourSynth only. Requires VapourSynth API 4.3 or later, hardware decoding, and a device that can share memory, and picks the same graphics card VapourSynth is on unless *hwdevice* already names one. The frames are written directly into VapourSynth's own GPU memory by the decoder, and are usable by any filter taking a GPU clip; `std.GPUDownload` brings them back. Can't be combined with *rff*, since merging fields is a pixel operation. Enabling it when any of the requirements is missing is an error rather than a silent fallback, so a script asking for GPU frames never quietly gets slow ones instead.
+The frames are written directly into VapourSynth's own GPU memory by the decoder and never travel over the bus. They can be fed to any filter taking a GPU clip, and `std.GPUDownload` brings them back to memory.
+
+There is deliberately no mode that decodes on the graphics card and reads the frames back: anything that wants pixels in memory is better off decoding on the CPU, which gets them there without the round trip. Can't be combined with *rff*, because merging fields is a pixel operation, and that combination is an error regardless of *gpufallback* since it is a contradiction in the call rather than something the machine can't do.
+
+What happens when GPU decoding isn't possible at all depends on *gpufallback*, which is on by default, so the returned frames are only guaranteed to be GPU resident when *gpufallback* is also turned off.
+
+Note that GPU decoding is not necessarily faster than CPU decoding, and on integrated graphics it is usually slower. Its real benefits are freeing up the CPU and keeping frames in video memory for GPU filters.
 
 *apply_rotation*: Apply the vertical flip and the rotation stored in the video track's display matrix so the output has the orientation the video is meant to be shown in. Note that mirroring is always reported as a vertical flip followed by a rotation. The *FlipVertical* and *Rotation* frame properties are set to 0 when enabled since the transform has already been applied. Only rotations that are a multiple of 90 degrees can be applied and anything else is an error. A 90 or 270 degree rotation of a format with non-square chroma subsampling, such as 4:2:2, is handled differently by the two plugins. Avisynth+ resamples the chroma planes and is therefore not lossless, whereas VapourSynth swaps the subsampling axes losslessly and outputs a different format than the source, 4:4:0 for a 4:2:2 source. In VapourSynth a rotation that isn't a multiple of 180 degrees additionally requires a constant format clip, so it can't be combined with a *variableformat* of -1 on a file that actually changes format.
 

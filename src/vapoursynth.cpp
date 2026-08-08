@@ -39,6 +39,7 @@
 #include <string>
 #include <chrono>
 #include <mutex>
+#include <functional>
 
 static std::once_flag BSInitOnce;
 
@@ -197,7 +198,6 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     std::filesystem::path Source = CreateProbablyUTF8Path(vsapi->mapGetData(In, "source", 0, nullptr));
     const char *RawCachePath = vsapi->mapGetData(In, "cachepath", 0, &err);
     std::filesystem::path CachePath = CreateProbablyUTF8Path(RawCachePath ? RawCachePath : "");
-    const char *HWDevice = vsapi->mapGetData(In, "hwdevice", 0, &err);
     const char *Timecodes = vsapi->mapGetData(In, "timecodes", 0, &err);
     int Track = vsapi->mapGetIntSaturated(In, "track", 0, &err);
     if (err)
@@ -220,31 +220,33 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         CacheMode = 1;
     int MaxDecoders = vsapi->mapGetIntSaturated(In, "maxdecoders", 0, &err);
-    bool HWFallback = !!vsapi->mapGetInt(In, "hwfallback", 0, &err);
-    if (err)
-        HWFallback = true;
     bool ExportTimestamps = !!vsapi->mapGetInt(In, "exporttimestamps", 0, &err);
     bool ApplyRotation = !!vsapi->mapGetInt(In, "apply_rotation", 0, &err);
     if (err)
         ApplyRotation = true;
-    bool GPUOutput = !!vsapi->mapGetInt(In, "gpu", 0, &err);
+    bool GPU = !!vsapi->mapGetInt(In, "gpu", 0, &err);
+    /* Only meaningful with gpu set. Turning it off makes anything that would prevent GPU decoding
+       an error instead, which is what a script wanting a guaranteed residency needs. */
+    bool GPUFallback = !!vsapi->mapGetInt(In, "gpufallback", 0, &err);
+    if (err)
+        GPUFallback = true;
 
     /* Asking the core which GPU it is on has to happen before the source is constructed, because
        the answer is what pins the decoder to the same one: sharing memory between two Vulkan
-       devices only works when both come from the same physical device. An explicit selector in
-       hwdevice is left alone, and then the identity check in BSVSGpuExport::Create is what catches
-       a mismatch. */
-    std::string HWDeviceStr = HWDevice ? HWDevice : "";
-    if (GPUOutput) {
-        std::string DeviceName, GpuError;
-        if (!BSVSGpuExport::QueryDevice(Core, vsapi, DeviceName, GpuError)) {
-            vsapi->mapSetError(Out, ("VideoSource: gpu output requested but " + GpuError).c_str());
-            return;
+       devices only works when both come from the same physical device. The identity check in
+       BSVSGpuExport::Create is what catches it landing somewhere else anyway. */
+    std::string DeviceSelector;
+    if (GPU) {
+        std::string GpuError;
+        if (!BSVSGpuExport::QueryDevice(Core, vsapi, DeviceSelector, GpuError)) {
+            if (!GPUFallback) {
+                vsapi->mapSetError(Out, ("VideoSource: gpu decoding requested but " + GpuError).c_str());
+                return;
+            }
+            vsapi->logMessage(mtInformation, ("VideoSource: decoding on the CPU instead, " + GpuError).c_str(), Core);
+            GPU = false;
+            DeviceSelector.clear();
         }
-        if (HWDeviceStr.empty())
-            HWDeviceStr = "vulkan";
-        if (HWDeviceStr.find(':') == std::string::npos)
-            HWDeviceStr += ":" + DeviceName;
     }
 
     std::map<std::string, std::string> Opts;
@@ -277,10 +279,16 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         if (ExportTimestamps && (D->RFF || D->FPSNum > 0))
             throw BestSourceException("Cannot combine RFF or CFR mode with timestamp export");
 
+        /* Constructing the source may have to be done twice, once on the GPU and once on the CPU
+           if that fails and gpufallback allows it, so the call is written once here rather than at
+           each of the places that can fall back. Everything it touches has to outlive the last of
+           those, which is why the progress state lives out here instead of in a branch. An empty
+           ProgressFunction is the documented way to ask for no progress reports. */
+        auto NextUpdate = std::chrono::high_resolution_clock::now();
+        int LastValue = -1;
+        ProgressFunction ProgressCB;
         if (ShowProgress) {
-            auto NextUpdate = std::chrono::high_resolution_clock::now();
-            int LastValue = -1;
-            auto ProgressCB = [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
+            ProgressCB = [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
                 if (NextUpdate < std::chrono::high_resolution_clock::now()) {
                     if (Total == INT64_MAX && Cur == Total) {
                         vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
@@ -295,42 +303,46 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 }
                 return true;
                 };
-            try {
-                D->V.reset(new BestVideoSource(Source, HWDeviceStr, ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
-            } catch (BestSourceHWDecoderException &) {
-                if (HWFallback) {
-                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
-                    vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
-                } else {
-                    throw;
-                }
-            }
-        } else {
-            try {
-                D->V.reset(new BestVideoSource(Source, HWDeviceStr, ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
-            } catch (BestSourceHWDecoderException &) {
-                if (HWFallback) {
-                    D->V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
-                    vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " using CPU decoding fallback").c_str(), Core);
-                } else {
-                    throw;
-                }
+        }
+
+        auto MakeSource = [&](bool UseGPU) {
+            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? DeviceSelector : std::string(), ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
+            };
+
+        /* rff is refused outright rather than falling back, because it is a contradiction in the
+           call rather than something the machine cannot do: gpufallback is about hardware being
+           unavailable, and silently ignoring one of two incompatible arguments would hide a
+           mistake in the script. */
+        if (GPU && D->RFF)
+            throw BestSourceException("rff can't be combined with gpu decoding, since merging fields is a pixel operation");
+
+        try {
+            MakeSource(GPU);
+        } catch (BestSourceHWDecoderException &) {
+            if (!GPU || !GPUFallback)
+                throw;
+            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " decoding on the CPU instead, the GPU can't decode this track").c_str(), Core);
+            GPU = false;
+            MakeSource(false);
+        }
+
+        if (GPU) {
+            std::string GpuError;
+            D->GpuExport = BSVSGpuExport::Create(D->V.get(), Core, vsapi, GpuError);
+            if (!D->GpuExport) {
+                if (!GPUFallback)
+                    throw BestSourceException("gpu decoding unavailable: " + GpuError);
+                /* Rebuilding means indexing again, since the index records which decoder wrote it.
+                   Only reachable when the device turns out not to be shareable after all, which is
+                   rare enough not to be worth avoiding at the cost of deferring the check. */
+                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " decoding on the CPU instead, " + GpuError).c_str(), Core);
+                GPU = false;
+                MakeSource(false);
             }
         }
 
         D->V->SetMaxDecoderInstances(MaxDecoders);
         D->V->SelectFormatSet(VariableFormat);
-
-        if (GPUOutput) {
-            if (D->RFF)
-                throw BestSourceException("rff can't be combined with gpu output, since merging fields is a pixel operation");
-            std::string GpuError;
-            if (!D->V->SetKeepHardwareFrames(true))
-                throw BestSourceException("gpu output needs vulkan hardware decoding with GPU hashing, which isn't available here");
-            D->GpuExport = BSVSGpuExport::Create(D->V.get(), Core, vsapi, GpuError);
-            if (!D->GpuExport)
-                throw BestSourceException("gpu output unavailable: " + GpuError);
-        }
 
         const BSVideoProperties &VP = D->V->GetVideoProperties();
         if (VP.VF.ColorFamily == 4)
@@ -611,7 +623,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI
     vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
     /* vnode:all rather than vnode: the residency depends on the gpu argument, and ":all" is the
        declaration for a return that is legitimately either, per instance. */
-    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;hwdevice:data:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;hwfallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;gpu:int:opt;", "clip:vnode:all;", CreateBestVideoSource, nullptr, plugin);
+    vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;gpufallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;gpu:int:opt;", "clip:vnode:all;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;variableformat:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "mediatype:int;mediatypestr:data;codec:int;codecstr:data;disposition:int;dispositionstr:data;", GetTrackInfo, nullptr, plugin);
     vspapi->registerFunction("Metadata", "source:data;track:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;", "any", GetMetadata, nullptr, plugin);

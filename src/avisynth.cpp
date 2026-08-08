@@ -91,8 +91,8 @@ class AvisynthVideoSource : public IClip {
 public:
     AvisynthVideoSource(const char *RawSource, int Track, int ViewID,
         int AFPSNum, int AFPSDen, bool RFF, int Threads, int SeekPreRoll, bool EnableDrefs, bool UseAbsolutePath,
-        int CacheMode, const char *RawCachePath, int CacheSize, const char *HWDevice, int ExtraHWFrames,
-        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool HWFallback, bool ApplyRotation, IScriptEnvironment *Env)
+        int CacheMode, const char *RawCachePath, int CacheSize,
+        const char *Timecodes, int StartNumber, int VariableFormat, int MaxDecoders, bool ApplyRotation, IScriptEnvironment *Env)
         : FPSNum(AFPSNum), FPSDen(AFPSDen), RFF(RFF), ApplyRotation(ApplyRotation) {
 
         try {
@@ -116,14 +116,10 @@ public:
             std::filesystem::path Source(CreateProbablyUTF8Path(RawSource));
             std::filesystem::path CachePath(CreateProbablyUTF8Path(RawCachePath));
 
-            try {
-                V.reset(new BestVideoSource(Source, HWDevice ? HWDevice : "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
-            } catch (BestSourceHWDecoderException &) {
-                if (HWFallback)
-                    V.reset(new BestVideoSource(Source, "", ExtraHWFrames, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
-                else
-                    throw;
-            }
+            /* Avisynth+ has no GPU resident frames, so there is no hardware decoding here: it
+               would have to read every frame back, which is what decoding on the CPU already
+               does without the round trip. */
+            V.reset(new BestVideoSource(Source, false, "", 0, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
 
             V->SetMaxDecoderInstances(MaxDecoders);
             V->SelectFormatSet(VariableFormat);
@@ -342,17 +338,14 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int CacheMode = Args[9].AsInt(1);
     const char *CachePath = Args[10].AsString("");
     int CacheSize = Args[11].AsInt(-1);
-    const char *HWDevice = Args[12].AsString();
-    int ExtraHWFrames = Args[13].AsInt(9);
-    const char *Timecodes = Args[14].AsString(nullptr);
-    int StartNumber = Args[15].AsInt(-1);
-    int VariableFormat = Args[16].AsInt(0);
-    int ViewID = Args[17].AsInt(0);
-    int MaxDecoders = Args[18].AsInt(0);
-    bool HWFallback = Args[19].AsBool(true);
-    bool ApplyRotation = Args[20].AsBool(true);
+    const char *Timecodes = Args[12].AsString(nullptr);
+    int StartNumber = Args[13].AsInt(-1);
+    int VariableFormat = Args[14].AsInt(0);
+    int ViewID = Args[15].AsInt(0);
+    int MaxDecoders = Args[16].AsInt(0);
+    bool ApplyRotation = Args[17].AsBool(true);
 
-    AvisynthVideoSource *VideoSource = new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, HWDevice, ExtraHWFrames, Timecodes, StartNumber, VariableFormat, MaxDecoders, HWFallback, ApplyRotation, Env);
+    AvisynthVideoSource *VideoSource = new AvisynthVideoSource(Source, Track, ViewID, FPSNum, FPSDen, RFF, Threads, SeekPreroll, EnableDrefs, UseAbsolutePath, CacheMode, CachePath, CacheSize, Timecodes, StartNumber, VariableFormat, MaxDecoders, ApplyRotation, Env);
     AVSValue Clip = VideoSource;
 
     if (ApplyRotation)
@@ -510,9 +503,9 @@ static constexpr auto PopulateArgNames() {
     return Result;
 }
 
-static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b";
+static constexpr char BSVideoSourceAvsArgs[] = "[source]s[track]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[cachesize]i[timecodes]s[start_number]i[variableformat]i[viewid]i[maxdecoders]i[apply_rotation]b";
 static constexpr char BSAudioSourceAvsArgs[] = "[source]s[track]i[adjustdelay]i[threads]i[enable_drefs]b[use_absolute_path]b[drc_scale]f[cachemode]i[cachepath]s[cachesize]i[maxdecoders]i[variableformat]i";
-static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[hwdevice]s[extrahwframes]i[timecodes]s[start_number]i[vvariableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[hwfallback]b[apply_rotation]b[avariableformat]i";
+static constexpr char BSSourceAvsArgs[] = "[source]s[atrack]i[vtrack]i[fpsnum]i[fpsden]i[rff]b[threads]i[seekpreroll]i[enable_drefs]b[use_absolute_path]b[cachemode]i[cachepath]s[acachesize]i[vcachesize]i[timecodes]s[start_number]i[vvariableformat]i[adjustdelay]i[drc_scale]f[viewid]i[maxdecoders]i[apply_rotation]b[avariableformat]i";
 
 static constexpr std::array BSVArgNames = PopulateArgNames<BSVideoSourceAvsArgs>();
 static constexpr std::array BSAArgNames = PopulateArgNames<BSAudioSourceAvsArgs>();
