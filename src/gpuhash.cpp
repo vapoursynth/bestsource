@@ -33,6 +33,7 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vulkan.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/version.h>
 }
 
 /* Generated from src/shaders/hashexport.comp.glsl at build time; see tools/spv2c.py. */
@@ -51,7 +52,7 @@ namespace {
    using the same loader FFmpeg is. */
 #define BS_VK_FUNCS(F)                     \
     F(vkGetPhysicalDeviceMemoryProperties) \
-    F(vkGetDeviceQueue)                    \
+    F(vkGetDeviceQueue2)                   \
     F(vkCreateImageView)                   \
     F(vkDestroyImageView)                  \
     F(vkCreateDescriptorSetLayout)         \
@@ -390,7 +391,23 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     }
     if (P->QueueFamilyListIndex < 0)
         throw BestSourceException("GPU hashing: device has no compute queue family");
-    P->VK.vkGetDeviceQueue(P->Device, P->QueueFamily, 0, &P->Queue);
+
+    /* FFmpeg 9 (libavutil 61) creates its queues with queue_flags, which includes
+       VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR wherever the extension exists --
+       mesa exposes it, the NVIDIA driver currently does not. A queue created with nonzero flags
+       must be retrieved with vkGetDeviceQueue2 carrying the same flags; the plain
+       vkGetDeviceQueue is invalid for it and on RADV yields a handle that crashes in the first
+       vkQueueSubmit. With flags zero the two are equivalent, so 2 is used unconditionally. */
+    VkDeviceQueueInfo2 QueueInfo = {};
+    QueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2;
+#if LIBAVUTIL_VERSION_MAJOR >= 61
+    QueueInfo.flags = P->HWCtx->queue_flags;
+#endif
+    QueueInfo.queueFamilyIndex = P->QueueFamily;
+    QueueInfo.queueIndex = 0;
+    P->VK.vkGetDeviceQueue2(P->Device, &QueueInfo, &P->Queue);
+    if (P->Queue == VK_NULL_HANDLE)
+        throw BestSourceException("GPU hashing: couldn't retrieve the compute queue");
 
     P->CreateBuffer(2 * sizeof(uint32_t), P->Acc);
     P->CreateBuffer(sizeof(uint32_t), P->Status);
