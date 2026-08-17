@@ -18,10 +18,11 @@
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
-/* The GPU side of the API, obtained through VSAPI::getVulkanAPI and versioned independently of
- * the core API since it is expected to evolve faster. It is deliberately a raw exposure: the
- * core hands out its Vulkan handles and per plane buffers, and a GPU filter brings its own
- * pipelines, command buffers and synchronization on top of them. The contract in short:
+/* The GPU side of the API, obtained through VSAPI::getVulkanAPI. It has no version of its own and
+ * grows with the core API instead, so there is nothing to negotiate and the call cannot fail. It
+ * is deliberately a raw exposure: the core hands out its Vulkan handles and per plane buffers, and
+ * a GPU filter brings its own pipelines, command buffers and synchronization on top of them. The
+ * contract in short:
  *
  * - Resolve every entry point through getInstanceProcAddr/vkGetDeviceProcAddr from the handles;
  *   nothing is linked.
@@ -67,17 +68,6 @@ enum VSVulkanRequirement {
     VS_VK_OPTIONAL
 };
 
-/* One list, expanded several ways: into the struct fields, into the load descriptor table, and
-   into a single concatenated name string. Keeping them generated from one place is the only
-   practical way to stop the struct and the loader drifting apart, and drift there produces a null
-   call at runtime rather than a compile error.
-
-   THE LAYOUT IS FROZEN ABI. The set was completed against core Vulkan 1.4, which stays the
-   required version for years, so changes should be rare: entries may only ever be APPENDED at
-   the end of the list, only together with a VSVULKAN_API_VERSION bump, and getVulkanAPI serves
-   every older version from the same structs since the layout is prefix stable. Members carry
-   the vk prefix so no platform header macro (windows.h defines CreateSemaphore) can rename
-   them in any translation unit, whatever the include order. */
 #define VS_VK_FUNCTION_LIST(FN) \
     /* ---- Global ---- */ \
     FN(VS_VK_GLOBAL,   VS_VK_REQUIRED, EnumerateInstanceVersion) \
@@ -101,14 +91,14 @@ enum VSVulkanRequirement {
     FN(VS_VK_INSTANCE, VS_VK_OPTIONAL, CreateDebugUtilsMessengerEXT) \
     FN(VS_VK_INSTANCE, VS_VK_OPTIONAL, DestroyDebugUtilsMessengerEXT) \
     \
-    /* ---- Device: lifetime and queues ---- */ \
+    /* ---- Device ---- */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroyDevice) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DeviceWaitIdle) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, GetDeviceQueue2) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, QueueSubmit2) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, QueueWaitIdle) \
     \
-    /* ---- Memory. MapMemory2/UnmapMemory2 are the 1.4 core spellings. ---- */ \
+    /* ---- Memory ---- */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, AllocateMemory) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, FreeMemory) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, MapMemory2) \
@@ -140,8 +130,7 @@ enum VSVulkanRequirement {
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateSamplerYcbcrConversion) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroySamplerYcbcrConversion) \
     \
-    /* ---- Descriptors. Push descriptors are core in 1.4 and remove the need to pool and \
-       allocate sets for the common case of a few bindings per dispatch. ---- */ \
+    /* ---- Descriptors ---- */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateDescriptorSetLayout) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroyDescriptorSetLayout) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateDescriptorPool) \
@@ -164,8 +153,6 @@ enum VSVulkanRequirement {
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroyPipelineCache) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, GetPipelineCacheData) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, MergePipelineCaches) \
-    /* maintenance5 allows chaining the SPIR-V straight into pipeline creation, so these two are \
-       only needed if a module is deliberately kept around and reused. */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateShaderModule) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroyShaderModule) \
     \
@@ -200,8 +187,7 @@ enum VSVulkanRequirement {
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CmdUpdateBuffer) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CmdClearColorImage) \
     \
-    /* ---- Synchronisation. The timeline semaphore calls are what let one frame's work wait on \
-       the previous filter without the host ever blocking. ---- */ \
+    /* ---- Synchronisation ---- */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateSemaphore) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroySemaphore) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, WaitSemaphores) \
@@ -218,8 +204,7 @@ enum VSVulkanRequirement {
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CmdResetEvent2) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CmdWaitEvents2) \
     \
-    /* ---- Timestamp queries. Only ever called when profiling is on, but they are core, so a \
-       missing one is as fatal as any other. ---- */ \
+    /* ---- Timestamp queries ---- */ \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, CreateQueryPool) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, DestroyQueryPool) \
     FN(VS_VK_DEVICE,   VS_VK_REQUIRED, GetQueryPoolResults) \
@@ -235,18 +220,11 @@ enum VSVulkanRequirement {
     FN(VS_VK_DEVICE,   VS_VK_OPTIONAL, CmdBeginDebugUtilsLabelEXT) \
     FN(VS_VK_DEVICE,   VS_VK_OPTIONAL, CmdEndDebugUtilsLabelEXT)
 
-/* Members keep the vk prefix so they read exactly as the entry point they hold, and so that none
-   of them can collide with a macro from a platform header. windows.h defines CreateSemaphore as a
-   macro selecting the A or W variant, which would otherwise rename this struct's member in some
-   translation units and not others depending on include order. ffmpeg lives with that by always
-   including windows.h first; naming the members vkCreateSemaphore and so on removes the problem
-   rather than sequencing around it. */
 typedef struct VSVulkanFunctions {
 #define VS_VK_DECLARE_MEMBER(level, req, name) PFN_vk##name vk##name;
     VS_VK_FUNCTION_LIST(VS_VK_DECLARE_MEMBER)
 #undef VS_VK_DECLARE_MEMBER
 } VSVulkanFunctions;
-#define VSVULKAN_API_VERSION 1
 
 /* The two are NOT interchangeable, and Vulkan guarantees the implication one way only: a
  * compute queue always accepts transfer commands, while a dedicated transfer queue need not
@@ -274,11 +252,11 @@ typedef struct VSVulkanCoreHandles {
 } VSVulkanCoreHandles;
 
 /* The device feature baseline. The core creates every device itself: Vulkan 1.4 with exactly
- * the features below and no extensions except the platform's opaque handle export
- * (VK_KHR_external_memory_win32 or _fd) where available, which is never load-bearing. Every
- * entry is mandatory for a conformant 1.4 implementation, so the version is the whole hardware
- * gate and kernels may target the required set unconditionally. Sharing frames with another
- * device or API goes through exportGPUPlane, not device sharing.
+ * the features below and no extensions except the platform's opaque memory and semaphore handle
+ * export (VK_KHR_external_memory/_semaphore_win32 or _fd) where available, plus
+ * VK_KHR_portability_subset where the device demands it. Every REQUIRED entry is mandatory for a
+ * conformant 1.4 implementation. Sharing frames with another device or API goes through
+ * exportGPUPlane, not device sharing.
  *
  *   required (VkPhysicalDeviceFeatures): shaderInt16, shaderImageGatherExtended,
  *     shaderStorageImageExtendedFormats, shaderUniformBufferArrayDynamicIndexing,
@@ -296,7 +274,19 @@ typedef struct VSVulkanCoreHandles {
  *   required (Vulkan14Features): maintenance5, maintenance6, pushDescriptor,
  *     shaderSubgroupRotate, shaderSubgroupRotateClustered, shaderFloatControls2,
  *     shaderExpectAssume, pipelineRobustness
- *   optional, used when enabled: shaderFloat16 */
+ *   optional, enabled when the device has it: shaderFloat16 (Vulkan12Features), shaderInt64 and
+ *     shaderFloat64 (Features), shaderBufferInt64Atomics and shaderSharedInt64Atomics
+ *     (Vulkan12Features) -- query the physical device to find out whether you got them
+ *
+ * One extension pair is enabled beyond the handle export pair, under the same policy the
+ * optional features above follow: whenever the device offers VK_EXT_shader_atomic_float and its
+ * float2 companion they are enabled, with exactly the feature bits the device reports. That
+ * guarantee is the availability contract -- Vulkan cannot ask a created device what was enabled,
+ * so enable-whatever-is-reported is what makes the physical device's own queries authoritative.
+ * Check presence with vkEnumerateDeviceExtensionProperties and the bits with
+ * vkGetPhysicalDeviceFeatures2; what they report is what is live. Resolve any extension entry
+ * points you need yourself through the handles' getInstanceProcAddr -- the function table below
+ * stays core 1.4 plus debug utils by design. */
 
 /* One GPU resident plane: a linear pitched storage buffer laid out exactly like the equivalent
  * CPU plane, so getStride and the frame dimension functions apply unchanged. */
@@ -494,7 +484,7 @@ struct VSVULKANAPI {
 
     /* ---- GPU resident frames ---- */
 
-    /* GPU resident frames for filter output; identical semantics to newVideoFrame otherwise. */
+    /* GPU resident frames for filter output; identical semantics to newVideoFrame otherwise. Note that newVideoFrame2 also supports GPU resident frames */
     VSFrame *(VS_CC *newGPUVideoFrame)(const VSVideoFormat *format, int width, int height, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT;
     int (VS_CC *getGPUPlane)(const VSFrame *frame, int plane, VSVulkanPlaneInfo *info) VS_NOEXCEPT; /* nonzero when the frame is not GPU resident or the plane does not exist */
     void (VS_CC *setGPUPlaneProducer)(VSFrame *frame, int plane, VSGPUTimeline *timeline, uint64_t value) VS_NOEXCEPT; /* the plane takes its own reference; NULL publishes the plane as host ready */
@@ -505,7 +495,7 @@ struct VSVULKANAPI {
        pool. Created with an initial value of 0, exportable where the device allows it, and
        returned with one reference which is yours to release -- in the free callback, without
        waiting for consumers, since planes you published it on hold their own. Returns NULL
-       with the error set. */
+       on error. */
     VSGPUTimeline *(VS_CC *createGPUTimeline)(VSCore *core, char *errorMessage, int errorMessageSize) VS_NOEXCEPT;
     void (VS_CC *freeGPUTimeline)(VSGPUTimeline *timeline) VS_NOEXCEPT;
     /* Takes another reference, for handing the same timeline to something with its own

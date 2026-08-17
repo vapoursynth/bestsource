@@ -293,11 +293,7 @@ bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &D
         Error = "this VapourSynth is older than API 4.3, which GPU frames need";
         return false;
     }
-    const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI(VSVULKAN_API_VERSION);
-    if (!VkAPI) {
-        Error = "this VapourSynth core has no Vulkan API";
-        return false;
-    }
+    const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI();
 
     char Err[512] = {};
     VSVulkanCoreInfo Info = {};
@@ -328,7 +324,7 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
         Error = "this VapourSynth is older than API 4.3, which GPU frames need";
         return nullptr;
     }
-    P->VkAPI = vsapi->getVulkanAPI(VSVULKAN_API_VERSION);
+    P->VkAPI = vsapi->getVulkanAPI();
 
     if (!P->Hasher || !Source->GetHWDeviceContext()) {
         Error = "the source isn't using vulkan hardware decoding with GPU hashing";
