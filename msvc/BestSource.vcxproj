@@ -27,10 +27,12 @@
     <ClCompile Include="..\src\audiosource.cpp" />
     <ClCompile Include="..\src\avisynth.cpp" />
     <ClCompile Include="..\src\bsshared.cpp" />
+    <ClCompile Include="..\src\gpuhash.cpp" />
     <ClCompile Include="..\src\synthshared.cpp" />
     <ClCompile Include="..\src\tracklist.cpp" />
     <ClCompile Include="..\src\vapoursynth.cpp" />
     <ClCompile Include="..\src\videosource.cpp" />
+    <ClCompile Include="..\src\vsgpuexport.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\libp2p\p2p.h" />
@@ -39,10 +41,15 @@
     <ClInclude Include="..\libp2p\simd\p2p_simd.h" />
     <ClInclude Include="..\src\audiosource.h" />
     <ClInclude Include="..\src\bsshared.h" />
+    <ClInclude Include="..\src\gpuhash.h" />
     <ClInclude Include="..\src\synthshared.h" />
     <ClInclude Include="..\src\tracklist.h" />
     <ClInclude Include="..\src\version.h" />
     <ClInclude Include="..\src\videosource.h" />
+    <ClInclude Include="..\src\vsgpuexport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\src\shaders\hashexport.comp.glsl" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
@@ -99,6 +106,12 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <BSGpuHashSamplesX>8</BSGpuHashSamplesX>
+    <BSVulkanSdkRoot Condition="'$(BSVulkanSdkRoot)' == ''">C:\VulkanSDK</BSVulkanSdkRoot>
+    <BSPython Condition="'$(BSPython)' == ''">py</BSPython>
+    <BSGeneratedDir>$(IntDir)bsgen\</BSGeneratedDir>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <IncludePath>C:\Libraries\bestsource\libp2p;../../../vapoursynth/include;C:\Program Files %28x86%29\AviSynth+\FilterSDK\include;$(IncludePath)</IncludePath>
@@ -187,7 +200,35 @@
       <AdditionalDependencies>psapi.lib;uuid.lib;oleaut32.lib;shlwapi.lib;gdi32.lib;vfw32.lib;secur32.lib;ws2_32.lib;mfplat.lib;mfuuid.lib;strmiids.lib;ole32.lib;user32.lib;bcrypt.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\include\vapoursynth;$(BSGeneratedDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>BS_GPU_HASH=1;BS_GPU_HASH_SAMPLES_X=$(BSGpuHashSamplesX);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/w34995 /w34996 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <Target Name="BSFindGlslang" Condition="'$(BSGlslang)' == ''">
+    <ItemGroup>
+      <BSGlslangCandidate Include="$(BSVulkanSdkRoot)\*\Bin\glslangValidator.exe" />
+      <BSGlslangCandidate Include="$(VULKAN_SDK)\Bin\glslangValidator.exe" Condition="'$(VULKAN_SDK)' != ''" />
+    </ItemGroup>
+    <PropertyGroup>
+      <BSGlslang>%(BSGlslangCandidate.FullPath)</BSGlslang>
+    </PropertyGroup>
+  </Target>
+  <Target Name="BSGenerateShaderHeader"
+          DependsOnTargets="BSFindGlslang"
+          BeforeTargets="ClCompile"
+          Inputs="$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl;$(MSBuildThisFileDirectory)..\tools\spv2c.py"
+          Outputs="$(BSGeneratedDir)hashexport_spv.h">
+    <Error Condition="'$(BSGlslang)' == ''"
+           Text="glslangValidator was not found under $(BSVulkanSdkRoot) and VULKAN_SDK is not set. Install the Vulkan SDK, or set BSGlslang to its path." />
+    <MakeDir Directories="$(BSGeneratedDir)" />
+    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=8 -DSAMPLES_X=$(BSGpuHashSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport8.spv&quot;" />
+    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=16 -DSAMPLES_X=$(BSGpuHashSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport16.spv&quot;" />
+    <Exec Command="&quot;$(BSPython)&quot; &quot;$(MSBuildThisFileDirectory)..\tools\spv2c.py&quot; &quot;$(BSGeneratedDir)hashexport_spv.h&quot; BSHashExportSpv8=&quot;$(BSGeneratedDir)hashexport8.spv&quot; BSHashExportSpv16=&quot;$(BSGeneratedDir)hashexport16.spv&quot;" />
+  </Target>
 </Project>
