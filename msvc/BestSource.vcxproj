@@ -202,7 +202,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\include\vapoursynth;$(BSGeneratedDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(BSGeneratedDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>BS_GPU_HASH=1;BS_GPU_HASH_SAMPLES_X=$(BSGpuHashSamplesX);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/w34995 /w34996 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>

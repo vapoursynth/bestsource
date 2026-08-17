@@ -22,7 +22,7 @@ Both are picked up automatically. Pass `-Denable_gpu_hash=enabled` to make a mis
 
 Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
 
-The VapourSynth headers are bundled in `include/vapoursynth` rather than taken from the installed VapourSynth, because GPU frames need API 4.3 and the released headers are still 4.2. See the README there; this is temporary.
+The VapourSynth headers come from the installed VapourSynth via `vs.get_include()`. GPU frames need the API 4.3 declarations, which VapourSynth ships from R80a1 onwards.
 
 ### Windows Compilation
 
@@ -145,7 +145,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. Passing a number outside the 1-4 range will set it to the biggest number supported.
 
-*gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires VapourSynth API 4.3 or later, a driver with Vulkan video decoding for the codec, and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one.
+*gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires a driver with Vulkan video decoding for the codec and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one.
 
 The frames are written directly into VapourSynth's own GPU memory by the decoder and never travel over the bus. They can be fed to any filter taking a GPU clip, and `std.GPUDownload` brings them back to memory.
 

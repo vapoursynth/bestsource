@@ -38,7 +38,7 @@
 #include "gpuhash.h"
 #include "videosource.h"
 
-/* See the note in vapoursynth.cpp: 4.3 declarations, 4.0 requested, runtime checked. */
+/* Must match vapoursynth.cpp, which is what configPlugin asks the core for. */
 #define VS_USE_API_43
 #include <VapourSynth4.h>
 #include <VSVulkan4.h>
@@ -277,22 +277,7 @@ const std::string &BSVSGpuExport::GetDeviceName() const {
     return P->DeviceName;
 }
 
-namespace {
-
-/* getAPIVersion has been in the struct since 4.0, so asking is always safe; everything the GPU
-   path needs arrived in 4.3 and must not be touched on an older core, where those members are
-   past the end of the struct. */
-bool CoreHasGPUAPI(const VSAPI *vsapi) {
-    return vsapi->getAPIVersion() >= VS_MAKE_VERSION(4, 3);
-}
-
-} // namespace
-
 bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &DeviceName, std::string &Error) {
-    if (!CoreHasGPUAPI(vsapi)) {
-        Error = "this VapourSynth is older than API 4.3, which GPU frames need";
-        return false;
-    }
     const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI();
 
     char Err[512] = {};
@@ -320,10 +305,6 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
     P->Core = Core;
     P->vsapi = vsapi;
     P->Hasher = Source->GetGpuHasher();
-    if (!CoreHasGPUAPI(vsapi)) {
-        Error = "this VapourSynth is older than API 4.3, which GPU frames need";
-        return nullptr;
-    }
     P->VkAPI = vsapi->getVulkanAPI();
 
     if (!P->Hasher || !Source->GetHWDeviceContext()) {

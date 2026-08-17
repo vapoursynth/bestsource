@@ -209,9 +209,9 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    # Python is needed for meson itself and for tools/spv2c.py, which turns the compiled shaders
-    # into a header. The VapourSynth package is deliberately not installed: the headers are
-    # vendored in include/vapoursynth, see the README there.
+    # Python is needed for meson itself, for tools/spv2c.py, which turns the compiled shaders into
+    # a header, and for the vs.get_include() lookup in meson.build. The VapourSynth wheel is
+    # limited-API (cp312-abi3), so any Python >= 3.12 can import it for that.
     - uses: actions/setup-python@v6
       with:
         python-version: '3.14'
@@ -221,7 +221,7 @@ jobs:
         arch: x64
 
     - name: Install build tools
-      run: pip install meson ninja
+      run: pip install meson ninja "vapoursynth>=80a1"
 
     - name: Prepare vcpkg binary cache
       run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE

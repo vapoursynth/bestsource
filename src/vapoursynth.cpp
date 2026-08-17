@@ -25,10 +25,6 @@
 #include "version.h"
 #include "synthshared.h"
 #include "vsgpuexport.h"
-/* Compiled against the 4.3 declarations so the GPU entry points exist, while configPlugin still
-   asks for 4.0 so the plugin keeps loading on older cores. Anything added in 4.3 is therefore only
-   touched after checking the running core's version, since on an older one those members are past
-   the end of the struct it handed us. */
 #define VS_USE_API_43
 #include <VapourSynth4.h>
 #include <VSHelper4.h>
@@ -613,9 +609,7 @@ static void VS_CC SetLogLevel(const VSMap *In, VSMap *Out, void *, VSCore *, con
 }
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
-    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VS_MAKE_VERSION(VAPOURSYNTH_API_MAJOR, 0), 0, plugin);
-    /* vnode:all rather than vnode: the residency depends on the gpu argument, and ":all" is the
-       declaration for a return that is legitimately either, per instance. */
+    vspapi->configPlugin("com.vapoursynth.bestsource", "bs", "Best Source 2", VS_MAKE_VERSION(BEST_SOURCE_VERSION_MAJOR, BEST_SOURCE_VERSION_MINOR), VAPOURSYNTH_API_VERSION, 0, plugin);
     vspapi->registerFunction("VideoSource", "source:data;track:int:opt;variableformat:int:opt;fpsnum:int:opt;fpsden:int:opt;rff:int:opt;threads:int:opt;seekpreroll:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;extrahwframes:int:opt;timecodes:data:opt;start_number:int:opt;viewid:int:opt;showprogress:int:opt;maxdecoders:int:opt;gpufallback:int:opt;exporttimestamps:int:opt;apply_rotation:int:opt;gpu:int:opt;", "clip:vnode:all;", CreateBestVideoSource, nullptr, plugin);
     vspapi->registerFunction("AudioSource", "source:data;track:int:opt;adjustdelay:int:opt;threads:int:opt;enable_drefs:int:opt;use_absolute_path:int:opt;drc_scale:float:opt;cachemode:int:opt;cachepath:data:opt;cachesize:int:opt;showprogress:int:opt;maxdecoders:int:opt;variableformat:int:opt;", "clip:anode;", CreateBestAudioSource, nullptr, plugin);
     vspapi->registerFunction("TrackInfo", "source:data;enable_drefs:int:opt;use_absolute_path:int:opt;", "tracktype:int[];tracktypestr:data[];codec:int[];codecstr:data[];disposition:int[];dispositionstr:data[];", GetTrackInfo, nullptr, plugin);

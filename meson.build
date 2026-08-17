@@ -95,13 +95,11 @@ if enable_plugin
         error('The VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
     endif
 
-    # Bundled rather than taken from vs.get_include(), because the GPU frame path needs the API 4.3
-    # declarations and the VapourSynth wheel still ships 4.2. A stale VSVulkan4.h is not a link
-    # error either: it declares the same VS_VULKAN_API_VERSION with its members in a different
-    # order, so the plugin builds and then calls through the wrong offsets. See
-    # include/vapoursynth/README.md; this goes back to vs.get_include() once a release ships the
-    # GPU API.
-    incdir += include_directories('include/vapoursynth')
+    # Needs the API 4.3 declarations the GPU frame path is written against, which VapourSynth
+    # ships from R80a1 onwards.
+    incdir += include_directories(
+        run_command(py, '-c', 'import vapoursynth as vs; print(vs.get_include())', check: true).stdout().strip(),
+    )
 
     sources += files(
         'src/synthshared.cpp',
