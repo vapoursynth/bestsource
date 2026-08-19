@@ -88,3 +88,4 @@ bestsource_dep = declare_dependency(
     include_directories: include_directories('src'),
     link_with: bestsource,
 )
+meson.override_dependency('bestsource', bestsource_dep)
