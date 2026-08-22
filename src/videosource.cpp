@@ -1546,6 +1546,16 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
     FrameHolder MatchFrames;
 
+    /* Every held hardware frame pins a surface from the decoder's fixed pool, the same pool the
+       frame cache is bounded against, so the two must share the budget rather than each assuming
+       it has ExtraHWFrames to itself. The cache is emptied because a seek means the request left
+       the neighborhood its contents serve, and giving its surfaces to the matcher lets the
+       ambiguity window keep a useful depth; what gets matched is inserted right back afterwards.
+       Ten frames of software decoding are just memory, hence no cap there. */
+    const size_t MaxMatchFrames = GPU ? static_cast<size_t>(std::max(1, ExtraHWFrames - 2)) : 10;
+    if (GPU)
+        FrameCache.Clear();
+
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
@@ -1594,7 +1604,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
             if (iter <= N) // Do we care about preroll or is it just a nice thing to have? With seeking it's a lot less important anyway...
                 SuitableCandidate = true;
 
-        bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
+        bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= MaxMatchFrames));
 
 #ifndef NDEBUG
         if (!SuitableCandidate && Matches.size() > 0)

@@ -487,9 +487,9 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
             /* RFF. MergeField could not write into either decoded image, so the interleave happens
                here instead: one dispatch per source frame, each writing its own parity of rows. */
             P->Hasher->ExportMergedFieldsAsPlanarGPU(Src->GetEvenRowsAVFrame(), Src->GetOddRowsAVFrame(),
-                Targets, P->ImportedTimeline, SignalValue);
+                Width, Height, Targets, P->ImportedTimeline, SignalValue);
         } else {
-            P->Hasher->ExportAsPlanarGPU(Src->GetAVFrame(), Targets, P->ImportedTimeline, SignalValue);
+            P->Hasher->ExportAsPlanarGPU(Src->GetAVFrame(), Width, Height, Targets, P->ImportedTimeline, SignalValue);
         }
 
         /* Every plane is produced by the same submission, so they share the pair. Each takes its

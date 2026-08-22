@@ -94,6 +94,12 @@ public:
        chroma of an nv12/p010 decode output split into separate U and V planes, and the P010 family
        shifted from MSB to LSB alignment.
 
+       Width and Height are the destination's luma extent and bound every write; the chroma extent
+       follows from the format's subsampling. They exist because the two sizes legitimately differ:
+       a decoder rounds odd dimensions up to the subsampling grid while planar output crops them
+       down to it, so exporting by the decoded size would write one row and column past every plane
+       of an odd sized destination. Must be positive and no larger than the decoded frame.
+
        Targets must have three entries, in Y U V order.
 
        Deliberately does not hash: every frame is hashed by HashFrame at decode time, before anything
@@ -106,7 +112,7 @@ public:
        Still blocks until the GPU is done, because the image views this creates cannot be destroyed
        before the dispatch that reads them has finished. The signal is what the consumer's later work
        orders against regardless. */
-    void ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
+    void ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height, const BSGpuPlaneTarget *Targets,
         VkSemaphore SignalTimeline, uint64_t SignalValue);
 
     /* The RFF form: writes the even rows of the output from EvenRows and the odd rows from OddRows,
@@ -116,7 +122,8 @@ public:
        is modified, which is the point -- on a device resident frame the images belong to FFmpeg's
        pool and merging into one of them would corrupt it for every other holder. */
     void ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
-        const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue);
+        int Width, int Height, const BSGpuPlaneTarget *Targets,
+        VkSemaphore SignalTimeline, uint64_t SignalValue);
 #endif
 
     /* Whether the frame's format and residency are something HashFrame can handle. */

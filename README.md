@@ -75,7 +75,7 @@ The *Metadata* function returns all the file or track metadata as key-value pair
 
 `BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, int maxdecoders = 0, int variableformat = 0])`
 
-`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, int extrahwframes = 9, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True])`
+`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True])`
 
 `BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True, int avariableformat = 0])`
 

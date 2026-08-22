@@ -192,10 +192,14 @@ struct BSGpuHasher::Impl {
     VkPipeline GetPipeline(int BytesPerSample, bool DoExport, bool DoHash);
     void LockQueue();
     void UnlockQueue();
-    /* Targets null means hash only. SignalTimeline null means only the frames' own semaphores are
-       signalled. Returns the hash, which is only meaningful with a single whole frame source --
+    /* Targets null means hash only, and ExportWidth/ExportHeight are then ignored -- a hash must
+       cover the full decoded frame, since that is what the index hashes were computed over. With
+       Targets set they bound the writes to the destination's extent, which for odd dimensions is
+       smaller than the decoded frame. SignalTimeline null means only the frames' own semaphores
+       are signalled. Returns the hash, which is only meaningful with a single whole frame source --
        hashing is off for every other shape, and the result is then zero. */
     uint64_t RunDispatch(const DispatchSource *Sources, int NumSources,
+                         int ExportWidth, int ExportHeight,
                          const BSGpuPlaneTarget *Targets, bool DoHash,
                          VkSemaphore SignalTimeline, uint64_t SignalValue);
 };
@@ -509,11 +513,22 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 BSGpuHasher::~BSGpuHasher() = default;
 
 uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSources,
+    int ExportWidth, int ExportHeight,
     const BSGpuPlaneTarget *Targets, bool DoHash,
     VkSemaphore SignalTimeline, uint64_t SignalValue) {
     Impl *P = this;
     const bool DoExport = (Targets != nullptr);
     const AVFrame *Frame = Sources[0].Frame;
+
+    if (DoExport && (ExportWidth <= 0 || ExportHeight <= 0 || ExportWidth > Frame->width || ExportHeight > Frame->height))
+        throw BestSourceException("GPU export: destination size must be positive and no larger than the decoded frame");
+
+    /* What the shader bounds itself by, per plane. The decoded size for hashing, the destination
+       size for export: a decoder pads odd dimensions up to the subsampling grid, the destination
+       is cropped down to it, and writing by the decoded size runs one row and column past every
+       plane of such a destination. */
+    const int Width = DoExport ? ExportWidth : Frame->width;
+    const int Height = DoExport ? ExportHeight : Frame->height;
 
     AVHWFramesContext *Frames = reinterpret_cast<AVHWFramesContext *>(Frame->hw_frames_ctx->data);
     const AVPixFmtDescriptor *Desc = av_pix_fmt_desc_get(Frames->sw_format);
@@ -537,9 +552,9 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
     }
 
     BSHashExportPushConstants PC = {
-        Frame->width, Frame->height,
-        AV_CEIL_RSHIFT(Frame->width, Desc->log2_chroma_w),
-        AV_CEIL_RSHIFT(Frame->height, Desc->log2_chroma_h),
+        Width, Height,
+        AV_CEIL_RSHIFT(Width, Desc->log2_chroma_w),
+        AV_CEIL_RSHIFT(Height, Desc->log2_chroma_h),
         0, 0, 0, 0, 0, 0, 0, 1
     };
 
@@ -691,14 +706,14 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             PC.RowOffset = Sources[s].RowOffset;
             PC.RowStep = Sources[s].RowStep;
             /* Rows this source actually supplies, which is every RowStep'th one from RowOffset. */
-            const int Rows = (Frame->height - PC.RowOffset + PC.RowStep - 1) / PC.RowStep;
+            const int Rows = (Height - PC.RowOffset + PC.RowStep - 1) / PC.RowStep;
             if (Rows <= 0)
                 continue;
             P->VK.vkCmdBindDescriptorSets(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, P->PipeLayout, 0, 1, &P->DescSet[s], 0, nullptr);
             P->VK.vkCmdPushConstants(P->Cmd, P->PipeLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PC), &PC);
             /* No barrier between the dispatches: they read different images and write disjoint rows
                of the same buffers, so there is nothing for them to race over. */
-            P->VK.vkCmdDispatch(P->Cmd, (Frame->width + XPerGroup - 1) / XPerGroup,
+            P->VK.vkCmdDispatch(P->Cmd, (Width + XPerGroup - 1) / XPerGroup,
                 (Rows + 15) / 16, 2);
         }
 
@@ -820,29 +835,30 @@ uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
         throw BestSourceException("GPU hashing: unsupported frame");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    return P->RunDispatch(&Source, 1, nullptr, true, VK_NULL_HANDLE, 0);
+    return P->RunDispatch(&Source, 1, 0, 0, nullptr, true, VK_NULL_HANDLE, 0);
 }
 
-void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, const BSGpuPlaneTarget *Targets,
-    VkSemaphore SignalTimeline, uint64_t SignalValue) {
+void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height,
+    const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue) {
     if (!IsSupportedFrame(Frame))
         throw BestSourceException("GPU export: unsupported frame");
     if (!Targets)
         throw BestSourceException("GPU export: no plane targets");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    (void)P->RunDispatch(&Source, 1, Targets, false, SignalTimeline, SignalValue);
+    (void)P->RunDispatch(&Source, 1, Width, Height, Targets, false, SignalTimeline, SignalValue);
 }
 
 void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
-    const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue) {
+    int Width, int Height, const BSGpuPlaneTarget *Targets,
+    VkSemaphore SignalTimeline, uint64_t SignalValue) {
     if (!IsSupportedFrame(EvenRows) || !IsSupportedFrame(OddRows))
         throw BestSourceException("GPU export: unsupported frame");
     if (!Targets)
         throw BestSourceException("GPU export: no plane targets");
     const DispatchSource Sources[2] = { { EvenRows, 0, 2 }, { OddRows, 1, 2 } };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    (void)P->RunDispatch(Sources, 2, Targets, false, SignalTimeline, SignalValue);
+    (void)P->RunDispatch(Sources, 2, Width, Height, Targets, false, SignalTimeline, SignalValue);
 }
 
 #else /* !BS_GPU_HASH */
