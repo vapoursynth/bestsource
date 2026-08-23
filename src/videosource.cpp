@@ -1,4 +1,4 @@
-﻿//  Copyright (c) 2022-2025 Fredrik Mellbin
+//  Copyright (c) 2022-2025 Fredrik Mellbin
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -706,6 +706,12 @@ const AVFrame *BestVideoFrame::GetOddRowsAVFrame() const {
    MergeField, on two frames as decoded, or later on two readbacks when the decode was device
    resident and MergeField could only record it. */
 static void MergeFieldInto(AVFrame *Dst, const AVFrame *FieldSrc, bool Top) {
+    /* Checked here as well as by MergeField because the readback path arrives with the real pixel
+       formats where MergeField only saw two frames both labelled AV_PIX_FMT_VULKAN; interleaving
+       rows of different layouts would be silent corruption rather than an error. */
+    if (Dst->format != FieldSrc->format || Dst->width != FieldSrc->width || Dst->height != FieldSrc->height)
+        throw BestSourceException("Merged fields must have the same format and size");
+
     auto Desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Dst->format));
 
     for (int Plane = 0; Plane < 4; Plane++) {
@@ -777,6 +783,15 @@ void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
     const AVFrame *FieldSrc = AFieldSrc->GetAVFrame();
     if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
         throw BestSourceException("Merged frames must have same format");
+
+    /* Device resident frames both pass the check above by reading AV_PIX_FMT_VULKAN; what has to
+       agree is the layout underneath, which a variable format track can change mid-stream. */
+    if (IsGPUResident()) {
+        const auto *A = reinterpret_cast<const AVHWFramesContext *>(Frame->hw_frames_ctx->data);
+        const auto *B = reinterpret_cast<const AVHWFramesContext *>(FieldSrc->hw_frames_ctx->data);
+        if (A->sw_format != B->sw_format)
+            throw BestSourceException("Merged frames must have same format");
+    }
 
     if (IsGPUResident()) {
         /* Nothing is written here. Interleaving rows into Frame would mean writing into an image

@@ -179,7 +179,7 @@ struct BSGpuHasher::Impl {
     VkShaderModule Module[2] = {};
     VkPipeline Pipeline[2][2][2] = {};
 
-    MappedBuffer Acc, Status, Dummy[3];
+    MappedBuffer Acc, Dummy[3];
 
     /* HashFrame submits to a queue FFmpeg may also be using and mutates shared descriptor and
        command buffer state, so calls are serialized. Nothing is lost by it while the
@@ -287,7 +287,11 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport, boo
 }
 
 /* FFmpeg hands out a queue lock because its own submissions share these queues. It is deprecated
-   in favour of VK_KHR_internally_synchronized_queues but still the only portable option. */
+   in favour of VK_KHR_internally_synchronized_queues but still the only portable option. The
+   macro exists on every libavutil the build accepts (61 defines it true, 62 will define it false
+   once the field leaves the ABI), so this guard can only ever compile the lock out together with
+   the field itself -- never on a libavutil that still needs the locking, which is why the
+   dependency floor is 61. */
 void BSGpuHasher::Impl::LockQueue() {
 #if defined(FF_API_VULKAN_SYNC_QUEUES) && FF_API_VULKAN_SYNC_QUEUES
     AVHWDeviceContext *Ctx = reinterpret_cast<AVHWDeviceContext *>(DeviceRef->data);
@@ -323,7 +327,6 @@ BSGpuHasher::Impl::~Impl() {
         if (SetLayout)
             VK.vkDestroyDescriptorSetLayout(Device, SetLayout, HWCtx->alloc);
         DestroyBuffer(Acc);
-        DestroyBuffer(Status);
         for (auto &D : Dummy)
             DestroyBuffer(D);
     }
@@ -343,7 +346,15 @@ bool BSGpuHasher::IsSupportedFrame(const AVFrame *Frame) {
     if (!Frame || Frame->format != AV_PIX_FMT_VULKAN || !Frame->hw_frames_ctx)
         return false;
     const AVHWFramesContext *Frames = reinterpret_cast<const AVHWFramesContext *>(Frame->hw_frames_ctx->data);
-    return IsSupportedSwFormat(Frames->sw_format);
+    if (!IsSupportedSwFormat(Frames->sw_format))
+        return false;
+    /* Everything downstream treats the frame as one multiplane image: img[0] with plane aspects,
+       one semaphore, one layout. FFmpeg documents img[] as "may be one for multiplane formats, or
+       multiple", and falls back to an image per plane where a driver lacks the multiplane feature
+       bits, in which case a plane view of img[0] would be invalid usage. There is no count field;
+       a second image is what says the layout is per plane. */
+    const AVVkFrame *Vkf = reinterpret_cast<const AVVkFrame *>(Frame->data[0]);
+    return Vkf && Vkf->img[1] == VK_NULL_HANDLE;
 }
 
 BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
@@ -404,9 +415,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
        vkQueueSubmit. With flags zero the two are equivalent, so 2 is used unconditionally. */
     VkDeviceQueueInfo2 QueueInfo = {};
     QueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2;
-#if LIBAVUTIL_VERSION_MAJOR >= 61
     QueueInfo.flags = P->HWCtx->queue_flags;
-#endif
     QueueInfo.queueFamilyIndex = P->QueueFamily;
     QueueInfo.queueIndex = 0;
     P->VK.vkGetDeviceQueue2(P->Device, &QueueInfo, &P->Queue);
@@ -414,15 +423,14 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
         throw BestSourceException("GPU hashing: couldn't retrieve the compute queue");
 
     P->CreateBuffer(2 * sizeof(uint32_t), P->Acc);
-    P->CreateBuffer(sizeof(uint32_t), P->Status);
     for (auto &D : P->Dummy)
         P->CreateBuffer(64, D);
 
-    /* Bindings 0-1 are the plane images, 2-4 the export destinations, 5 the hash accumulator and
-       6 the status word. The export destinations are unused with do_export = 0 but still have to
-       be bound, since the shader declares them. */
-    VkDescriptorSetLayoutBinding Bindings[7] = {};
-    for (int i = 0; i < 7; i++) {
+    /* Bindings 0-1 are the plane images, 2-4 the export destinations and 5 the hash accumulator.
+       The export destinations are unused with do_export = 0 but still have to be bound, since the
+       shader declares them. */
+    VkDescriptorSetLayoutBinding Bindings[6] = {};
+    for (int i = 0; i < 6; i++) {
         Bindings[i].binding = i;
         Bindings[i].descriptorCount = 1;
         Bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -430,7 +438,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     }
     VkDescriptorSetLayoutCreateInfo DSLCI = {};
     DSLCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    DSLCI.bindingCount = 7;
+    DSLCI.bindingCount = 6;
     DSLCI.pBindings = Bindings;
     VkResult Res = P->VK.vkCreateDescriptorSetLayout(P->Device, &DSLCI, P->HWCtx->alloc, &P->SetLayout);
     if (Res != VK_SUCCESS)
@@ -438,7 +446,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 
     VkDescriptorPoolSize PoolSizes[2] = {
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * MaxDispatchSources },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5 * MaxDispatchSources },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * MaxDispatchSources },
     };
     VkDescriptorPoolCreateInfo DPCI = {};
     DPCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -462,14 +470,14 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
         ThrowVk("vkAllocateDescriptorSets", Res);
 
     /* The buffer half of every descriptor set never changes; only the two images do, per frame. */
-    VkBuffer BufOrder[5] = { P->Dummy[0].Buffer, P->Dummy[1].Buffer, P->Dummy[2].Buffer, P->Acc.Buffer, P->Status.Buffer };
-    VkDescriptorBufferInfo BufInfo[5] = {};
-    VkWriteDescriptorSet Writes[5 * MaxDispatchSources] = {};
-    for (int i = 0; i < 5; i++) {
+    VkBuffer BufOrder[4] = { P->Dummy[0].Buffer, P->Dummy[1].Buffer, P->Dummy[2].Buffer, P->Acc.Buffer };
+    VkDescriptorBufferInfo BufInfo[4] = {};
+    VkWriteDescriptorSet Writes[4 * MaxDispatchSources] = {};
+    for (int i = 0; i < 4; i++) {
         BufInfo[i].buffer = BufOrder[i];
         BufInfo[i].range = VK_WHOLE_SIZE;
         for (int s = 0; s < MaxDispatchSources; s++) {
-            VkWriteDescriptorSet &W = Writes[s * 5 + i];
+            VkWriteDescriptorSet &W = Writes[s * 4 + i];
             W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             W.dstSet = P->DescSet[s];
             W.dstBinding = i + 2;
@@ -478,7 +486,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
             W.pBufferInfo = &BufInfo[i];
         }
     }
-    P->VK.vkUpdateDescriptorSets(P->Device, 5 * MaxDispatchSources, Writes, 0, nullptr);
+    P->VK.vkUpdateDescriptorSets(P->Device, 4 * MaxDispatchSources, Writes, 0, nullptr);
 
     VkPushConstantRange PCR = {};
     PCR.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;

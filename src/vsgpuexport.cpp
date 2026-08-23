@@ -168,8 +168,16 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
     ImportedAllocation New;
     bool Succeeded = false;
 
+    /* The buffer must declare at creation that it will be bound to memory imported with this
+       handle type; binding external memory to a buffer created without it is invalid, and it is
+       also what lets the implementation report the external case's own memory requirements. */
+    VkExternalMemoryBufferCreateInfo ExtBCI = {};
+    ExtBCI.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+    ExtBCI.handleTypes = static_cast<VkExternalMemoryHandleTypeFlags>(Exported.handleType);
+
     VkBufferCreateInfo BCI = {};
     BCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    BCI.pNext = &ExtBCI;
     BCI.size = Exported.memorySize;
     BCI.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     BCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -181,6 +189,14 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
 
     VkMemoryRequirements Req = {};
     VK.vkGetBufferMemoryRequirements(Device, New.Buffer, &Req);
+
+    /* The imported allocation is exactly memorySize; a buffer whose requirements pad beyond that
+       cannot be bound to it, and finding out here beats an invalid bind. */
+    if (Req.size > Exported.memorySize) {
+        VK.vkDestroyBuffer(Device, New.Buffer, HWCtx->alloc);
+        CloseExportedHandle(Exported.handle, false);
+        throw BestSourceException("GPU export: the imported allocation is smaller than the buffer's memory requirements");
+    }
 
     /* Which memory types the handle may legally be imported as, intersected with what the buffer
        accepts. Both devices are the same physical device so the indices line up, but asking is the
@@ -277,7 +293,7 @@ const std::string &BSVSGpuExport::GetDeviceName() const {
     return P->DeviceName;
 }
 
-bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &DeviceName, std::string &Error) {
+bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceInfo &Device, std::string &Error) {
     const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI();
 
     char Err[512] = {};
@@ -292,12 +308,14 @@ bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::string &D
         return false;
     }
 
-    DeviceName = Info.deviceName;
+    Device.DeviceName = Info.deviceName;
+    static_assert(sizeof(Device.DeviceUUID) == VK_UUID_SIZE);
+    memcpy(Device.DeviceUUID, Info.deviceUUID, VK_UUID_SIZE);
     return true;
 }
 
 std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, int VariableFormat,
-    VSCore *Core, const VSAPI *vsapi, std::string &Error) {
+    const BSVSGpuDeviceInfo &Device, VSCore *Core, const VSAPI *vsapi, std::string &Error) {
     std::unique_ptr<BSVSGpuExport> Self(new BSVSGpuExport());
     Impl *P = Self->P.get();
 
@@ -337,18 +355,10 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
             return nullptr;
         }
     }
-    if (!P->VkAPI) {
-        Error = "this VapourSynth core has no Vulkan API";
-        return nullptr;
-    }
-
+    /* The device was already probed by QueryDevice, whose result arrives in Device; asking the
+       core again would bring up nothing new. */
     char Err[512] = {};
-    VSVulkanCoreInfo Info = {};
-    if (P->VkAPI->getVulkanCoreInfo(Core, &Info, Err, sizeof(Err))) {
-        Error = std::string("couldn't bring up the Vulkan device: ") + Err;
-        return nullptr;
-    }
-    P->DeviceName = Info.deviceName;
+    P->DeviceName = Device.DeviceName;
 
     P->DeviceRef = av_buffer_ref(Source->GetHWDeviceContext());
     if (!P->DeviceRef) {
@@ -399,9 +409,9 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
         Props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
         Props2.pNext = &IDProps;
         P->VK.vkGetPhysicalDeviceProperties2(P->HWCtx->phys_dev, &Props2);
-        if (memcmp(IDProps.deviceUUID, Info.deviceUUID, VK_UUID_SIZE) != 0) {
+        if (memcmp(IDProps.deviceUUID, Device.DeviceUUID, VK_UUID_SIZE) != 0) {
             Error = std::string("the decoder landed on '") + Props2.properties.deviceName +
-                "' but VapourSynth is on '" + Info.deviceName + "'; they must be the same GPU";
+                "' but VapourSynth is on '" + Device.DeviceName + "'; they must be the same GPU";
             return nullptr;
         }
     }
@@ -507,12 +517,12 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
 
 #else /* !BS_GPU_HASH */
 
-bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, std::string &, std::string &Error) {
+bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, BSVSGpuDeviceInfo &, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
     return false;
 }
 
-std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, VSCore *, const VSAPI *, std::string &Error) {
+std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, const BSVSGpuDeviceInfo &, VSCore *, const VSAPI *, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
     return nullptr;
 }

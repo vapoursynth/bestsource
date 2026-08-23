@@ -95,11 +95,6 @@ layout (set = 0, binding = 4) writeonly buffer DstV { sample_t data[]; } dst_v;
  * XOR needs no carry so the halves accumulate independently and correctly. */
 layout (set = 0, binding = 5) buffer HashAcc { uint lane[2]; } acc;
 
-/* Written by verify.comp.glsl for an earlier frame. Checked only to avoid writing garbage into a
- * VapourSynth buffer already known to be wrong; it does not inform the host, which Vulkan has no
- * mechanism for. */
-layout (set = 0, binding = 6) readonly buffer Status { uint failed; } status;
-
 layout (push_constant, scalar) uniform Push {
     ivec2 luma_size;      /* in samples */
     ivec2 chroma_size;    /* in samples, per component */
@@ -208,7 +203,7 @@ void main()
             h.y ^= avalanche32(h1);
         }
 
-        if (do_export != 0 && status.failed == 0u) {
+        if (do_export != 0) {
             if (plane == 0) {
                 dst_y.data[pc.dst_offset_y + pos.y * pc.dst_stride_y + pos.x] =
                     sample_t(texel.x >> pc.export_shift);

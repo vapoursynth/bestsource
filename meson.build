@@ -8,7 +8,7 @@ project('BestSource', 'cpp',
 
 enable_plugin = get_option('enable_plugin')
 
-libavutil_dep = dependency('libavutil', version: '>=60.8.0')
+libavutil_dep = dependency('libavutil', version: '>=61.1.0')
 
 deps = [
     dependency('libavcodec', version: '>=62.11.0'),
