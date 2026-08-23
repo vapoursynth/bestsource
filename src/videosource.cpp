@@ -142,6 +142,15 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
                         av_frame_unref(DecodeFrame);
                         av_frame_move_ref(DecodeFrame, HWFrame);
                     } else {
+                        /* With a hasher installed every frame must get a GPU hash: quietly hashing
+                           this one on the CPU instead would write an index whose flag says GPU but
+                           whose hashes are XXH3, and whether that happens would depend on the
+                           driver -- the same file would then stop matching its own index after a
+                           driver update changes which layout FFmpeg allocates. Failing as a
+                           hardware decoder error instead is what lets gpufallback rebuild the
+                           whole source on the CPU, where the index is honest about its origin. */
+                        if (GpuHasher)
+                            throw BestSourceHWDecoderException("GPU hashing: the decoder produced a frame the hasher cannot process");
                         if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
                             return false;
                         av_frame_copy_props(DecodeFrame, HWFrame);

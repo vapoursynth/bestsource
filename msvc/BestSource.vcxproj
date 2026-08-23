@@ -47,6 +47,7 @@
     <ClInclude Include="..\src\version.h" />
     <ClInclude Include="..\src\videosource.h" />
     <ClInclude Include="..\src\vsgpuexport.h" />
+    <ClInclude Include="..\src\vulkanshared.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\src\shaders\hashexport.comp.glsl" />
@@ -219,10 +220,19 @@
       <BSGlslang>%(BSGlslangCandidate.FullPath)</BSGlslang>
     </PropertyGroup>
   </Target>
+  <!-- The stamp records the SAMPLES_X the shaders were last compiled with, so changing
+       BSGpuHashSamplesX in the project or on the command line recompiles them on an incremental
+       build; the C++ picks the new value up through the define regardless, and dispatch width
+       agreeing with the shader is what the hashes depend on. WriteOnlyWhenDifferent leaves the
+       timestamp alone when the value is unchanged. -->
+  <Target Name="BSShaderStamp">
+    <MakeDir Directories="$(BSGeneratedDir)" />
+    <WriteLinesToFile File="$(BSGeneratedDir)samplesx.stamp" Lines="$(BSGpuHashSamplesX)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
   <Target Name="BSGenerateShaderHeader"
-          DependsOnTargets="BSFindGlslang"
+          DependsOnTargets="BSFindGlslang;BSShaderStamp"
           BeforeTargets="ClCompile"
-          Inputs="$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl;$(MSBuildThisFileDirectory)..\tools\spv2c.py"
+          Inputs="$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl;$(MSBuildThisFileDirectory)..\tools\spv2c.py;$(BSGeneratedDir)samplesx.stamp"
           Outputs="$(BSGeneratedDir)hashexport_spv.h">
     <Error Condition="'$(BSGlslang)' == ''"
            Text="glslangValidator was not found under $(BSVulkanSdkRoot) and VULKAN_SDK is not set. Install the Vulkan SDK, or set BSGlslang to its path." />

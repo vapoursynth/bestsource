@@ -32,8 +32,8 @@
  * Never combine with something order-dependent. That is the one mistake that tests clean on one
  * GPU and silently produces a different digest on another.
  *
- * The hash does not need to match the CPU XXH3 in videosource.cpp: HWDevice is written into the
- * index header and compared on load, so an index built with hwdevice=vulkan is never consumed by
+ * The hash does not need to match the CPU XXH3 in videosource.cpp: the index header records the
+ * GPU flag and rejects a mismatch on load, so an index built with gpu=True is never consumed by
  * a software run.
  *
  * Compile two variants via SAMPLE_BITS (8 or 16).

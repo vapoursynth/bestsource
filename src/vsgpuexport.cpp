@@ -53,6 +53,8 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
+#include "vulkanshared.h"
+
 namespace {
 
 #define BS_VS_VK_FUNCS(F)                \
@@ -67,9 +69,7 @@ namespace {
     F(vkDestroySemaphore)
 
 struct ImportFunctions {
-#define BS_DECL(n) PFN_##n n = nullptr;
-    BS_VS_VK_FUNCS(BS_DECL)
-#undef BS_DECL
+    BS_VS_VK_FUNCS(BS_VK_DECLARE_FUNC)
 #ifdef _WIN32
     PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR = nullptr;
     PFN_vkGetMemoryWin32HandlePropertiesKHR vkGetMemoryWin32HandlePropertiesKHR = nullptr;
@@ -100,6 +100,8 @@ struct BSVSGpuExport::Impl {
     AVVulkanDeviceContext *HWCtx = nullptr;
     VkDevice Device = VK_NULL_HANDLE;
     ImportFunctions VK;
+    /* Queried once at creation; the answer cannot change for the device's lifetime. */
+    VkPhysicalDeviceMemoryProperties MemProps = {};
 
     std::string DeviceName;
 
@@ -121,9 +123,8 @@ struct BSVSGpuExport::Impl {
 
 namespace {
 
-void ThrowVk(const char *What, VkResult Res) {
-    throw BestSourceException(std::string("GPU export: ") + What + " failed (VkResult " +
-        std::to_string(static_cast<int>(Res)) + ")");
+[[noreturn]] void ThrowVk(const char *What, VkResult Res) {
+    BSThrowVk("GPU export", What, Res);
 }
 
 /* NT handles are not consumed by a successful import and have to be closed; POSIX file descriptors
@@ -220,25 +221,10 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
         AllowedTypes &= HandleProps.memoryTypeBits;
 #endif
 
-    VkPhysicalDeviceMemoryProperties MemProps = {};
-    {
-        PFN_vkGetPhysicalDeviceMemoryProperties GetMemProps =
-            reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
-                HWCtx->get_proc_addr(HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
-        GetMemProps(HWCtx->phys_dev, &MemProps);
-    }
-
-    uint32_t TypeIndex = UINT32_MAX;
-    for (uint32_t i = 0; i < MemProps.memoryTypeCount; i++) {
-        if (!(AllowedTypes & (1u << i)))
-            continue;
-        if (MemProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-            TypeIndex = i;
-            break;
-        }
-        if (TypeIndex == UINT32_MAX)
-            TypeIndex = i;
-    }
+    /* Device local preferred, anything importable as the fallback. */
+    uint32_t TypeIndex = BSFindVkMemoryType(MemProps, AllowedTypes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (TypeIndex == UINT32_MAX)
+        TypeIndex = BSFindVkMemoryType(MemProps, AllowedTypes, 0);
     if (TypeIndex == UINT32_MAX) {
         VK.vkDestroyBuffer(Device, New.Buffer, HWCtx->alloc);
         CloseExportedHandle(Exported.handle, false);
@@ -380,6 +366,14 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
 #undef BS_LOAD
     P->VK.vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
         P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceProperties2"));
+
+    PFN_vkGetPhysicalDeviceMemoryProperties GetMemProps = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+        P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
+    if (!GetMemProps) {
+        Error = "couldn't load vkGetPhysicalDeviceMemoryProperties";
+        return nullptr;
+    }
+    GetMemProps(P->HWCtx->phys_dev, &P->MemProps);
 #ifdef _WIN32
     P->VK.vkImportSemaphoreWin32HandleKHR = reinterpret_cast<PFN_vkImportSemaphoreWin32HandleKHR>(
         GetDeviceProcAddr(P->Device, "vkImportSemaphoreWin32HandleKHR"));

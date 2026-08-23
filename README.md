@@ -10,7 +10,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ## Dependencies
 
-- FFmpeg 9.0.x supported. Later releases may or may not work but FFmpeg API breakages are quite common and don't always generate compilation errors. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
+- FFmpeg 9.0 or later required. The release builds use FFmpeg master to pick up decoder bug fixes not yet in any release. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
 - xxHash
 
 Optional, and only needed for *gpu*:

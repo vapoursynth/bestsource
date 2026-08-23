@@ -39,6 +39,8 @@ extern "C" {
 /* Generated from src/shaders/hashexport.comp.glsl at build time; see tools/spv2c.py. */
 #include "hashexport_spv.h"
 
+#include "vulkanshared.h"
+
 /* Must match what the shader was compiled with; meson passes the same value to both. The default
    only exists so the file still compiles if it is ever built outside that rule. */
 #ifndef BS_GPU_HASH_SAMPLES_X
@@ -90,9 +92,7 @@ namespace {
     F(vkWaitSemaphores)
 
 struct VulkanFunctions {
-#define BS_DECL(n) PFN_##n n = nullptr;
-    BS_VK_FUNCS(BS_DECL)
-#undef BS_DECL
+    BS_VK_FUNCS(BS_VK_DECLARE_FUNC)
 };
 
 /* The _UINT reinterpretation of a plane's storage format. Reading raw integers rather than through
@@ -109,15 +109,8 @@ VkFormat UintViewFormat(VkFormat Fmt) {
     }
 }
 
-uint32_t FindMemoryType(const VkPhysicalDeviceMemoryProperties &Props, uint32_t TypeBits, VkMemoryPropertyFlags Want) {
-    for (uint32_t i = 0; i < Props.memoryTypeCount; i++)
-        if ((TypeBits & (1u << i)) && (Props.memoryTypes[i].propertyFlags & Want) == Want)
-            return i;
-    return UINT32_MAX;
-}
-
-void ThrowVk(const char *What, VkResult Res) {
-    throw BestSourceException(std::string("GPU hashing: ") + What + " failed (VkResult " + std::to_string(static_cast<int>(Res)) + ")");
+[[noreturn]] void ThrowVk(const char *What, VkResult Res) {
+    BSThrowVk("GPU hashing", What, Res);
 }
 
 struct MappedBuffer {
@@ -216,10 +209,10 @@ void BSGpuHasher::Impl::CreateBuffer(VkDeviceSize Size, MappedBuffer &Out) {
 
     VkMemoryRequirements Req = {};
     VK.vkGetBufferMemoryRequirements(Device, Out.Buffer, &Req);
-    uint32_t Type = FindMemoryType(MemProps, Req.memoryTypeBits,
+    uint32_t Type = BSFindVkMemoryType(MemProps, Req.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (Type == UINT32_MAX)
-        throw BestSourceException("GPU hashing: no host visible coherent memory type");
+        throw BestSourceHWDecoderException("GPU hashing: no host visible coherent memory type");
 
     VkMemoryAllocateInfo AI = {};
     AI.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -359,22 +352,22 @@ bool BSGpuHasher::IsSupportedFrame(const AVFrame *Frame) {
 
 BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     if (!HWDeviceContext)
-        throw BestSourceException("GPU hashing: no hardware device context");
+        throw BestSourceHWDecoderException("GPU hashing: no hardware device context");
 
     AVHWDeviceContext *Ctx = reinterpret_cast<AVHWDeviceContext *>(HWDeviceContext->data);
     if (Ctx->type != AV_HWDEVICE_TYPE_VULKAN)
-        throw BestSourceException("GPU hashing: device is not vulkan");
+        throw BestSourceHWDecoderException("GPU hashing: device is not vulkan");
 
     P->DeviceRef = av_buffer_ref(HWDeviceContext);
     if (!P->DeviceRef)
-        throw BestSourceException("GPU hashing: couldn't reference device");
+        throw BestSourceHWDecoderException("GPU hashing: couldn't reference device");
     P->HWCtx = reinterpret_cast<AVVulkanDeviceContext *>(Ctx->hwctx);
     P->Device = P->HWCtx->act_dev;
 
     PFN_vkGetDeviceProcAddr GetDeviceProcAddr = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
         P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetDeviceProcAddr"));
     if (!GetDeviceProcAddr)
-        throw BestSourceException("GPU hashing: couldn't load vkGetDeviceProcAddr");
+        throw BestSourceHWDecoderException("GPU hashing: couldn't load vkGetDeviceProcAddr");
 
     P->VK.vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
         P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
@@ -382,7 +375,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
 #define BS_LOAD(n) if (!P->VK.n) P->VK.n = reinterpret_cast<PFN_##n>(GetDeviceProcAddr(P->Device, #n));
     BS_VK_FUNCS(BS_LOAD)
 #undef BS_LOAD
-#define BS_CHECK(n) if (!P->VK.n) throw BestSourceException("GPU hashing: missing entry point " #n);
+#define BS_CHECK(n) if (!P->VK.n) throw BestSourceHWDecoderException("GPU hashing: missing entry point " #n);
     BS_VK_FUNCS(BS_CHECK)
 #undef BS_CHECK
 
@@ -405,7 +398,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
         }
     }
     if (P->QueueFamilyListIndex < 0)
-        throw BestSourceException("GPU hashing: device has no compute queue family");
+        throw BestSourceHWDecoderException("GPU hashing: device has no compute queue family");
 
     /* FFmpeg 9 (libavutil 61) creates its queues with queue_flags, which includes
        VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR wherever the extension exists --
@@ -420,7 +413,7 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     QueueInfo.queueIndex = 0;
     P->VK.vkGetDeviceQueue2(P->Device, &QueueInfo, &P->Queue);
     if (P->Queue == VK_NULL_HANDLE)
-        throw BestSourceException("GPU hashing: couldn't retrieve the compute queue");
+        throw BestSourceHWDecoderException("GPU hashing: couldn't retrieve the compute queue");
 
     P->CreateBuffer(2 * sizeof(uint32_t), P->Acc);
     for (auto &D : P->Dummy)
@@ -529,7 +522,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
     const AVFrame *Frame = Sources[0].Frame;
 
     if (DoExport && (ExportWidth <= 0 || ExportHeight <= 0 || ExportWidth > Frame->width || ExportHeight > Frame->height))
-        throw BestSourceException("GPU export: destination size must be positive and no larger than the decoded frame");
+        throw BestSourceHWDecoderException("GPU export: destination size must be positive and no larger than the decoded frame");
 
     /* What the shader bounds itself by, per plane. The decoded size for hashing, the destination
        size for export: a decoder pads odd dimensions up to the subsampling grid, the destination
@@ -552,11 +545,11 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         const AVFrame *F = Sources[s].Frame;
         const AVHWFramesContext *FC = reinterpret_cast<const AVHWFramesContext *>(F->hw_frames_ctx->data);
         if (F->width != Frame->width || F->height != Frame->height || FC->sw_format != Frames->sw_format)
-            throw BestSourceException("GPU export: merged frames must have the same format and size");
+            throw BestSourceHWDecoderException("GPU export: merged frames must have the same format and size");
         Vkf[s] = reinterpret_cast<AVVkFrame *>(F->data[0]);
         for (int t = 0; t < s; t++)
             if (Vkf[t] == Vkf[s])
-                throw BestSourceException("GPU export: merged frames must be distinct images");
+                throw BestSourceHWDecoderException("GPU export: merged frames must be distinct images");
     }
 
     BSHashExportPushConstants PC = {
@@ -569,7 +562,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
     if (DoExport) {
         for (int i = 0; i < 3; i++) {
             if (Targets[i].Stride % BytesPerSample || Targets[i].Offset % BytesPerSample)
-                throw BestSourceException("GPU export: plane stride and offset must be a whole number of samples");
+                throw BestSourceHWDecoderException("GPU export: plane stride and offset must be a whole number of samples");
         }
         PC.StrideY = static_cast<int32_t>(Targets[0].Stride / BytesPerSample);
         PC.StrideUV = static_cast<int32_t>(Targets[1].Stride / BytesPerSample);
@@ -577,7 +570,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         PC.OffsetU = static_cast<int32_t>(Targets[1].Offset / BytesPerSample);
         PC.OffsetV = static_cast<int32_t>(Targets[2].Offset / BytesPerSample);
         if (Targets[1].Stride != Targets[2].Stride)
-            throw BestSourceException("GPU export: the two chroma planes must share a stride");
+            throw BestSourceHWDecoderException("GPU export: the two chroma planes must share a stride");
         /* The P010 family stores samples MSB aligned in a 16 bit container while planar output
            wants them LSB aligned. libp2p applies the same shift under the name nv_shift, which is
            what keeps this agreeing with ExportAsPlanar. */
@@ -840,7 +833,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
 
 uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
     if (!IsSupportedFrame(Frame))
-        throw BestSourceException("GPU hashing: unsupported frame");
+        throw BestSourceHWDecoderException("GPU hashing: unsupported frame");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
     return P->RunDispatch(&Source, 1, 0, 0, nullptr, true, VK_NULL_HANDLE, 0);
@@ -849,9 +842,9 @@ uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
 void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height,
     const BSGpuPlaneTarget *Targets, VkSemaphore SignalTimeline, uint64_t SignalValue) {
     if (!IsSupportedFrame(Frame))
-        throw BestSourceException("GPU export: unsupported frame");
+        throw BestSourceHWDecoderException("GPU export: unsupported frame");
     if (!Targets)
-        throw BestSourceException("GPU export: no plane targets");
+        throw BestSourceHWDecoderException("GPU export: no plane targets");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
     (void)P->RunDispatch(&Source, 1, Width, Height, Targets, false, SignalTimeline, SignalValue);
@@ -861,9 +854,9 @@ void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const A
     int Width, int Height, const BSGpuPlaneTarget *Targets,
     VkSemaphore SignalTimeline, uint64_t SignalValue) {
     if (!IsSupportedFrame(EvenRows) || !IsSupportedFrame(OddRows))
-        throw BestSourceException("GPU export: unsupported frame");
+        throw BestSourceHWDecoderException("GPU export: unsupported frame");
     if (!Targets)
-        throw BestSourceException("GPU export: no plane targets");
+        throw BestSourceHWDecoderException("GPU export: no plane targets");
     const DispatchSource Sources[2] = { { EvenRows, 0, 2 }, { OddRows, 1, 2 } };
     std::lock_guard<std::mutex> Lock(P->Mutex);
     (void)P->RunDispatch(Sources, 2, Width, Height, Targets, false, SignalTimeline, SignalValue);
@@ -878,13 +871,13 @@ void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const A
 struct BSGpuHasher::Impl {};
 
 BSGpuHasher::BSGpuHasher(AVBufferRef *) {
-    throw BestSourceException("GPU hashing was not compiled into this build");
+    throw BestSourceHWDecoderException("GPU hashing was not compiled into this build");
 }
 
 BSGpuHasher::~BSGpuHasher() = default;
 
 uint64_t BSGpuHasher::HashFrame(const AVFrame *) {
-    throw BestSourceException("GPU hashing was not compiled into this build");
+    throw BestSourceHWDecoderException("GPU hashing was not compiled into this build");
 }
 
 bool BSGpuHasher::IsSupportedFrame(const AVFrame *) {

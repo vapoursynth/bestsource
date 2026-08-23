@@ -44,6 +44,9 @@ jobs:
         # SPIRV-Tools, which is only needed for spirv-opt. That build installs the binary as
         # 'glslang' with a glslangValidator symlink, while Alpine's package installs only
         # glslangValidator, which is why meson.build accepts either name.
+        # FFmpeg is built from master rather than a release branch on purpose: it carries several
+        # internal decoder bug fixes the release branches don't have yet. FFmpeg 9.0 is the
+        # minimum meson accepts; master satisfies it.
         CIBW_BEFORE_ALL_LINUX: >
           if command -v dnf >/dev/null 2>&1; then
             dnf -y install cmake libjpeg-turbo-devel libjxl-devel libtiff-devel libxml2-devel meson nasm opus-devel vulkan-loader-devel xxhash-devel &&
@@ -164,6 +167,8 @@ jobs:
         rm -rf xevd
         mv /clang64/lib/xevd/libxevd.a /clang64/lib
 
+    # Master rather than a release branch for the same reason as the wheel builds: internal
+    # decoder bug fixes not yet in any release.
     - name: Install FFmpeg
       run: |
         git clone https://github.com/FFmpeg/FFmpeg.git --depth 1

@@ -63,9 +63,10 @@ against the index to work out which frame it is holding. With hardware decoding 
 forces av_hwframe_transfer_data on every frame, including during indexing where the pixels are
 discarded immediately afterwards.
 
-The hash deliberately does not match the CPU XXH3 in videosource.cpp. It does not have to:
-ReadCompareString(F, HWDevice) means an index built with hwdevice=vulkan is never consumed by a
-software run, so the two never meet. What it must be is reproducible across GPUs and drivers,
+The hash deliberately does not match the CPU XXH3 in videosource.cpp. It does not have to: the
+index header records whether it was written by a GPU decode (WriteInt/ReadCompareInt on the GPU
+flag), so an index built with gpu=True is never consumed by a software run and the two hash
+algorithms never meet. What it must be is reproducible across GPUs and drivers,
 since index files are portable -- hence integer only arithmetic, a fixed tile decomposition, and
 an XOR combine, which is commutative and associative so scheduling order cannot affect the result.
 
