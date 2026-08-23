@@ -1520,20 +1520,93 @@ int64_t BestVideoSource::GetSeekFrame(int64_t N) {
 }
 
 namespace {
+    /* Holds the run of decoded frames a seek is being identified against.
+
+       Software frames are simply held. Device resident frames are different: each one pins a
+       surface from the decoder's fixed pool, the same pool the frame cache is budgeted against,
+       and a window of ten would starve the decoder outright. Needing more than one frame to
+       identify a location is also rare in practice -- consecutive decoded frames essentially
+       always hash uniquely, and only synthetic material produces the identical runs that force a
+       deeper window. So the newest frame is kept as it arrived, making the common case free, and
+       older frames are demoted: pixels read back to system memory and the pool surface released.
+       The rare deep window then costs bus transfers instead of surfaces, which is acceptable for
+       a path only synthetic content reaches. Whatever the match then actually consumes is brought
+       back through a fresh pool surface by Materialize. */
     class FrameHolder {
     private:
-        std::vector<std::pair<AVFrame *, std::array<uint8_t, HashSize>>> Data;
+        struct Entry {
+            AVFrame *Frame;
+            /* Set only while the entry is demoted: the pool the pixels came from, and the one
+               Materialize returns them to. */
+            AVBufferRef *FramesCtx;
+            std::array<uint8_t, HashSize> Hash;
+        };
+        std::vector<Entry> Data;
+
+        [[nodiscard]] bool DemoteTail() {
+            if (Data.empty() || Data.back().Frame->format != AV_PIX_FMT_VULKAN)
+                return true;
+            Entry &E = Data.back();
+            AVFrame *Sw = av_frame_alloc();
+            if (!Sw)
+                return false;
+            if (av_hwframe_transfer_data(Sw, E.Frame, 0) < 0) {
+                av_frame_free(&Sw);
+                return false;
+            }
+            av_frame_copy_props(Sw, E.Frame);
+            E.FramesCtx = av_buffer_ref(E.Frame->hw_frames_ctx);
+            if (!E.FramesCtx) {
+                av_frame_free(&Sw);
+                return false;
+            }
+            av_frame_free(&E.Frame);
+            E.Frame = Sw;
+            return true;
+        }
     public:
         void clear() {
-            for (auto &iter : Data)
-                av_frame_free(&iter.first);
+            for (auto &iter : Data) {
+                av_frame_free(&iter.Frame);
+                av_buffer_unref(&iter.FramesCtx);
+            }
             Data.clear();
         }
 
         /* The hash is passed in rather than computed here so that hardware frames use the one the
-           decoder already produced on the GPU. */
-        void push_back(AVFrame *F, const std::array<uint8_t, HashSize> &Hash) {
-            Data.push_back(std::make_pair(F, Hash));
+           decoder already produced on the GPU. Takes ownership of F even on failure, which can
+           only come from demoting the previously newest frame. */
+        [[nodiscard]] bool push_back(AVFrame *F, const std::array<uint8_t, HashSize> &Hash) {
+            if (!DemoteTail()) {
+                av_frame_free(&F);
+                return false;
+            }
+            Data.push_back({ F, nullptr, Hash });
+            return true;
+        }
+
+        /* Brings a demoted entry back as a fresh surface from its original pool, which is what
+           GetFrame's consumers require -- the cache and the GPU output path only ever handle pool
+           surfaces. A no-op for frames that were never demoted. The transient pool demand this
+           creates goes straight into the budgeted cache, whose eviction frees surfaces as it
+           fills. */
+        [[nodiscard]] bool Materialize(size_t Index) {
+            Entry &E = Data[Index];
+            if (!E.FramesCtx)
+                return true;
+            AVFrame *Hw = av_frame_alloc();
+            if (!Hw)
+                return false;
+            if (av_hwframe_get_buffer(E.FramesCtx, Hw, 0) < 0 ||
+                av_hwframe_transfer_data(Hw, E.Frame, 0) < 0) {
+                av_frame_free(&Hw);
+                return false;
+            }
+            av_frame_copy_props(Hw, E.Frame);
+            av_frame_free(&E.Frame);
+            av_buffer_unref(&E.FramesCtx);
+            E.Frame = Hw;
+            return true;
         }
 
         [[nodiscard]] size_t size() {
@@ -1545,14 +1618,14 @@ namespace {
         }
 
         [[nodiscard]] AVFrame *GetFrame(size_t Index, bool Extract = false) {
-            AVFrame *Tmp = Data[Index].first;
+            AVFrame *Tmp = Data[Index].Frame;
             if (Extract)
-                Data[Index].first = nullptr;
+                Data[Index].Frame = nullptr;
             return Tmp;
         }
 
         [[nodiscard]] bool CompareHash(size_t Index, const std::array<uint8_t, HashSize> &Other) {
-            return Data[Index].second == Other;
+            return Data[Index].Hash == Other;
         }
 
         ~FrameHolder() {
@@ -1569,16 +1642,6 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
     }
 
     FrameHolder MatchFrames;
-
-    /* Every held hardware frame pins a surface from the decoder's fixed pool, the same pool the
-       frame cache is bounded against, so the two must share the budget rather than each assuming
-       it has ExtraHWFrames to itself. The cache is emptied because a seek means the request left
-       the neighborhood its contents serve, and giving its surfaces to the matcher lets the
-       ambiguity window keep a useful depth; what gets matched is inserted right back afterwards.
-       Ten frames of software decoding are just memory, hence no cap there. */
-    const size_t MaxMatchFrames = GPU ? static_cast<size_t>(std::max(1, ExtraHWFrames - 2)) : 10;
-    if (GPU)
-        FrameCache.Clear();
 
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
@@ -1604,7 +1667,28 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
         std::set<int64_t> Matches;
 
         if (F) {
-            MatchFrames.push_back(F, HashDecodedFrame(Decoder.get(), F));
+            if (!MatchFrames.push_back(F, HashDecodedFrame(Decoder.get(), F))) {
+                /* The frame could not be retained without keeping its pool surface pinned, so
+                   this attempt is abandoned the same way an unidentifiable location is. Not
+                   recorded as a bad seek location: the position is fine, the resources were
+                   not, and that is transient. */
+                BSDebugPrint("Couldn't retain a seek verification frame, retrying elsewhere", N, SeekFrame);
+                MatchFrames.clear();
+                if (Depth < RetrySeekAttempts) {
+                    int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+                    BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
+                    if (SeekFrameNext < 100) { // #2 again
+                        Decoder.reset();
+                        return GetFrameLinearInternal(N);
+                    } else {
+                        return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
+                    }
+                } else {
+                    BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+                    SetLinearMode();
+                    return GetFrameLinearInternal(N);
+                }
+            }
 
             for (size_t i = 0; i <= TrackIndex.Frames.size() - MatchFrames.size(); i++) {
                 bool HashMatch = true;
@@ -1628,7 +1712,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
             if (iter <= N) // Do we care about preroll or is it just a nice thing to have? With seeking it's a lot less important anyway...
                 SuitableCandidate = true;
 
-        bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= MaxMatchFrames));
+        bool UndeterminableLocation = (Matches.size() > 1 && (!F || MatchFrames.size() >= 10));
 
 #ifndef NDEBUG
         if (!SuitableCandidate && Matches.size() > 0)
@@ -1673,10 +1757,15 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
             // Insert frames into cache if appropriate
             BestVideoFrame *RetFrame = nullptr;
+            bool MaterializeFailed = false;
             for (size_t FramesIdx = 0; FramesIdx < MatchFrames.size(); FramesIdx++) {
                 int64_t FrameNumber = MatchedN + FramesIdx;
 
                 if (FrameNumber >= N - PreRoll) {
+                    if (!MatchFrames.Materialize(FramesIdx)) {
+                        MaterializeFailed = true;
+                        break;
+                    }
                     if (FrameNumber == N)
                         RetFrame = new BestVideoFrame(MatchFrames.GetFrame(FramesIdx));
 
@@ -1686,6 +1775,16 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
             if (RetFrame)
                 return RetFrame;
+
+            if (MaterializeFailed) {
+                /* The location was identified, only bringing a demoted frame back onto a pool
+                   surface failed. The decoder has moved past the run, so let linear decoding pick
+                   or spawn whichever decoder can reach N; everything cached before the failure
+                   stays cached. */
+                BSDebugPrint("Couldn't rematerialize a seek verification frame, continuing linearly", N, SeekFrame);
+                MatchFrames.clear();
+                return GetFrameLinearInternal(N);
+            }
 
             // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
             MatchFrames.clear();
