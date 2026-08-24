@@ -752,6 +752,7 @@ static void MergeFieldInto(AVFrame *Dst, const AVFrame *FieldSrc, bool Top) {
 const AVFrame *BestVideoFrame::GetCPUFrame() const {
     if (!IsGPUResident())
         return Frame;
+    std::lock_guard<std::mutex> Lock(CPUFrameMutex);
     if (CPUFrame)
         return CPUFrame;
 
@@ -790,17 +791,11 @@ void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
         throw BestSourceException("Merged frames must both be device resident or neither");
 
     const AVFrame *FieldSrc = AFieldSrc->GetAVFrame();
-    if (Frame->format != FieldSrc->format || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
+    /* The effective format, because two device resident frames both read AV_PIX_FMT_VULKAN and
+       what has to agree is the layout underneath, which a variable format track can change
+       mid-stream. */
+    if (GetEffectivePixelFormat(Frame) != GetEffectivePixelFormat(FieldSrc) || Frame->width != FieldSrc->width || Frame->height != FieldSrc->height)
         throw BestSourceException("Merged frames must have same format");
-
-    /* Device resident frames both pass the check above by reading AV_PIX_FMT_VULKAN; what has to
-       agree is the layout underneath, which a variable format track can change mid-stream. */
-    if (IsGPUResident()) {
-        const auto *A = reinterpret_cast<const AVHWFramesContext *>(Frame->hw_frames_ctx->data);
-        const auto *B = reinterpret_cast<const AVHWFramesContext *>(FieldSrc->hw_frames_ctx->data);
-        if (A->sw_format != B->sw_format)
-            throw BestSourceException("Merged frames must have same format");
-    }
 
     if (IsGPUResident()) {
         /* Nothing is written here. Interleaving rows into Frame would mean writing into an image
@@ -816,6 +811,7 @@ void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
             throw BestSourceException("Couldn't reference the field source frame");
         FieldSrcIsTop = Top;
         /* A readback taken before the merge was recorded would be missing it. */
+        std::lock_guard<std::mutex> Lock(CPUFrameMutex);
         av_frame_free(&CPUFrame);
         return;
     }
@@ -1226,7 +1222,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         VideoTrack = Decoder->GetTrack();
         FileSize = Decoder->GetSourceSize();
 
-        if (CacheMode == bcmDisable || !ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
+        const bool IndexFromCache = (CacheMode != bcmDisable) && ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath);
+        if (!IndexFromCache) {
             if (!IndexTrack(Progress)) {
                 /* On a GPU source this is nearly always the driver refusing the codec profile rather
                    than a broken file: avcodec_open2 accepts the codec, and only the first decode call
@@ -1248,6 +1245,23 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
 
         if (TrackIndex.Frames[0].RepeatPict < 0)
             throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
+
+        /* A cached index skips the decoding that would otherwise prove the hasher can process this
+           file's frames -- a driver update can change the image layout FFmpeg allocates into one
+           the hasher rejects, while the index still validates. Decode one frame here so that
+           failure surfaces as a hardware decoder exception inside the constructor, where the
+           fallback can still rebuild the source on the CPU, instead of on the first frame request
+           where nothing can. The frame is kept when it checks out: it is frame 0 from a fresh
+           decoder, so the probe costs a request nothing. */
+        if (GpuHasher && IndexFromCache) {
+            AVFrame *Probe = Decoder->GetNextFrame();
+            if (!Probe)
+                throw BestSourceHWDecoderException("Couldn't decode the first frame with the GPU decoder the cached index was made for");
+            if (HashDecodedFrame(Decoder.get(), Probe) == TrackIndex.Frames[0].Hash)
+                FrameCache.CacheFrame(0, Probe);
+            else
+                av_frame_free(&Probe);
+        }
 
         for (const auto &Iter : TrackIndex.Frames) {
             if (Iter.PTS == AV_NOPTS_VALUE) {
@@ -1643,51 +1657,47 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
     FrameHolder MatchFrames;
 
+    /* The one retry policy for every way an attempt can fail: step the seek point back, recurse
+       while attempts remain, settle for linear decoding after that. Recording the location as bad
+       is the caller's call, because a location is only bad when the frames it produced were wrong;
+       a resource failure is transient and says nothing about the spot. */
+    auto RetrySeek = [&](bool RecordBadLocation) -> BestVideoFrame * {
+        if (RecordBadLocation)
+            BadSeekLocations.insert(SeekFrame);
+        MatchFrames.clear();
+        if (Depth < RetrySeekAttempts) {
+            int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
+            BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
+            if (SeekFrameNext < 100) { // #2 again
+                Decoder.reset();
+                return GetFrameLinearInternal(N);
+            } else {
+                return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
+            }
+        } else {
+            BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
+            SetLinearMode();
+            return GetFrameLinearInternal(N);
+        }
+    };
+
     while (true) {
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
-            BadSeekLocations.insert(SeekFrame);
             BSDebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
-            if (Depth < RetrySeekAttempts) {
-                int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
-                if (SeekFrameNext < 100) { // #2 again
-                    Decoder.reset();
-                    return GetFrameLinearInternal(N);
-                } else {
-                    return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
-                }
-            } else {
-                BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
-                SetLinearMode();
-                return GetFrameLinearInternal(N);
-            }
+            return RetrySeek(true);
         }
 
         std::set<int64_t> Matches;
 
         if (F) {
             if (!MatchFrames.push_back(F, HashDecodedFrame(Decoder.get(), F))) {
-                /* The frame could not be retained without keeping its pool surface pinned, so
-                   this attempt is abandoned the same way an unidentifiable location is. Not
-                   recorded as a bad seek location: the position is fine, the resources were
-                   not, and that is transient. */
+                /* The frame could not be retained without keeping its pool surface pinned, so this
+                   attempt is abandoned the same way an unidentifiable location is -- but without
+                   recording the location as bad, since the position was fine and the resource
+                   shortage transient. */
                 BSDebugPrint("Couldn't retain a seek verification frame, retrying elsewhere", N, SeekFrame);
-                MatchFrames.clear();
-                if (Depth < RetrySeekAttempts) {
-                    int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                    BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
-                    if (SeekFrameNext < 100) { // #2 again
-                        Decoder.reset();
-                        return GetFrameLinearInternal(N);
-                    } else {
-                        return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
-                    }
-                } else {
-                    BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
-                    SetLinearMode();
-                    return GetFrameLinearInternal(N);
-                }
+                return RetrySeek(false);
             }
 
             for (size_t i = 0; i <= TrackIndex.Frames.size() - MatchFrames.size(); i++) {
@@ -1726,23 +1736,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
         if (!SuitableCandidate || UndeterminableLocation) {
             BSDebugPrint("No destination frame number could be determined after seeking, added as bad seek location", N, SeekFrame);
-            BadSeekLocations.insert(SeekFrame);
-            MatchFrames.clear();
-            if (Depth < RetrySeekAttempts) {
-                int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
-                BSDebugPrint("Retrying seeking with", N, SeekFrameNext);
-                if (SeekFrameNext < 100) { // #2 again
-                    Decoder.reset();
-                    return GetFrameLinearInternal(N);
-                } else {
-                    return SeekAndDecode(N, SeekFrameNext, Decoder, Depth + 1);
-                }
-            } else {
-                BSDebugPrint("Maximum number of seek attempts made, setting linear mode", N, SeekFrame);
-                // Fall back to linear decoding permanently since we failed to seek to any even remotably suitable frame in 3 attempts
-                SetLinearMode();
-                return GetFrameLinearInternal(N);
-            }
+            return RetrySeek(true);
         }
 
         if (Matches.size() == 1) {

@@ -561,8 +561,19 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
 
     if (DoExport) {
         for (int i = 0; i < 3; i++) {
+            if (Targets[i].Stride <= 0)
+                throw BestSourceHWDecoderException("GPU export: plane stride must be positive");
             if (Targets[i].Stride % BytesPerSample || Targets[i].Offset % BytesPerSample)
                 throw BestSourceHWDecoderException("GPU export: plane stride and offset must be a whole number of samples");
+            /* The shader addresses samples with int32 arithmetic, so a plane sitting deep inside a
+               large shared allocation must be rejected rather than have its offset wrap negative
+               and the writes land somewhere unrelated in the buffer. The bound covers the last
+               sample the plane can touch, not just its first. */
+            const int PlaneRows = (i == 0) ? Height : AV_CEIL_RSHIFT(Height, Desc->log2_chroma_h);
+            const int64_t LastSample = static_cast<int64_t>(Targets[i].Offset / BytesPerSample) +
+                static_cast<int64_t>(PlaneRows) * (Targets[i].Stride / BytesPerSample);
+            if (LastSample > INT32_MAX)
+                throw BestSourceHWDecoderException("GPU export: plane offset and extent exceed the shader's addressable range");
         }
         PC.StrideY = static_cast<int32_t>(Targets[0].Stride / BytesPerSample);
         PC.StrideUV = static_cast<int32_t>(Targets[1].Stride / BytesPerSample);

@@ -90,35 +90,30 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
 
             if (D->GpuExport) {
                 /* The decoder writes the planes on the device and publishes a producer pair, so
-                   nothing here touches pixels and the frame never crosses the bus. */
+                   nothing here touches pixels and the frame never crosses the bus. Falls through
+                   to the shared property code below; alpha cannot occur here since Create refuses
+                   formats carrying it. */
                 Dst = D->GpuExport->ExportFrame(Src.get(), &VideoFormat, Src->SSModWidth, Src->SSModHeight, Core, vsapi);
+            } else {
+                Dst = vsapi->newVideoFrame(&VideoFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
+                uint8_t *DstPtrs[3] = {};
+                ptrdiff_t DstStride[3] = {};
 
-                VSMap *GpuProps = vsapi->getFramePropertiesRW(Dst);
-                SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF), D->RotationApplied,
-                    [GpuProps, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(GpuProps, Name, V, maAppend); },
-                    [GpuProps, vsapi](const char *Name, double V) { vsapi->mapSetFloat(GpuProps, Name, V, maAppend); },
-                    [GpuProps, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(GpuProps, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); });
-                return Dst;
-            }
+                for (int Plane = 0; Plane < VideoFormat.numPlanes; Plane++) {
+                    DstPtrs[Plane] = vsapi->getWritePtr(Dst, Plane);
+                    DstStride[Plane] = vsapi->getStride(Dst, Plane);
+                }
 
-            Dst = vsapi->newVideoFrame(&VideoFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
-            uint8_t *DstPtrs[3] = {};
-            ptrdiff_t DstStride[3] = {};
+                ptrdiff_t AlphaStride = 0;
+                if (Src->VF.Alpha) {
+                    AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
+                    AlphaStride = vsapi->getStride(AlphaDst, 0);
+                    vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
+                }
 
-            for (int Plane = 0; Plane < VideoFormat.numPlanes; Plane++) {
-                DstPtrs[Plane] = vsapi->getWritePtr(Dst, Plane);
-                DstStride[Plane] = vsapi->getStride(Dst, Plane);
-            }
-
-            ptrdiff_t AlphaStride = 0;
-            if (Src->VF.Alpha) {
-                AlphaDst = vsapi->newVideoFrame(&AlphaFormat, Src->SSModWidth, Src->SSModHeight, nullptr, Core);
-                AlphaStride = vsapi->getStride(AlphaDst, 0);
-                vsapi->mapSetInt(vsapi->getFramePropertiesRW(AlphaDst), "_ColorRange", 0, maAppend);
-            }
-
-            if (!Src->ExportAsPlanar(DstPtrs, DstStride, AlphaDst ? vsapi->getWritePtr(AlphaDst, 0) : nullptr, AlphaStride)) {
-                throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
+                if (!Src->ExportAsPlanar(DstPtrs, DstStride, AlphaDst ? vsapi->getWritePtr(AlphaDst, 0) : nullptr, AlphaStride)) {
+                    throw BestSourceException("Cannot export to planar format for frame " + std::to_string(n));
+                }
             }
 
         } catch (const std::exception &e) {

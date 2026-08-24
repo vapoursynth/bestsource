@@ -26,6 +26,7 @@
 #include <list>
 #include <string>
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 #include <array>
@@ -175,7 +176,10 @@ class BestVideoFrame {
 private:
     AVFrame *Frame;
     /* Only used when Frame is hardware resident: the readback, made on demand so that a consumer
-       which never touches the pixels never pays for one. */
+       which never touches the pixels never pays for one. The mutex is what keeps the lazy creation
+       safe when two threads share one frame and both ask for pixels through const methods, which
+       was safe before frames could be device resident and so must stay safe. */
+    mutable std::mutex CPUFrameMutex;
     mutable AVFrame *CPUFrame = nullptr;
     /* Set by MergeField on a device resident frame, where the merge cannot be done by writing into
        Frame: the image belongs to FFmpeg's pool and every other holder of it would see the result.
