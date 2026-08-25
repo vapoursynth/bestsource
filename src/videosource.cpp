@@ -1252,15 +1252,32 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
            failure surfaces as a hardware decoder exception inside the constructor, where the
            fallback can still rebuild the source on the CPU, instead of on the first frame request
            where nothing can. The frame is kept when it checks out: it is frame 0 from a fresh
-           decoder, so the probe costs a request nothing. */
+           decoder, so the probe costs a request nothing.
+
+           A frame that decodes but hashes differently means the index no longer describes what
+           this decoder produces -- a replaced file, or a decoder update that changed its output.
+           Left alone, every frame request would fail the central hash check forever, so the index
+           is rebuilt on the spot instead, at the one moment reindexing and the CPU fallback are
+           both still available. */
         if (GpuHasher && IndexFromCache) {
             AVFrame *Probe = Decoder->GetNextFrame();
             if (!Probe)
                 throw BestSourceHWDecoderException("Couldn't decode the first frame with the GPU decoder the cached index was made for");
-            if (HashDecodedFrame(Decoder.get(), Probe) == TrackIndex.Frames[0].Hash)
+            if (HashDecodedFrame(Decoder.get(), Probe) == TrackIndex.Frames[0].Hash) {
                 FrameCache.CacheFrame(0, Probe);
-            else
+            } else {
                 av_frame_free(&Probe);
+                BSDebugPrint("Cached index does not match what the decoder produces, reindexing");
+                TrackIndex = {};
+                if (!IndexTrack(Progress))
+                    throw BestSourceHWDecoderException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed after the cached index proved stale, which usually means the GPU can't decode this track");
+                if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
+                    if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
+                        throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+                }
+                if (TrackIndex.Frames[0].RepeatPict < 0)
+                    throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
+            }
         }
 
         for (const auto &Iter : TrackIndex.Frames) {

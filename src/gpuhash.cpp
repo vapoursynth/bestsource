@@ -693,7 +693,12 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             ImgBar[s].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             ImgBar[s].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             ImgBar[s].image = Vkf[s]->img[0];
-            ImgBar[s].subresourceRange.aspectMask = VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT;
+            /* COLOR and not the plane aspects: FFmpeg never creates its frames disjoint, and on a
+               non-disjoint multiplanar image the spec requires a barrier to name COLOR, which
+               covers every plane (VUID-VkImageMemoryBarrier-image-01671). FFmpeg's own frame
+               barriers do the same. The per plane aspects remain correct for the image views
+               below, where they select a plane rather than describe the transition. */
+            ImgBar[s].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             ImgBar[s].subresourceRange.levelCount = 1;
             ImgBar[s].subresourceRange.layerCount = 1;
         }

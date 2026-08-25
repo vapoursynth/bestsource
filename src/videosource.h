@@ -342,6 +342,9 @@ private:
     BSVideoProperties VP = {};
     std::filesystem::path Source;
     bool GPU;
+    /* Which physical device to put the decoder on. Kept out of the index because it picks
+       hardware rather than changing what is decoded. */
+    std::string DeviceSelector;
     int ExtraHWFrames;
     int VideoTrack;
     int VariableFormat = -1;
@@ -356,9 +359,6 @@ private:
        their frames on the same device. Also what the GPU hasher is built on. */
     AVBufferRef *SharedHWDeviceContext = nullptr;
     std::unique_ptr<BSGpuHasher> GpuHasher;
-    /* Which physical device to put the decoder on. Kept out of the index because it picks
-       hardware rather than changing what is decoded. */
-    std::string DeviceSelector;
     int64_t PreRoll = 20;
     int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
