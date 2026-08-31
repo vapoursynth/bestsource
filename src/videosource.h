@@ -132,7 +132,7 @@ private:
     uint64_t LastGpuHash = 0;
     bool LastGpuHashValid = false;
 
-    void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
+    void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
@@ -145,7 +145,7 @@ public:
        mode that decodes on hardware and reads back, since anything wanting pixels in memory is
        better off decoding on the CPU. DeviceSelector picks which physical device in the form
        FFmpeg's device string takes, a bare index or a name substring; empty lets FFmpeg choose. */
-    LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+    LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
 
@@ -345,7 +345,6 @@ private:
     /* Which physical device to put the decoder on. Kept out of the index because it picks
        hardware rather than changing what is decoded. */
     std::string DeviceSelector;
-    int ExtraHWFrames;
     int VideoTrack;
     int VariableFormat = -1;
     int ViewID;
@@ -377,7 +376,7 @@ public:
        physical device, in the form FFmpeg's device string takes; a consumer that has to share
        memory with the decoder passes the name of the device it is itself on. Only GPU is recorded
        in the index, since the selector picks hardware rather than changing what is decoded. */
-    BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
     ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number

@@ -79,12 +79,14 @@ struct ImportFunctions {
 #endif
 };
 
-/* An imported VapourSynth allocation, kept for as long as this filter instance lives. Keyed by the
-   core's memoryId, which is stable for the allocation's lifetime and never reused; the handle
-   itself is fresh on every export call and must never be used as a key. */
+/* An imported VapourSynth allocation, kept until it falls out of the bounded cache or the filter
+   dies. Keyed by the core's memoryId, which is stable for the allocation's lifetime and never
+   reused; the handle itself is fresh on every export call and must never be used as a key. */
 struct ImportedAllocation {
     VkDeviceMemory Memory = VK_NULL_HANDLE;
     VkBuffer Buffer = VK_NULL_HANDLE;
+    /* From the shared use counter, for least recently used eviction. */
+    uint64_t LastUse = 0;
 };
 
 } // namespace
@@ -112,6 +114,12 @@ struct BSVSGpuExport::Impl {
     VkSemaphore ImportedTimeline = VK_NULL_HANDLE;
     uint64_t SignalCounter = 0;
 
+    /* Bounded: an import pins the core's allocation through its OS handle reference, so a cache
+       that never let go would keep VRAM alive that the core's own eviction decided to reclaim.
+       The bound is generous against the working set -- the core hands out plane regions from a
+       few large recycled blocks, so steady state is a handful of ids. */
+    static constexpr size_t MaxImports = 16;
+    uint64_t ImportUseCounter = 0;
     std::map<uint64_t, ImportedAllocation> Imports;
     std::mutex Mutex;
 
@@ -162,6 +170,7 @@ BSVSGpuExport::Impl::~Impl() {
 VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exported) {
     auto Existing = Imports.find(Exported.memoryId);
     if (Existing != Imports.end()) {
+        Existing->second.LastUse = ++ImportUseCounter;
         CloseExportedHandle(Exported.handle, false);
         return Existing->second.Buffer;
     }
@@ -263,10 +272,30 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
         ThrowVk("vkBindBufferMemory", Res);
     }
 
+    /* Least recently used first, freeing the core's allocation to actually die when its own
+       eviction let go of it. Safe at any moment: every export dispatch blocks the host until the
+       GPU is done, so no imported buffer is referenced by in-flight work between calls. The one
+       hazard is the current frame's other planes, imported moments ago and about to be handed to
+       the same dispatch -- the recency guard keeps those out of reach, with room to spare against
+       the three planes a frame can have. */
+    while (Imports.size() >= MaxImports) {
+        auto Victim = Imports.end();
+        for (auto It = Imports.begin(); It != Imports.end(); ++It) {
+            if (It->second.LastUse + 8 > ImportUseCounter)
+                continue;
+            if (Victim == Imports.end() || It->second.LastUse < Victim->second.LastUse)
+                Victim = It;
+        }
+        if (Victim == Imports.end())
+            break;
+        VK.vkDestroyBuffer(Device, Victim->second.Buffer, HWCtx->alloc);
+        VK.vkFreeMemory(Device, Victim->second.Memory, HWCtx->alloc);
+        BSDebugPrint("GPU export: evicted imported allocation " + std::to_string(Victim->first));
+        Imports.erase(Victim);
+    }
+
+    New.LastUse = ++ImportUseCounter;
     Imports[Exported.memoryId] = New;
-    /* The cache never evicts, on the assumption that the core recycles allocations so the set of
-       distinct memoryIds stays small. If that assumption ever stops holding this count climbs with
-       the frame number, which is the symptom to look for. */
     BSDebugPrint("GPU export: imported allocation " + std::to_string(Exported.memoryId) +
         ", " + std::to_string(Imports.size()) + " cached");
     return New.Buffer;
@@ -278,6 +307,45 @@ BSVSGpuExport::~BSVSGpuExport() = default;
 const std::string &BSVSGpuExport::GetDeviceName() const {
     return P->DeviceName;
 }
+
+namespace {
+
+/* Whether the vulkan device FFmpeg creates for Selector sits on the physical device with the
+   given UUID. FFmpeg selects by name and adapter names are not unique: with two identical GPUs
+   the selector only ever reaches the first, so when VapourSynth sits on the second, every open
+   would index on the GPU, fail the identity check in Create, rebuild on the CPU, and reindex
+   again -- thrashing the cached index between the two flavors forever. One throwaway device
+   creation here turns that into a clean CPU fallback before any source or index exists. */
+bool FFmpegDeviceMatchesUUID(const std::string &Selector, const uint8_t *UUID, std::string &Error) {
+    AVBufferRef *DevRef = nullptr;
+    if (av_hwdevice_ctx_create(&DevRef, AV_HWDEVICE_TYPE_VULKAN, Selector.c_str(), nullptr, 0) < 0) {
+        Error = "couldn't create a vulkan decoder device matching '" + Selector + "'";
+        return false;
+    }
+    const AVHWDeviceContext *Ctx = reinterpret_cast<const AVHWDeviceContext *>(DevRef->data);
+    const AVVulkanDeviceContext *HWCtx = reinterpret_cast<const AVVulkanDeviceContext *>(Ctx->hwctx);
+    auto GetProps2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+        HWCtx->get_proc_addr(HWCtx->inst, "vkGetPhysicalDeviceProperties2"));
+    /* Absent only on a pre 1.1 instance, which FFmpeg does not create; treated as a pass so the
+       equally guarded check in Create stays the final word. */
+    bool Match = true;
+    if (GetProps2) {
+        VkPhysicalDeviceIDProperties IDProps = {};
+        IDProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+        VkPhysicalDeviceProperties2 Props2 = {};
+        Props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        Props2.pNext = &IDProps;
+        GetProps2(HWCtx->phys_dev, &Props2);
+        Match = (memcmp(IDProps.deviceUUID, UUID, VK_UUID_SIZE) == 0);
+        if (!Match)
+            Error = std::string("the decoder lands on '") + Props2.properties.deviceName +
+                "', which is not the device VapourSynth is on; sharing frames needs the same GPU";
+    }
+    av_buffer_unref(&DevRef);
+    return Match;
+}
+
+} // namespace
 
 bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceInfo &Device, std::string &Error) {
     const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI();
@@ -297,6 +365,10 @@ bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceI
     Device.DeviceName = Info.deviceName;
     static_assert(sizeof(Device.DeviceUUID) == VK_UUID_SIZE);
     memcpy(Device.DeviceUUID, Info.deviceUUID, VK_UUID_SIZE);
+
+    if (!FFmpegDeviceMatchesUUID(Device.DeviceName, Device.DeviceUUID, Error))
+        return false;
+
     return true;
 }
 
@@ -393,9 +465,11 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
         return nullptr;
     }
 
-    /* The decisive check. Opaque handles only import into a device made from the same physical
-       device, and FFmpeg selects by name or index rather than by UUID, so the name got us close
-       and this confirms it. Failing here beats silently sharing memory between two GPUs. */
+    /* The final guard. Opaque handles only import into a device made from the same physical
+       device, and FFmpeg selects by name rather than by UUID. QueryDevice already verified the
+       name reaches the right device with a throwaway creation, so failing here means something
+       shifted between then and now -- still better caught than silently sharing memory between
+       two GPUs. */
     if (P->VK.vkGetPhysicalDeviceProperties2) {
         VkPhysicalDeviceIDProperties IDProps = {};
         IDProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;

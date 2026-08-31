@@ -119,7 +119,7 @@ public:
             /* Avisynth+ has no GPU resident frames, so there is no hardware decoding here: it
                would have to read every frame back, which is what decoding on the CPU already
                does without the round trip. */
-            V.reset(new BestVideoSource(Source, false, "", 0, Track, ViewID, Threads, CacheMode, CachePath, &Opts));
+            V.reset(new BestVideoSource(Source, false, "", Track, ViewID, Threads, CacheMode, CachePath, &Opts));
 
             V->SetMaxDecoderInstances(MaxDecoders);
             V->SelectFormatSet(VariableFormat);

@@ -173,7 +173,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     TrackNumber = Track;
 
     /* Vulkan is the only backend. Every other one would need its own path to get frames out of
@@ -285,7 +285,6 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
     }
 
     if (HWMode) {
-        CodecContext->extra_hw_frames = ExtraHWFrames;
         /* Hardware decoding has to be selected through the get_format callback: presetting
            pix_fmt happens to work for the h264/hevc decoders, but the av1 decoder only ever
            considers a hwaccel when the callback picks it from the offered list and otherwise
@@ -359,10 +358,10 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
     }
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, GPU, DeviceSelector, ExtraHWFrames, Track, ViewID, Threads, LAVFOpts, SharedHWDevice);
+        OpenFile(SourceFile, GPU, DeviceSelector, Track, ViewID, Threads, LAVFOpts, SharedHWDevice);
     } catch (...) {
         Free();
         throw;
@@ -1164,8 +1163,8 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
     return false;
 }
 
-BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int ExtraHWFrames, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), GPU(GPU), DeviceSelector(DeviceSelector), ExtraHWFrames(GPU ? ExtraHWFrames : 0), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+    : Source(SourceFile), GPU(GPU), DeviceSelector(DeviceSelector), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -1174,9 +1173,9 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
-    if (ExtraHWFrames < 0)
-        throw BestSourceException("ExtraHWFrames must be 0 or greater");
-    
+    if (GPU)
+        PreRoll = 10;
+
     if (CacheMode < 0 || CacheMode > 4)
         throw BestSourceException("CacheMode must be between 0 and 4");
 
@@ -1190,7 +1189,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
        a handful, at which point every later source reports that the device could not be created
        and silently decodes on the CPU instead. */
     try {
-        std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
 
         /* The first decoder creates the device, which keeps all the hardware decoder error handling
            and the hwfallback path in one place, and every later decoder is handed the same one. */
@@ -1209,11 +1208,12 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
                 throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
             }
 
-            /* Each cached frame holds a surface from the decoder's fixed pool, and exhausting it
-               deadlocks the decoder rather than merely wasting memory. ExtraHWFrames is the slack asked
-               for beyond what the codec needs, so bound the cache by it and leave a couple in hand for
-               the frames in flight. A deeper seek preroll cache needs a larger extrahwframes. */
-            FrameCache.SetMaxFrames(static_cast<size_t>(std::max(1, ExtraHWFrames - 2)));
+            /* Every cached frame keeps its device memory allocated -- the decoder's pool grows on
+               demand and never reclaims a frame someone still references -- so the cache is
+               bounded by count to bound VRAM. Sized to the preroll window it exists to serve,
+               inclusive of both ends, plus one for the frame being delivered; SetSeekPreRoll
+               resizes it the same way. */
+            FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 
             Decoder->SetGpuHasher(GpuHasher.get());
         }
@@ -1400,10 +1400,13 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
     if (Frames < 0 || Frames > 40)
         throw BestSourceException("SeekPreRoll must be between 0 and 40");
     PreRoll = Frames;
+    /* The GPU cache is sized by the preroll window it serves; see the constructor. */
+    if (GPU)
+        FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
     Decoder->SetGpuHasher(GpuHasher.get());
     /* Indexing looks at nothing but frame properties and the hash, so with a GPU hash the whole
        readback can go. This is the pass that most obviously does not need it: every frame is
@@ -1553,16 +1556,16 @@ int64_t BestVideoSource::GetSeekFrame(int64_t N) {
 namespace {
     /* Holds the run of decoded frames a seek is being identified against.
 
-       Software frames are simply held. Device resident frames are different: each one pins a
-       surface from the decoder's fixed pool, the same pool the frame cache is budgeted against,
-       and a window of ten would starve the decoder outright. Needing more than one frame to
-       identify a location is also rare in practice -- consecutive decoded frames essentially
-       always hash uniquely, and only synthetic material produces the identical runs that force a
-       deeper window. So the newest frame is kept as it arrived, making the common case free, and
-       older frames are demoted: pixels read back to system memory and the pool surface released.
-       The rare deep window then costs bus transfers instead of surfaces, which is acceptable for
-       a path only synthetic content reaches. Whatever the match then actually consumes is brought
-       back through a fresh pool surface by Materialize. */
+       Software frames are simply held. Device resident frames are different: each one keeps a
+       frame of VRAM alive, so a window of ten 4K frames would hold a quarter gigabyte on top of
+       the preroll cache. Needing more than one frame to identify a location is also rare in
+       practice -- consecutive decoded frames essentially always hash uniquely, and only synthetic
+       material produces the identical runs that force a deeper window. So the newest frame is
+       kept as it arrived, making the common case free, and older frames are demoted: pixels read
+       back to system memory and the device frame released. The rare deep window then costs bus
+       transfers instead of VRAM, which is acceptable for a path only synthetic content reaches.
+       Whatever the match then actually consumes is brought back through a fresh device frame by
+       Materialize. */
     class FrameHolder {
     private:
         struct Entry {
@@ -1616,11 +1619,9 @@ namespace {
             return true;
         }
 
-        /* Brings a demoted entry back as a fresh surface from its original pool, which is what
-           GetFrame's consumers require -- the cache and the GPU output path only ever handle pool
-           surfaces. A no-op for frames that were never demoted. The transient pool demand this
-           creates goes straight into the budgeted cache, whose eviction frees surfaces as it
-           fills. */
+        /* Brings a demoted entry back as a fresh frame from its original pool, which is what
+           GetFrame's consumers require -- the cache and the GPU output path only ever handle
+           decoder pool frames. A no-op for frames that were never demoted. */
         [[nodiscard]] bool Materialize(size_t Index) {
             Entry &E = Data[Index];
             if (!E.FramesCtx)
@@ -1709,7 +1710,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
         if (F) {
             if (!MatchFrames.push_back(F, HashDecodedFrame(Decoder.get(), F))) {
-                /* The frame could not be retained without keeping its pool surface pinned, so this
+                /* The frame could not be demoted to system memory, so this
                    attempt is abandoned the same way an unidentifiable location is -- but without
                    recording the location as bad, since the position was fine and the resource
                    shortage transient. */
@@ -1842,7 +1843,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
     if (!Decoders[Index]) {
-        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
         Decoders[Index]->SetGpuHasher(GpuHasher.get());
     }
 
@@ -1869,7 +1870,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
         Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, ExtraHWFrames, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
         Decoders[Index]->SetGpuHasher(GpuHasher.get());
     }
 
@@ -2142,7 +2143,6 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
     /* Which decode path produced the stored hashes. The GPU hash is a different algorithm to the CPU
        XXH3 by design, and GPU decoding always uses it, so this one flag keeps the two apart. */
     WriteInt(F, GPU ? 1 : 0);
-    WriteInt(F, ExtraHWFrames);
 
     WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
@@ -2227,8 +2227,6 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         if (!ReadCompareInt(F, ViewID))
             return false;
         if (!ReadCompareInt(F, GPU ? 1 : 0))
-            return false;
-        if (!ReadCompareInt(F, ExtraHWFrames))
             return false;
 
         int LAVFOptCount = ReadInt(F);

@@ -57,7 +57,7 @@ meson install -C build
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0, int variableformat = 0])`
 
-`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, int extrahwframes = 9, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool gpufallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
+`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool gpufallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -109,7 +109,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *threads*: Number of threads to use for decoding. Pass 0 to autodetect.
 
-*seekpreroll*: Number of frames before the requested frame to cache when seeking.
+*seekpreroll*: Number of frames before the requested frame to cache when seeking. Defaults to 10 instead of 20 when *gpu* is set, since with GPU decoding every cached frame stays resident in VRAM and the cache is sized to hold the whole preroll window.
 
 *enable_drefs*: Option passed to the FFmpeg mov demuxer.
 
@@ -133,8 +133,6 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 **With this enabled the returned clip's frames may be either GPU resident or not, and handling that is up to you.** A script that unconditionally feeds the clip to a filter taking GPU frames will fail on a machine that fell back. Either check the residency and branch, or pass `gpufallback=False` so that anything preventing GPU decoding is an error instead and the residency is whatever you asked for. Note that falling back means the file is indexed for CPU decoding, since the index records which decoder wrote it.
 
-*extrahwframes*: The number of additional frames to allocate when *gpu* is set. The number required is unknowable and found through trial and error. The default may be too high or too low. FFmpeg unfortunately is this badly designed.
-
 *timecodes*: Writes a timecode v2 file with all frame times to the file if specified. Note that this option will produce an error if any frame has an unknown timestamp which would result in an invalid timecode file.
 
 *start_number*: The first number of image sequences.
@@ -151,7 +149,7 @@ The frames are written directly into VapourSynth's own GPU memory by the decoder
 
 There is deliberately no mode that decodes on the graphics card and reads the frames back: anything that wants pixels in memory is better off decoding on the CPU, which gets them there without the round trip.
 
-Every argument works with this, *rff* included. RFF interleaves the two fields of two decoded frames, which is done in the export shader rather than by writing into one of them, so it costs an extra hardware frame in flight and nothing else. Raise *extrahwframes* if a file using RFF runs out.
+Every argument works with this, *rff* included. RFF interleaves the two fields of two decoded frames, which is done in the export shader rather than by writing into one of them, so it briefly keeps one extra decoded frame referenced and nothing else.
 
 Only the formats FFmpeg's Vulkan decoder produces can be output, which in practice means 4:2:0 and 4:2:2 at 8 to 12 bits. Anything else, monochrome included, is rejected when the source is opened rather than partway through a script, so *gpufallback* can still act on it.
 
