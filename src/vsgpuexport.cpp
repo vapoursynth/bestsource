@@ -58,7 +58,6 @@ extern "C" {
 namespace {
 
 #define BS_VS_VK_FUNCS(F)                \
-    F(vkGetPhysicalDeviceProperties2)    \
     F(vkGetBufferMemoryRequirements)     \
     F(vkCreateBuffer)                    \
     F(vkDestroyBuffer)                   \
@@ -104,8 +103,6 @@ struct BSVSGpuExport::Impl {
     ImportFunctions VK;
     /* Queried once at creation; the answer cannot change for the device's lifetime. */
     VkPhysicalDeviceMemoryProperties MemProps = {};
-
-    std::string DeviceName;
 
     /* Ours to signal, the core's to hand to consumers. Created once and released in the
        destructor; planes published on it hold their own references, so frames still in flight
@@ -304,50 +301,7 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
 BSVSGpuExport::BSVSGpuExport() : P(new Impl) {}
 BSVSGpuExport::~BSVSGpuExport() = default;
 
-const std::string &BSVSGpuExport::GetDeviceName() const {
-    return P->DeviceName;
-}
-
-namespace {
-
-/* Whether the vulkan device FFmpeg creates for Selector sits on the physical device with the
-   given UUID. FFmpeg selects by name and adapter names are not unique: with two identical GPUs
-   the selector only ever reaches the first, so when VapourSynth sits on the second, every open
-   would index on the GPU, fail the identity check in Create, rebuild on the CPU, and reindex
-   again -- thrashing the cached index between the two flavors forever. One throwaway device
-   creation here turns that into a clean CPU fallback before any source or index exists. */
-bool FFmpegDeviceMatchesUUID(const std::string &Selector, const uint8_t *UUID, std::string &Error) {
-    AVBufferRef *DevRef = nullptr;
-    if (av_hwdevice_ctx_create(&DevRef, AV_HWDEVICE_TYPE_VULKAN, Selector.c_str(), nullptr, 0) < 0) {
-        Error = "couldn't create a vulkan decoder device matching '" + Selector + "'";
-        return false;
-    }
-    const AVHWDeviceContext *Ctx = reinterpret_cast<const AVHWDeviceContext *>(DevRef->data);
-    const AVVulkanDeviceContext *HWCtx = reinterpret_cast<const AVVulkanDeviceContext *>(Ctx->hwctx);
-    auto GetProps2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
-        HWCtx->get_proc_addr(HWCtx->inst, "vkGetPhysicalDeviceProperties2"));
-    /* Absent only on a pre 1.1 instance, which FFmpeg does not create; treated as a pass so the
-       equally guarded check in Create stays the final word. */
-    bool Match = true;
-    if (GetProps2) {
-        VkPhysicalDeviceIDProperties IDProps = {};
-        IDProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-        VkPhysicalDeviceProperties2 Props2 = {};
-        Props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        Props2.pNext = &IDProps;
-        GetProps2(HWCtx->phys_dev, &Props2);
-        Match = (memcmp(IDProps.deviceUUID, UUID, VK_UUID_SIZE) == 0);
-        if (!Match)
-            Error = std::string("the decoder lands on '") + Props2.properties.deviceName +
-                "', which is not the device VapourSynth is on; sharing frames needs the same GPU";
-    }
-    av_buffer_unref(&DevRef);
-    return Match;
-}
-
-} // namespace
-
-bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceInfo &Device, std::string &Error) {
+bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, std::array<uint8_t, 16> &DeviceUUID, std::string &Error) {
     const VSVULKANAPI *VkAPI = vsapi->getVulkanAPI();
 
     char Err[512] = {};
@@ -362,18 +316,17 @@ bool BSVSGpuExport::QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceI
         return false;
     }
 
-    Device.DeviceName = Info.deviceName;
-    static_assert(sizeof(Device.DeviceUUID) == VK_UUID_SIZE);
-    memcpy(Device.DeviceUUID, Info.deviceUUID, VK_UUID_SIZE);
-
-    if (!FFmpegDeviceMatchesUUID(Device.DeviceName, Device.DeviceUUID, Error))
-        return false;
+    /* Fed back to BestVideoSource, which resolves it through FFmpeg's UUID device selector, so
+       the decoder lands on the core's device by construction and no name matching or identity
+       re-checking is needed anywhere. */
+    static_assert(sizeof(DeviceUUID) == VK_UUID_SIZE);
+    memcpy(DeviceUUID.data(), Info.deviceUUID, VK_UUID_SIZE);
 
     return true;
 }
 
 std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, int VariableFormat,
-    const BSVSGpuDeviceInfo &Device, VSCore *Core, const VSAPI *vsapi, std::string &Error) {
+    VSCore *Core, const VSAPI *vsapi, std::string &Error) {
     std::unique_ptr<BSVSGpuExport> Self(new BSVSGpuExport());
     Impl *P = Self->P.get();
 
@@ -413,10 +366,7 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
             return nullptr;
         }
     }
-    /* The device was already probed by QueryDevice, whose result arrives in Device; asking the
-       core again would bring up nothing new. */
     char Err[512] = {};
-    P->DeviceName = Device.DeviceName;
 
     P->DeviceRef = av_buffer_ref(Source->GetHWDeviceContext());
     if (!P->DeviceRef) {
@@ -436,9 +386,6 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
 #define BS_LOAD(n) P->VK.n = reinterpret_cast<PFN_##n>(GetDeviceProcAddr(P->Device, #n));
     BS_VS_VK_FUNCS(BS_LOAD)
 #undef BS_LOAD
-    P->VK.vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
-        P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceProperties2"));
-
     PFN_vkGetPhysicalDeviceMemoryProperties GetMemProps = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
         P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
     if (!GetMemProps) {
@@ -465,24 +412,9 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
         return nullptr;
     }
 
-    /* The final guard. Opaque handles only import into a device made from the same physical
-       device, and FFmpeg selects by name rather than by UUID. QueryDevice already verified the
-       name reaches the right device with a throwaway creation, so failing here means something
-       shifted between then and now -- still better caught than silently sharing memory between
-       two GPUs. */
-    if (P->VK.vkGetPhysicalDeviceProperties2) {
-        VkPhysicalDeviceIDProperties IDProps = {};
-        IDProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-        VkPhysicalDeviceProperties2 Props2 = {};
-        Props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        Props2.pNext = &IDProps;
-        P->VK.vkGetPhysicalDeviceProperties2(P->HWCtx->phys_dev, &Props2);
-        if (memcmp(IDProps.deviceUUID, Device.DeviceUUID, VK_UUID_SIZE) != 0) {
-            Error = std::string("the decoder landed on '") + Props2.properties.deviceName +
-                "' but VapourSynth is on '" + Device.DeviceName + "'; they must be the same GPU";
-            return nullptr;
-        }
-    }
+    /* No device identity check: the decoder was created with the core device's UUID as the
+       selector, which FFmpeg resolves to the physical device carrying it or fails creation, so
+       by the time this runs the two are the same device by construction. */
 
     P->Timeline = P->VkAPI->createGPUTimeline(Core, Err, sizeof(Err));
     if (!P->Timeline) {
@@ -585,12 +517,12 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
 
 #else /* !BS_GPU_HASH */
 
-bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, BSVSGpuDeviceInfo &, std::string &Error) {
+bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, std::array<uint8_t, 16> &, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
     return false;
 }
 
-std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, const BSVSGpuDeviceInfo &, VSCore *, const VSAPI *, std::string &Error) {
+std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, VSCore *, const VSAPI *, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
     return nullptr;
 }
@@ -598,11 +530,6 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *, int, con
 struct BSVSGpuExport::Impl {};
 BSVSGpuExport::BSVSGpuExport() = default;
 BSVSGpuExport::~BSVSGpuExport() = default;
-
-const std::string &BSVSGpuExport::GetDeviceName() const {
-    static const std::string Empty;
-    return Empty;
-}
 
 VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *, const VSVideoFormat *, int, int, VSCore *, const VSAPI *) {
     throw BestSourceException("GPU frame output was not compiled into this build");

@@ -10,7 +10,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ## Dependencies
 
-- FFmpeg 9.0 or later required. The release builds use FFmpeg master to pick up decoder bug fixes not yet in any release. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
+- A current FFmpeg master build is required (libavutil 61.6 or newer): GPU device selection uses the UUID selector master added, and master also carries vulkan decoder bug fixes not yet in any release. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
 - xxHash
 
 Optional, and only needed for *gpu*:

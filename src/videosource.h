@@ -27,6 +27,7 @@
 #include <string>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <vector>
 #include <array>
@@ -132,7 +133,7 @@ private:
     uint64_t LastGpuHash = 0;
     bool LastGpuHashValid = false;
 
-    void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
+    void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
     void Free();
@@ -143,9 +144,9 @@ public:
        use by the decoder count. */
     /* GPU selects vulkan hardware decoding, which always keeps frames on the device: there is no
        mode that decodes on hardware and reads back, since anything wanting pixels in memory is
-       better off decoding on the CPU. DeviceSelector picks which physical device in the form
-       FFmpeg's device string takes, a bare index or a name substring; empty lets FFmpeg choose. */
-    LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
+       better off decoding on the CPU. DeviceUUID picks which physical device by its binary
+       VkPhysicalDeviceIDProperties::deviceUUID; empty lets FFmpeg choose. */
+    LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
 
@@ -342,9 +343,9 @@ private:
     BSVideoProperties VP = {};
     std::filesystem::path Source;
     bool GPU;
-    /* Which physical device to put the decoder on. Kept out of the index because it picks
-       hardware rather than changing what is decoded. */
-    std::string DeviceSelector;
+    /* Which physical device to put the decoder on, as the binary deviceUUID vulkan reports.
+       Kept out of the index because it picks hardware rather than changing what is decoded. */
+    std::optional<std::array<uint8_t, 16>> DeviceUUID;
     int VideoTrack;
     int VariableFormat = -1;
     int ViewID;
@@ -372,11 +373,12 @@ private:
     bool NearestCommonFrameRate(BSRational &FPS);
     void InitializeFormatSets();
 public:
-    /* GPU turns on vulkan hardware decoding with GPU resident output. DeviceSelector picks which
-       physical device, in the form FFmpeg's device string takes; a consumer that has to share
-       memory with the decoder passes the name of the device it is itself on. Only GPU is recorded
-       in the index, since the selector picks hardware rather than changing what is decoded. */
-    BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
+    /* GPU turns on vulkan hardware decoding with GPU resident output. DeviceUUID picks which
+       physical device by the binary VkPhysicalDeviceIDProperties::deviceUUID vulkan reports for
+       it, so a consumer that has to share memory with the decoder passes the UUID of the device
+       it is itself on; an empty optional lets FFmpeg choose. Only GPU is recorded in the index,
+       since the device choice picks hardware rather than changing what is decoded. */
+    BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
     ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number

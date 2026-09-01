@@ -41,6 +41,7 @@ extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/hdr_dynamic_metadata.h>
+#include <libavutil/uuid.h>
 }
 
 // Endian detection
@@ -173,7 +174,7 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
     return false;
 }
 
-void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
+void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     TrackNumber = Track;
 
     /* Vulkan is the only backend. Every other one would need its own path to get frames out of
@@ -310,9 +311,16 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
                to degrade to CPU decoding rather than fail the whole source. Note that
                av_hwdevice_find_type_by_name matches against an unconditional name table, so "vulkan"
                resolves even in an FFmpeg built without it and only fails here. */
-            if (av_hwdevice_ctx_create(&HWDeviceContext, Type, DeviceSelector.empty() ? nullptr : DeviceSelector.c_str(), nullptr, 0) < 0)
+            /* The one place the binary UUID meets FFmpeg, whose device selector takes it in the
+               RFC 4122 text form; a caller never has to know that form exists. */
+            char UUIDText[37] = {};
+            if (DeviceUUID) {
+                static_assert(sizeof(AVUUID) == std::tuple_size_v<std::decay_t<decltype(*DeviceUUID)>>);
+                av_uuid_unparse(DeviceUUID->data(), UUIDText);
+            }
+            if (av_hwdevice_ctx_create(&HWDeviceContext, Type, DeviceUUID ? UUIDText : nullptr, nullptr, 0) < 0)
                 throw BestSourceHWDecoderException("Failed to create a vulkan HW device" +
-                    (DeviceSelector.empty() ? std::string() : " matching '" + DeviceSelector + "'") +
+                    (DeviceUUID ? " with UUID " + std::string(UUIDText) : std::string()) +
                     ", it may be missing from this FFmpeg build or unsupported by the installed drivers");
         }
         CodecContext->hw_device_ctx = av_buffer_ref(HWDeviceContext);
@@ -358,10 +366,10 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
     }
 }
 
-LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
+LWVideoDecoder::LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     try {
         Packet = av_packet_alloc();
-        OpenFile(SourceFile, GPU, DeviceSelector, Track, ViewID, Threads, LAVFOpts, SharedHWDevice);
+        OpenFile(SourceFile, GPU, DeviceUUID, Track, ViewID, Threads, LAVFOpts, SharedHWDevice);
     } catch (...) {
         Free();
         throw;
@@ -1163,8 +1171,8 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
     return false;
 }
 
-BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::string &DeviceSelector, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), GPU(GPU), DeviceSelector(DeviceSelector), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
+BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
+    : Source(SourceFile), GPU(GPU), DeviceUUID(DeviceUUID), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -1189,7 +1197,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
        a handful, at which point every later source reports that the device could not be created
        and silently decodes on the CPU instead. */
     try {
-        std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
 
         /* The first decoder creates the device, which keeps all the hardware decoder error handling
            and the hwfallback path in one place, and every later decoder is handed the same one. */
@@ -1406,7 +1414,7 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
-    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+    std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
     Decoder->SetGpuHasher(GpuHasher.get());
     /* Indexing looks at nothing but frame properties and the hash, so with a GPU hash the whole
        readback can go. This is the pass that most obviously does not need it: every frame is
@@ -1843,7 +1851,7 @@ BestVideoFrame *BestVideoSource::GetFrameInternal(int64_t N) {
 
     int Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
     if (!Decoders[Index]) {
-        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
         Decoders[Index]->SetGpuHasher(GpuHasher.get());
     }
 
@@ -1870,7 +1878,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     // If an empty slot exists simply spawn a new decoder there or reuse the least recently used decoder slot if no free ones exist
     if (Index < 0) {
         Index = (EmptySlot >= 0) ? EmptySlot : LeastRecentlyUsed;
-        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceSelector, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
+        Decoders[Index].reset(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
         Decoders[Index]->SetGpuHasher(GpuHasher.get());
     }
 

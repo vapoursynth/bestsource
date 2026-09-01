@@ -221,19 +221,23 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
     /* Asking the core which GPU it is on has to happen before the source is constructed, because
        the answer is what pins the decoder to the same one: sharing memory between two Vulkan
-       devices only works when both come from the same physical device. The identity check in
-       BSVSGpuExport::Create is what catches it landing somewhere else anyway. */
-    BSVSGpuDeviceInfo GpuDevice = {};
+       devices only works when both come from the same physical device. The selector is the core
+       device's UUID, which FFmpeg resolves to that exact physical device or fails, so the two
+       cannot end up apart. */
+    std::optional<std::array<uint8_t, 16>> GpuDevice;
     if (GPU) {
         std::string GpuError;
-        if (!BSVSGpuExport::QueryDevice(Core, vsapi, GpuDevice, GpuError)) {
+        std::array<uint8_t, 16> CoreUUID = {};
+        if (BSVSGpuExport::QueryDevice(Core, vsapi, CoreUUID, GpuError)) {
+            GpuDevice = CoreUUID;
+        } else {
             if (!GPUFallback) {
                 vsapi->mapSetError(Out, ("VideoSource: gpu decoding requested but " + GpuError).c_str());
                 return;
             }
             vsapi->logMessage(mtInformation, ("VideoSource: decoding on the CPU instead, " + GpuError).c_str(), Core);
             GPU = false;
-            GpuDevice = {};
+            GpuDevice.reset();
         }
     }
 
@@ -294,7 +298,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         }
 
         auto MakeSource = [&](bool UseGPU) {
-            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice.DeviceName : std::string(), Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
+            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
             };
 
         try {
@@ -309,7 +313,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         if (GPU) {
             std::string GpuError;
-            D->GpuExport = BSVSGpuExport::Create(D->V.get(), VariableFormat, GpuDevice, Core, vsapi, GpuError);
+            D->GpuExport = BSVSGpuExport::Create(D->V.get(), VariableFormat, Core, vsapi, GpuError);
             if (!D->GpuExport) {
                 if (!GPUFallback)
                     throw BestSourceException("gpu decoding unavailable: " + GpuError);

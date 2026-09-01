@@ -504,7 +504,7 @@ void BestAudioSource::InitializeFormatSets() {
 
 double BestAudioSource::GetRelativeStartTime(int Track) const {
     try {
-        std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, false, "", Track, 0, 0, LAVFOptions));
+        std::unique_ptr<LWVideoDecoder> Dec(new LWVideoDecoder(Source, false, {}, Track, 0, 0, LAVFOptions));
         AVFrame *F = Dec->GetNextFrame();
         int64_t PTS = (F && F->pts != AV_NOPTS_VALUE) ? F->pts : 0;
         av_frame_free(&F);

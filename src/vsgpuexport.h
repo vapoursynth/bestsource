@@ -21,6 +21,7 @@
 #ifndef BSVSGPUEXPORT_H
 #define BSVSGPUEXPORT_H
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -48,40 +49,29 @@ Imports are cached by the memoryId the core hands out, which is stable for an al
 lifetime and never reused, unlike the handle, which is fresh on every export call. Without the
 cache an import per frame would cost more than the readback this exists to avoid.
 */
-/* What QueryDevice learned about the core's device, carried to Create so the device is probed
-   once rather than by both. Plain types only, so including this header never needs vulkan. */
-struct BSVSGpuDeviceInfo {
-    std::string DeviceName;
-    uint8_t DeviceUUID[16]; /* VK_UUID_SIZE */
-};
-
 class BSVSGpuExport {
 public:
-    /* Which physical device the core is on, and whether it can share memory at all. Has to be
-       asked before the source is constructed, because the answer is what pins the decoder to the
-       same device through the hwdevice selector; the same answer is then handed to Create. Returns
-       false with Error set when GPU output is unavailable, which is a reason to use CPU frames
-       rather than to fail. */
-    static bool QueryDevice(VSCore *Core, const VSAPI *vsapi, BSVSGpuDeviceInfo &Device, std::string &Error);
+    /* Which physical device the core is on -- the binary VkPhysicalDeviceIDProperties::deviceUUID,
+       ready to hand to BestVideoSource -- and whether it can share memory at all. Has to be asked
+       before the source is constructed, because the answer is what pins the decoder to the same
+       physical device. Returns false with Error set when GPU output is unavailable, which is a
+       reason to use CPU frames rather than to fail. */
+    static bool QueryDevice(VSCore *Core, const VSAPI *vsapi, std::array<uint8_t, 16> &DeviceUUID, std::string &Error);
 
     /* Returns nullptr with Error set when GPU output cannot be used -- no Vulkan API in this core,
-       no export support on the device, the decoder did not land on the same physical device, or the
-       track holds a format the export pass cannot write. All of those are reasons to fall back to
-       CPU frames rather than to fail.
+       no export support on the device, or the track holds a format the export pass cannot write.
+       All of those are reasons to fall back to CPU frames rather than to fail.
 
        VariableFormat is the format set the caller will select, or -1 for all of them, and decides
        which formats have to be exportable. Checking that here rather than per frame is what keeps a
        format the shader cannot handle from surfacing after the node exists, at which point falling
        back is no longer possible. */
     static std::unique_ptr<BSVSGpuExport> Create(BestVideoSource *Source, int VariableFormat,
-        const BSVSGpuDeviceInfo &Device, VSCore *Core, const VSAPI *vsapi, std::string &Error);
+        VSCore *Core, const VSAPI *vsapi, std::string &Error);
 
     ~BSVSGpuExport();
     BSVSGpuExport(const BSVSGpuExport &) = delete;
     BSVSGpuExport &operator=(const BSVSGpuExport &) = delete;
-
-    /* The name of the device both sides are on, for the hwdevice selector and for diagnostics. */
-    [[nodiscard]] const std::string &GetDeviceName() const;
 
     /* Allocates a GPU resident VapourSynth frame, has the decoder write the planes into it on the
        device, and publishes the producer pair so consumers wait on the GPU rather than the host.
