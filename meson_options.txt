@@ -4,10 +4,10 @@ option('enable_plugin',
     description: 'Enable AviSynth and VapourSynth plugin',
 )
 
-option('enable_gpu_hash',
+option('enable_gpu',
     type: 'feature',
     value: 'auto',
-    description: 'Hash hardware decoded frames on the GPU instead of reading every frame back over the bus. Requires vulkan headers and glslangValidator',
+    description: 'Vulkan hardware decoding, which keeps frames on the GPU rather than reading every one back over the bus. Requires vulkan headers and glslangValidator',
 )
 
 option('enable_avisynth',

@@ -58,9 +58,14 @@ public:
        reason to use CPU frames rather than to fail. */
     static bool QueryDevice(VSCore *Core, const VSAPI *vsapi, std::array<uint8_t, 16> &DeviceUUID, std::string &Error);
 
-    /* Returns nullptr with Error set when GPU output cannot be used -- no Vulkan API in this core,
-       no export support on the device, or the track holds a format the export pass cannot write.
-       All of those are reasons to fall back to CPU frames rather than to fail.
+    /* Returns nullptr with Error set when GPU output cannot be used -- the source is not decoding
+       on the GPU, the decoder's device does not have the external memory extensions, or the track
+       holds a format the export pass cannot write. All of those are reasons to fall back to CPU
+       frames rather than to fail.
+
+       The core's own Vulkan support is not among them: getVulkanAPI is documented as never null,
+       and whether the core has a device that can share memory at all is what QueryDevice answers,
+       before the source is constructed.
 
        VariableFormat is the format set the caller will select, or -1 for all of them, and decides
        which formats have to be exportable. Checking that here rather than per frame is what keeps a

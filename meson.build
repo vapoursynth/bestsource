@@ -34,31 +34,52 @@ sources = files(
 
 cpp_args = []
 
-# GPU hashing needs the vulkan headers to compile against FFmpeg's AVVkFrame, and glslangValidator
-# to turn the compute shader into SPIR-V. Nothing links the vulkan loader: every entry point is
-# resolved through AVVulkanDeviceContext::get_proc_addr at runtime, so FFmpeg's loader is always
-# the one used.
-gpu_hash_opt = get_option('enable_gpu_hash')
+# One switch for all of GPU support, because there is only one thing to gate: hardware decoding
+# cannot be used without the GPU hash -- identifying a frame would mean reading it back, which is
+# the cost decoding on the GPU exists to avoid -- so the hash, the frame export and the decoding
+# either all build or none of them do.
+#
+# It needs the vulkan headers to compile against FFmpeg's AVVkFrame, and glslangValidator to turn
+# the compute shader into SPIR-V. Nothing links the vulkan loader: every entry point is resolved
+# through AVVulkanDeviceContext::get_proc_addr at runtime, so FFmpeg's loader is always the one used.
+gpu_opt = get_option('enable_gpu')
 # Both names are accepted because upstream glslang renamed the binary to 'glslang' and distros are
 # split on which one they ship, with the old name only sometimes kept as a compatibility symlink.
-glslang = find_program('glslangValidator', 'glslang', required: gpu_hash_opt)
+glslang = find_program('glslangValidator', 'glslang', required: gpu_opt)
 # Checked against libavutil rather than bare: the vulkan headers normally arrive through the same
 # include path as FFmpeg rather than being on the compiler's default search path, and hwcontext_
 # vulkan.h includes them, so that is the path that actually matters.
 cc = meson.get_compiler('cpp')
 has_vulkan_headers = cc.has_header('vulkan/vulkan.h', dependencies: libavutil_dep)
 
-if gpu_hash_opt.enabled() and not has_vulkan_headers
-    error('enable_gpu_hash was requested but vulkan/vulkan.h was not found')
+# VSVulkan4.h is written against Vulkan 1.4: it declares VS_VULKAN_API_VERSION as VK_API_VERSION_1_4
+# and names vkMapMemory2/vkUnmapMemory2, which are core only from 1.4 having been promoted out of
+# VK_KHR_map_memory2. Older headers fail several levels deep inside the macro that builds the
+# function pointer table, which says nothing about the real problem, so the version is established
+# here instead. Only the plugin includes that header; a library only build with GPU support is happy
+# with older ones. Part of the detection rather than a check of its own so that on auto it drops GPU
+# support the same way a missing header does.
+has_vulkan_1_4 = has_vulkan_headers and cc.has_header_symbol('vulkan/vulkan.h', 'VK_API_VERSION_1_4', dependencies: libavutil_dep)
+
+enable_gpu = glslang.found() and has_vulkan_headers and (has_vulkan_1_4 or not enable_plugin)
+
+# An explicit request has to say which prerequisite is missing instead of quietly building without
+# GPU support. A missing glslang reports itself, since find_program was told whether it was required.
+if gpu_opt.enabled()
+    if not has_vulkan_headers
+        error('enable_gpu was requested but vulkan/vulkan.h was not found')
+    elif enable_plugin and not has_vulkan_1_4
+        error('enable_gpu was requested but the VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
+    endif
+elif not enable_gpu and glslang.found() and has_vulkan_headers
+    message('GPU support disabled: the VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
 endif
 
-enable_gpu_hash = glslang.found() and has_vulkan_headers
-
-if enable_gpu_hash
+if enable_gpu
     # Samples each shader invocation handles along x. Defined here rather than in either the shader
     # or the C++ because both need it and they must agree: the dispatch size is derived from it.
     # Higher values mean fewer workgroups, which cuts contention on the atomic accumulator.
-    gpu_hash_samples_x = '8'
+    gpu_samples_x = '8'
 
     # One variant per sample size rather than a runtime branch: the plane image formats differ
     # between 8 and 16 bit, and a GLSL image declaration carries exactly one format qualifier.
@@ -68,7 +89,7 @@ if enable_gpu_hash
             input: 'src/shaders/hashexport.comp.glsl',
             output: 'hashexport' + bits + '.spv',
             command: [glslang, '--target-env', 'vulkan1.2', '-S', 'comp',
-                      '-DSAMPLE_BITS=' + bits, '-DSAMPLES_X=' + gpu_hash_samples_x,
+                      '-DSAMPLE_BITS=' + bits, '-DSAMPLES_X=' + gpu_samples_x,
                       '@INPUT@', '-o', '@OUTPUT@'],
         )
     endforeach
@@ -80,21 +101,11 @@ if enable_gpu_hash
                   'BSHashExportSpv8=@INPUT0@', 'BSHashExportSpv16=@INPUT1@'],
     )
 
-    cpp_args += '-DBS_GPU_HASH=1'
-    cpp_args += '-DBS_GPU_HASH_SAMPLES_X=' + gpu_hash_samples_x
+    cpp_args += '-DBS_GPU=1'
+    cpp_args += '-DBS_GPU_SAMPLES_X=' + gpu_samples_x
 endif
 
 if enable_plugin
-    # VSVulkan4.h is written against Vulkan 1.4: it declares VS_VULKAN_API_VERSION as
-    # VK_API_VERSION_1_4 and names vkMapMemory2/vkUnmapMemory2, which are core only from 1.4 having
-    # been promoted out of VK_KHR_map_memory2. Older headers fail several levels deep inside the
-    # macro that builds the function pointer table, which says nothing about the real problem, so
-    # the version is checked up front. Only the plugin includes that header; a library only build
-    # with GPU hashing is happy with older ones.
-    if enable_gpu_hash and not cc.has_header_symbol('vulkan/vulkan.h', 'VK_API_VERSION_1_4', dependencies: libavutil_dep)
-        error('The VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
-    endif
-
     # Needs the API 4.3 declarations the GPU frame path is written against, which VapourSynth
     # ships from R80a1 onwards.
     incdir += include_directories(

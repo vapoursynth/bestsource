@@ -1,19 +1,19 @@
 /*
- * Fused hash + export pass.
+ * The GPU pass over a decoded frame. One shader, compiled by the do_export specialization constant
+ * into the two passes that are actually asked for, which are never the same pass:
+ *   export: writes the VapourSynth plane layout (linear buffers, one plane per component)
+ *   hash:   accumulates the verification hash that identifies a frame against the index
  *
- * Reads the decoded frame once and does both jobs on the way through:
- *   - writes the VapourSynth plane layout (linear buffers, one plane per component)
- *   - accumulates the verification hash
+ * A compute shader is required for the export regardless of hashing: FFmpeg hands over a tiled
+ * VkImage and VapourSynth wants linear buffers with no semi-planar formats, so P010's interleaved
+ * UV has to be split. vkCmdCopyImageToBuffer cannot do that. Hashing shares the shader because it
+ * needs the same plane reads and the same tile decomposition, not because the two run together --
+ * see do_export for why they cannot.
  *
- * A compute shader is required regardless of hashing: FFmpeg hands over a tiled VkImage and
- * VapourSynth wants linear buffers with no semi-planar formats, so P010's interleaved UV has to
- * be split. vkCmdCopyImageToBuffer cannot do that. Hashing on the way through therefore costs no
- * additional bandwidth -- every byte is already being read.
- *
- * SHAPE CONFIRMED BY PROBE (vkframeprobe.cpp, AMD/NVIDIA desktop, FFmpeg 9.0):
+ * What FFmpeg's vulkan decoder hands over, which everything here is written against:
  *   sw_format is nv12 or p010le -- always 2 plane semi-planar, never 3 plane
- *   ONE multiplane VkImage, so views need VK_IMAGE_ASPECT_PLANE_0/1_BIT, not COLOR_BIT
- *   frames context usage 0x440f already includes VK_IMAGE_USAGE_STORAGE_BIT
+ *   one multiplane VkImage, so a plane is reached through a VK_IMAGE_ASPECT_PLANE_0/1_BIT view
+ *   the frames context usage already includes VK_IMAGE_USAGE_STORAGE_BIT
  *   plane view formats R8_UNORM/R8G8_UNORM and R16_UNORM/R16G16_UNORM all support STORAGE_IMAGE
  *   images arrive in VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR and must be transitioned to GENERAL
  *   queue_family is VK_QUEUE_FAMILY_IGNORED (allocated CONCURRENT), so no ownership transfer
@@ -71,16 +71,18 @@
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-/* Indexing only needs the hash; skip the plane writes entirely. */
-layout (constant_id = 0) const int do_export = 1;
+/* Which of the two passes this is: the planes, or the hash. One constant covers both because they
+   are exclusive, and deliberately so.
 
-/* Publishing only needs the planes. Every frame was already hashed at decode time -- HashFrame runs
-   in DecodeNextFrame, before anything can ask for the pixels -- so hashing again while exporting
-   computes a value nobody reads. Off for export, it drops the per sample mixing, the shared memory
-   reduction and the two atomics per workgroup.
-   It is also what makes the field merge below meaningful at all: a merge pass sees half the rows of
-   each source, so any hash it produced would be of neither frame. */
-layout (constant_id = 1) const int do_hash = 1;
+   Indexing only needs the hash, and never has a destination to write to. Publishing only needs the
+   planes: every frame was already hashed at decode time -- HashFrame runs in DecodeNextFrame,
+   before anything can ask for the pixels -- so hashing again while exporting would compute a value
+   nobody reads. That also makes the field merge below possible at all, since a merge pass sees half
+   the rows of each source and any hash it produced would be of neither frame.
+
+   Each variant therefore carries only its own code: no plane writes in the hash pass, and no per
+   sample mixing, shared memory reduction or atomics in the export pass. */
+layout (constant_id = 0) const int do_export = 1;
 
 /* Two separate bindings rather than an array: the planes have different formats, and a GLSL
  * image declaration carries exactly one format qualifier. */
@@ -133,9 +135,8 @@ layout (push_constant, scalar) uniform Push {
 
 /* NOTE: nothing position-dependent may enter the hash -- no frame number, no PTS. SeekAndDecode
  * matches a run of decoded hashes against index[i..i+k] at an unknown i, so the hash has to be a
- * pure function of pixel content. Genuinely duplicate frames therefore hash identically, which is
- * not a defect: it is exactly the case UndeterminableLocation handles by decoding another frame
- * to extend the run. */
+ * pure function of pixel content. Genuinely duplicate frames therefore hash identically, which
+ * UndeterminableLocation resolves by decoding another frame to extend the run. */
 
 /* xxHash32 constants. Well-studied avalanche, and every op here is full rate on GPU hardware
  * (32-bit add/xor/rotate/multiply). Deliberately not a cryptographic hash: the threat model is
@@ -183,7 +184,18 @@ void main()
         const uvec4 texel = (plane == 0) ? imageLoad(src_luma, pos)
                                          : imageLoad(src_chroma, pos);
 
-        if (do_hash != 0) {
+        if (do_export != 0) {
+            if (plane == 0) {
+                dst_y.data[pc.dst_offset_y + pos.y * pc.dst_stride_y + pos.x] =
+                    sample_t(texel.x >> pc.export_shift);
+            } else {
+                /* The split that makes this a shader and not a copy command. */
+                dst_u.data[pc.dst_offset_u + pos.y * pc.dst_stride_uv + pos.x] =
+                    sample_t(texel.x >> pc.export_shift);
+                dst_v.data[pc.dst_offset_v + pos.y * pc.dst_stride_uv + pos.x] =
+                    sample_t(texel.y >> pc.export_shift);
+            }
+        } else {
             /* Coordinates and plane index are folded in so a transposed or shifted frame cannot
              * collide, and so sample order cannot be confused by the commutative combine below. */
             uint seed = mix32(uint(pos.x), uint(pos.y));
@@ -202,24 +214,11 @@ void main()
             h.x ^= avalanche32(h0);
             h.y ^= avalanche32(h1);
         }
-
-        if (do_export != 0) {
-            if (plane == 0) {
-                dst_y.data[pc.dst_offset_y + pos.y * pc.dst_stride_y + pos.x] =
-                    sample_t(texel.x >> pc.export_shift);
-            } else {
-                /* The split that makes this a shader and not a copy command. */
-                dst_u.data[pc.dst_offset_u + pos.y * pc.dst_stride_uv + pos.x] =
-                    sample_t(texel.x >> pc.export_shift);
-                dst_v.data[pc.dst_offset_v + pos.y * pc.dst_stride_uv + pos.x] =
-                    sample_t(texel.y >> pc.export_shift);
-            }
-        }
     }
 
-    /* do_hash is a specialization constant, so this is uniform across the whole dispatch and the
+    /* do_export is a specialization constant, so this is uniform across the whole dispatch and the
      * barriers below stay in uniform control flow. */
-    if (do_hash == 0)
+    if (do_export != 0)
         return;
 
     /* Already avalanched per sample above, so an invocation with no samples in bounds contributes

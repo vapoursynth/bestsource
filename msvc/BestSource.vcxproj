@@ -108,7 +108,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <BSGpuHashSamplesX>8</BSGpuHashSamplesX>
+    <BSGpuSamplesX>8</BSGpuSamplesX>
     <BSVulkanSdkRoot Condition="'$(BSVulkanSdkRoot)' == ''">C:\VulkanSDK</BSVulkanSdkRoot>
     <BSPython Condition="'$(BSPython)' == ''">py</BSPython>
     <BSGeneratedDir>$(IntDir)bsgen\</BSGeneratedDir>
@@ -204,7 +204,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(BSGeneratedDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>BS_GPU_HASH=1;BS_GPU_HASH_SAMPLES_X=$(BSGpuHashSamplesX);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>BS_GPU=1;BS_GPU_SAMPLES_X=$(BSGpuSamplesX);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/w34995 /w34996 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -220,14 +220,9 @@
       <BSGlslang>%(BSGlslangCandidate.FullPath)</BSGlslang>
     </PropertyGroup>
   </Target>
-  <!-- The stamp records the SAMPLES_X the shaders were last compiled with, so changing
-       BSGpuHashSamplesX in the project or on the command line recompiles them on an incremental
-       build; the C++ picks the new value up through the define regardless, and dispatch width
-       agreeing with the shader is what the hashes depend on. WriteOnlyWhenDifferent leaves the
-       timestamp alone when the value is unchanged. -->
   <Target Name="BSShaderStamp">
     <MakeDir Directories="$(BSGeneratedDir)" />
-    <WriteLinesToFile File="$(BSGeneratedDir)samplesx.stamp" Lines="$(BSGpuHashSamplesX)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <WriteLinesToFile File="$(BSGeneratedDir)samplesx.stamp" Lines="$(BSGpuSamplesX)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
   <Target Name="BSGenerateShaderHeader"
           DependsOnTargets="BSFindGlslang;BSShaderStamp"
@@ -237,8 +232,8 @@
     <Error Condition="'$(BSGlslang)' == ''"
            Text="glslangValidator was not found under $(BSVulkanSdkRoot) and VULKAN_SDK is not set. Install the Vulkan SDK, or set BSGlslang to its path." />
     <MakeDir Directories="$(BSGeneratedDir)" />
-    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=8 -DSAMPLES_X=$(BSGpuHashSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport8.spv&quot;" />
-    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=16 -DSAMPLES_X=$(BSGpuHashSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport16.spv&quot;" />
+    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=8 -DSAMPLES_X=$(BSGpuSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport8.spv&quot;" />
+    <Exec Command="&quot;$(BSGlslang)&quot; --target-env vulkan1.2 -S comp -DSAMPLE_BITS=16 -DSAMPLES_X=$(BSGpuSamplesX) &quot;$(MSBuildThisFileDirectory)..\src\shaders\hashexport.comp.glsl&quot; -o &quot;$(BSGeneratedDir)hashexport16.spv&quot;" />
     <Exec Command="&quot;$(BSPython)&quot; &quot;$(MSBuildThisFileDirectory)..\tools\spv2c.py&quot; &quot;$(BSGeneratedDir)hashexport_spv.h&quot; BSHashExportSpv8=&quot;$(BSGeneratedDir)hashexport8.spv&quot; BSHashExportSpv16=&quot;$(BSGeneratedDir)hashexport16.spv&quot;" />
   </Target>
 </Project>

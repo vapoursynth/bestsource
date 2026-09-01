@@ -15,10 +15,10 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 Optional, and only needed for *gpu*:
 
-- Vulkan headers, 1.4 or newer, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build. Distributions often still package 1.3.x, which is too old, since the VapourSynth GPU frame API uses entry points that only became core in 1.4.
-- `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the frame hashing shader to SPIR-V.
+- Vulkan headers, 1.4 or newer, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build. Distributions often still package 1.3.x, which is too old for the plugin, since the VapourSynth GPU frame API uses entry points that only became core in 1.4. A library only build (`-Denable_plugin=false`) is happy with older ones.
+- `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the GPU shader to SPIR-V.
 
-Both are picked up automatically. Pass `-Denable_gpu_hash=enabled` to make a missing one fail the build rather than quietly drop GPU decoding.
+Both are picked up automatically. Pass `-Denable_gpu=enabled` to make a missing one fail the build rather than quietly drop GPU decoding.
 
 Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
 
@@ -57,7 +57,7 @@ meson install -C build
 
 `bs.AudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bint enable_drefs = False, bint use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, bint showprogress = True, maxdecoders = 0, int variableformat = 0])`
 
-`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = 20, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool gpufallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
+`bs.VideoSource(string source[, int track = -1, int variableformat = -1, int fpsnum = -1, int fpsden = 1, bint rff = False, int threads = 0, int seekpreroll = -1, bint enable_drefs = False, bint use_absolute_path = False, int cachemode = 1, string cachepath , int cachesize = 100, string timecodes, int start_number, int viewid = 0, bint showprogress = True, maxdecoders = 0, bool gpufallback = True, exporttimestamps = False, bint apply_rotation = True, bint gpu = False])`
 
 `bs.TrackInfo(string source[, bint enable_drefs = False, bint use_absolute_path = False])`
 
@@ -75,9 +75,9 @@ The *Metadata* function returns all the file or track metadata as key-value pair
 
 `BSAudioSource(string source[, int track = -1, int adjustdelay = -1, int threads = 0, bool enable_drefs = False, bool use_absolute_path = False, float drc_scale = 0, int cachemode = 1, string cachepath, int cachesize = 100, int maxdecoders = 0, int variableformat = 0])`
 
-`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True])`
+`BSVideoSource(string source[, int track = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = -1, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int cachesize = 100, string timecodes, int start_number, int variableformat = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True])`
 
-`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = 20, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True, int avariableformat = 0])`
+`BSSource(string source[, int atrack = -1, int vtrack = -1, int fpsnum = -1, int fpsden = 1, bool rff = False, int threads = 0, int seekpreroll = -1, bool enable_drefs = False, bool use_absolute_path = False, int cachemode = 1, string cachepath, int acachesize = 100, int vcachesize = 100, string timecodes, int start_number, int vvariableformat = 0, int adjustdelay = -1, float drc_scale = 0, int viewid = 0, int maxdecoders = 0, bool apply_rotation = True, int avariableformat = 0])`
 
 `BSSetDebugOutput(bool enable = False)`
 

@@ -1188,11 +1188,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         throw BestSourceException("ViewID must be 0 or greater");
 
     /* Throwing out of a constructor never runs the destructor, so the device reference adopted
-       inside has to be released by hand on the way out. This is not a corner case: gpufallback
-       opens every file the GPU cannot decode exactly this way, and each leaked reference keeps its
-       vulkan device alive for the rest of the process. The driver stops handing out new ones after
-       a handful, at which point every later source reports that the device could not be created
-       and silently decodes on the CPU instead. */
+       inside has to be released by hand on the way out. */
     try {
         std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
 
@@ -1203,10 +1199,9 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
             if (!SharedHWDeviceContext)
                 throw BestSourceException("Couldn't reference the HW device");
 
-            /* Not optional any more. Without it every frame would have to come back to be identified,
-               which is exactly the cost decoding on the GPU exists to avoid, so a device that cannot
-               hash counts as one that cannot decode: thrown as a HW decoder exception so callers treat
-               it the same as hardware decoding being unavailable. */
+            /* A device that cannot hash counts as one that cannot decode, since identifying a frame
+               would otherwise mean reading it back: thrown as a HW decoder exception so callers
+               treat it the same as hardware decoding being unavailable. */
             try {
                 GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
             } catch (const BestSourceException &e) {
@@ -1399,11 +1394,10 @@ void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
 
 /* The automatic preroll, recomputed whenever the cache budget changes. The byte cap evicts
    whatever exceeds it regardless of frame count, so a preroll window bigger than the cache is a
-   promise the cache silently breaks -- at 4K a default sized cache holds only a handful of
-   frames while the old default asked for twenty. The default therefore shrinks until the window
-   fits in at most 80% of the cache size, leaving the rest for the frame being delivered and
-   whatever else lands in the cache. Explicitly set prerolls are honored as given; raising
-   cachesize is then the caller's job. */
+   promise the cache cannot keep. The default therefore shrinks until the window fits in at most
+   80% of the cache size, leaving the rest for the frame being delivered and whatever else lands
+   in the cache. Explicitly set prerolls are honored as given; raising cachesize is then the
+   caller's job. */
 void BestVideoSource::UpdateAutoPreRoll() {
     if (!PreRollIsDefault)
         return;

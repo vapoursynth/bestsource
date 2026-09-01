@@ -28,14 +28,14 @@
 /* The GPU frame export API is typed in terms of Vulkan objects, so it only exists in a build that
    has the headers. The class itself is declared either way so BestVideoSource holds the same
    members regardless, and adding a member function does not change its layout. */
-#if BS_GPU_HASH
+#if BS_GPU
 #include <vulkan/vulkan.h>
 #endif
 
 struct AVBufferRef;
 struct AVFrame;
 
-#if BS_GPU_HASH
+#if BS_GPU
 /* Where one exported plane goes.
  *
  * Buffer must live on the device BSGpuHasher was constructed with. It is NOT a handle from another
@@ -90,7 +90,7 @@ public:
        responsibility once an image has been transitioned. */
     [[nodiscard]] uint64_t HashFrame(const AVFrame *Frame);
 
-#if BS_GPU_HASH
+#if BS_GPU
     /* Writes the frame's planes into Targets in VapourSynth's planar layout -- the interleaved
        chroma of an nv12/p010 decode output split into separate U and V planes, and the P010 family
        shifted from MSB to LSB alignment.

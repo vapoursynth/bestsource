@@ -23,7 +23,7 @@
 
 /* Always compiled, so BestVideoSource holds the same members either way and the public headers do
    not change shape with the build option. Only the implementation is conditional. */
-#if BS_GPU_HASH
+#if BS_GPU
 
 #include <mutex>
 #include <string>
@@ -43,8 +43,8 @@ extern "C" {
 
 /* Must match what the shader was compiled with; meson passes the same value to both. The default
    only exists so the file still compiles if it is ever built outside that rule. */
-#ifndef BS_GPU_HASH_SAMPLES_X
-#define BS_GPU_HASH_SAMPLES_X 8
+#ifndef BS_GPU_SAMPLES_X
+#define BS_GPU_SAMPLES_X 8
 #endif
 
 namespace {
@@ -165,11 +165,11 @@ struct BSGpuHasher::Impl {
     VkCommandPool CmdPool = VK_NULL_HANDLE;
     VkCommandBuffer Cmd = VK_NULL_HANDLE;
 
-    /* One pipeline per sample size, export mode and hash mode, created on first use. Both modes are
-       specialization constants, so the hash only path carries no plane writing code and the export
-       only path carries no hashing code at all. */
+    /* One pipeline per sample size and pass, created on first use. Which pass it is comes in as a
+       specialization constant, so the hash pipeline carries no plane writing code and the export
+       pipeline no hashing code. */
     VkShaderModule Module[2] = {};
-    VkPipeline Pipeline[2][2][2] = {};
+    VkPipeline Pipeline[2][2] = {};
 
     MappedBuffer Acc, Dummy[3];
 
@@ -181,18 +181,17 @@ struct BSGpuHasher::Impl {
     ~Impl();
     void CreateBuffer(VkDeviceSize Size, MappedBuffer &Out);
     void DestroyBuffer(MappedBuffer &B);
-    VkPipeline GetPipeline(int BytesPerSample, bool DoExport, bool DoHash);
+    VkPipeline GetPipeline(int BytesPerSample, bool DoExport);
     void LockQueue();
     void UnlockQueue();
-    /* Targets null means hash only, and ExportWidth/ExportHeight are then ignored -- a hash must
-       cover the full decoded frame, since that is what the index hashes were computed over. With
-       Targets set they bound the writes to the destination's extent, which for odd dimensions is
-       smaller than the decoded frame. SignalTimeline null means only the frames' own semaphores
-       are signalled. Returns the hash, which is only meaningful with a single whole frame source --
-       hashing is off for every other shape, and the result is then zero. */
+    /* Targets is what selects the pass. Null hashes, and ExportWidth/ExportHeight are then ignored
+       -- a hash must cover the full decoded frame, since that is what the index hashes were computed
+       over. Set, it exports, and they bound the writes to the destination's extent, which for odd
+       dimensions is smaller than the decoded frame. SignalTimeline null means only the frames' own
+       semaphores are signalled. Returns the frame's hash when hashing and zero when exporting. */
     uint64_t RunDispatch(const DispatchSource *Sources, int NumSources,
                          int ExportWidth, int ExportHeight,
-                         const BSGpuPlaneTarget *Targets, bool DoHash,
+                         const BSGpuPlaneTarget *Targets,
                          VkSemaphore SignalTimeline, uint64_t SignalValue);
 };
 
@@ -237,12 +236,11 @@ void BSGpuHasher::Impl::DestroyBuffer(MappedBuffer &B) {
     B = {};
 }
 
-VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport, bool DoHash) {
+VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport) {
     const int Slot = (BytesPerSample == 2) ? 1 : 0;
     const int Mode = DoExport ? 1 : 0;
-    const int Hash = DoHash ? 1 : 0;
-    if (Pipeline[Slot][Mode][Hash])
-        return Pipeline[Slot][Mode][Hash];
+    if (Pipeline[Slot][Mode])
+        return Pipeline[Slot][Mode];
 
     if (!Module[Slot]) {
         const uint32_t *Code = Slot ? BSHashExportSpv16 : BSHashExportSpv8;
@@ -257,12 +255,9 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport, boo
             ThrowVk("vkCreateShaderModule", MRes);
     }
 
-    const uint32_t Consts[2] = { DoExport ? 1u : 0u, DoHash ? 1u : 0u };
-    VkSpecializationMapEntry Entries[2] = {
-        { 0, 0, sizeof(uint32_t) },
-        { 1, sizeof(uint32_t), sizeof(uint32_t) },
-    };
-    VkSpecializationInfo Spec = { 2, Entries, sizeof(Consts), Consts };
+    const uint32_t Const = DoExport ? 1u : 0u;
+    VkSpecializationMapEntry Entry = { 0, 0, sizeof(uint32_t) };
+    VkSpecializationInfo Spec = { 1, &Entry, sizeof(Const), &Const };
 
     VkComputePipelineCreateInfo CPCI = {};
     CPCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -272,10 +267,10 @@ VkPipeline BSGpuHasher::Impl::GetPipeline(int BytesPerSample, bool DoExport, boo
     CPCI.stage.pName = "main";
     CPCI.stage.pSpecializationInfo = &Spec;
     CPCI.layout = PipeLayout;
-    VkResult Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot][Mode][Hash]);
+    VkResult Res = VK.vkCreateComputePipelines(Device, VK_NULL_HANDLE, 1, &CPCI, HWCtx->alloc, &Pipeline[Slot][Mode]);
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreateComputePipelines", Res);
-    return Pipeline[Slot][Mode][Hash];
+    return Pipeline[Slot][Mode];
 }
 
 /* FFmpeg hands out a queue lock because its own submissions share these queues. It is deprecated
@@ -304,9 +299,8 @@ BSGpuHasher::Impl::~Impl() {
     if (Device) {
         for (int i = 0; i < 2; i++) {
             for (int m = 0; m < 2; m++)
-                for (int h = 0; h < 2; h++)
-                    if (Pipeline[i][m][h])
-                        VK.vkDestroyPipeline(Device, Pipeline[i][m][h], HWCtx->alloc);
+                if (Pipeline[i][m])
+                    VK.vkDestroyPipeline(Device, Pipeline[i][m], HWCtx->alloc);
             if (Module[i])
                 VK.vkDestroyShaderModule(Device, Module[i], HWCtx->alloc);
         }
@@ -384,15 +378,6 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
         throw BestSourceHWDecoderException("GPU hashing: couldn't load vkGetPhysicalDeviceMemoryProperties");
     GetMemProps(P->HWCtx->phys_dev, &P->MemProps);
 
-    /* Deliberately not gated on device type. On unified memory devices av_hwframe_transfer_data is
-       a memory copy rather than a bus transfer, so the readback this avoids is free there and GPU
-       hashing is a small net loss -- measured at 1080p on an AMD APU, 0.061 ms/frame against a
-       1.64 ms decode. Refusing those devices would make the hash algorithm depend on which GPU was
-       picked, so on a machine with both an integrated and a discrete adapter an index built on one
-       would be rejected and rebuilt on the other. Uniform behaviour is worth more than the few
-       percent, and hardware decoding on slow graphics is a recommendation rather than a library
-       policy. */
-
     for (int i = 0; i < P->HWCtx->nb_qf; i++) {
         if (P->HWCtx->qf[i].flags & VK_QUEUE_COMPUTE_BIT) {
             P->QueueFamilyListIndex = i;
@@ -406,9 +391,8 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     /* FFmpeg 9 (libavutil 61) creates its queues with queue_flags, which includes
        VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR wherever the extension exists --
        mesa exposes it, the NVIDIA driver currently does not. A queue created with nonzero flags
-       must be retrieved with vkGetDeviceQueue2 carrying the same flags; the plain
-       vkGetDeviceQueue is invalid for it and on RADV yields a handle that crashes in the first
-       vkQueueSubmit. With flags zero the two are equivalent, so 2 is used unconditionally. */
+       must be retrieved with vkGetDeviceQueue2 carrying the same flags, and vkGetDeviceQueue is
+       invalid for it. With flags zero the two are equivalent, so 2 is used unconditionally. */
     VkDeviceQueueInfo2 QueueInfo = {};
     QueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2;
     QueueInfo.flags = P->HWCtx->queue_flags;
@@ -518,7 +502,7 @@ BSGpuHasher::~BSGpuHasher() = default;
 
 uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSources,
     int ExportWidth, int ExportHeight,
-    const BSGpuPlaneTarget *Targets, bool DoHash,
+    const BSGpuPlaneTarget *Targets,
     VkSemaphore SignalTimeline, uint64_t SignalValue) {
     Impl *P = this;
     const bool DoExport = (Targets != nullptr);
@@ -647,27 +631,31 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         /* Destination buffers are bound whole, at offset 0, with the plane offsets carried in the
            push constants instead. Binding at the plane offset would have to satisfy
            minStorageBufferOffsetAlignment, which an allocation imported from another device has no
-           reason to meet. Every source writes into the same destination, so every set gets them. */
-        if (DoExport) {
-            VkDescriptorBufferInfo DstInfo[3] = {};
-            VkWriteDescriptorSet DstWrites[MaxDispatchSources * 3] = {};
-            for (int i = 0; i < 3; i++) {
-                DstInfo[i].buffer = Targets[i].Buffer;
-                DstInfo[i].range = VK_WHOLE_SIZE;
-                for (int s = 0; s < NumSources; s++) {
-                    VkWriteDescriptorSet &W = DstWrites[s * 3 + i];
-                    W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    W.dstSet = P->DescSet[s];
-                    W.dstBinding = 2 + i;
-                    W.descriptorCount = 1;
-                    W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                    W.pBufferInfo = &DstInfo[i];
-                }
-            }
-            P->VK.vkUpdateDescriptorSets(P->Device, NumSources * 3, DstWrites, 0, nullptr);
-        }
+           reason to meet. Every source writes into the same destination, so every set gets them.
 
-        VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport, DoHash);
+           The hash pass rebinds them to the dummy buffers rather than leaving the set naming the
+           last export's destination, which belongs to the consumer and can be freed at any time.
+           A set naming a freed buffer is invalid at dispatch even in the pass that never writes
+           through it, since the specialization constant that makes those writes dead is not folded
+           until the pipeline is created and the module still counts them as statically used. */
+        VkDescriptorBufferInfo DstInfo[3] = {};
+        VkWriteDescriptorSet DstWrites[MaxDispatchSources * 3] = {};
+        for (int i = 0; i < 3; i++) {
+            DstInfo[i].buffer = DoExport ? Targets[i].Buffer : P->Dummy[i].Buffer;
+            DstInfo[i].range = VK_WHOLE_SIZE;
+            for (int s = 0; s < NumSources; s++) {
+                VkWriteDescriptorSet &W = DstWrites[s * 3 + i];
+                W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                W.dstSet = P->DescSet[s];
+                W.dstBinding = 2 + i;
+                W.descriptorCount = 1;
+                W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                W.pBufferInfo = &DstInfo[i];
+            }
+        }
+        P->VK.vkUpdateDescriptorSets(P->Device, NumSources * 3, DstWrites, 0, nullptr);
+
+        VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport);
 
         VkResult Res = P->VK.vkResetCommandPool(P->Device, P->CmdPool, 0);
         if (Res != VK_SUCCESS)
@@ -720,8 +708,8 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             static_cast<uint32_t>(NumSources), ImgBar);
 
         P->VK.vkCmdBindPipeline(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipe);
-        /* Each workgroup covers 16 invocations of BS_GPU_HASH_SAMPLES_X samples along x. */
-        const int XPerGroup = 16 * BS_GPU_HASH_SAMPLES_X;
+        /* Each workgroup covers 16 invocations of BS_GPU_SAMPLES_X samples along x. */
+        const int XPerGroup = 16 * BS_GPU_SAMPLES_X;
         for (int s = 0; s < NumSources; s++) {
             PC.RowOffset = Sources[s].RowOffset;
             PC.RowStep = Sources[s].RowStep;
@@ -855,7 +843,7 @@ uint64_t BSGpuHasher::HashFrame(const AVFrame *Frame) {
         throw BestSourceHWDecoderException("GPU hashing: unsupported frame");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    return P->RunDispatch(&Source, 1, 0, 0, nullptr, true, VK_NULL_HANDLE, 0);
+    return P->RunDispatch(&Source, 1, 0, 0, nullptr, VK_NULL_HANDLE, 0);
 }
 
 void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height,
@@ -866,7 +854,7 @@ void BSGpuHasher::ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height,
         throw BestSourceHWDecoderException("GPU export: no plane targets");
     const DispatchSource Source = { Frame, 0, 1 };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    (void)P->RunDispatch(&Source, 1, Width, Height, Targets, false, SignalTimeline, SignalValue);
+    (void)P->RunDispatch(&Source, 1, Width, Height, Targets, SignalTimeline, SignalValue);
 }
 
 void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
@@ -878,25 +866,25 @@ void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const A
         throw BestSourceHWDecoderException("GPU export: no plane targets");
     const DispatchSource Sources[2] = { { EvenRows, 0, 2 }, { OddRows, 1, 2 } };
     std::lock_guard<std::mutex> Lock(P->Mutex);
-    (void)P->RunDispatch(Sources, 2, Width, Height, Targets, false, SignalTimeline, SignalValue);
+    (void)P->RunDispatch(Sources, 2, Width, Height, Targets, SignalTimeline, SignalValue);
 }
 
-#else /* !BS_GPU_HASH */
+#else /* !BS_GPU */
 
 /* Built without vulkan headers or without glslangValidator. Constructing one is an error rather
-   than a silent no-op: callers decide whether to use GPU hashing by catching this, the same way
-   they decide about hardware decoding itself. */
+   than a silent no-op, and it is what turns the whole build option off: hardware decoding needs a
+   hasher, so throwing here is how a source built without GPU support falls back to the CPU. */
 
 struct BSGpuHasher::Impl {};
 
 BSGpuHasher::BSGpuHasher(AVBufferRef *) {
-    throw BestSourceHWDecoderException("GPU hashing was not compiled into this build");
+    throw BestSourceHWDecoderException("GPU support was not compiled into this build");
 }
 
 BSGpuHasher::~BSGpuHasher() = default;
 
 uint64_t BSGpuHasher::HashFrame(const AVFrame *) {
-    throw BestSourceHWDecoderException("GPU hashing was not compiled into this build");
+    throw BestSourceHWDecoderException("GPU support was not compiled into this build");
 }
 
 bool BSGpuHasher::IsSupportedFrame(const AVFrame *) {

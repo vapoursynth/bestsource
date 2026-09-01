@@ -21,7 +21,7 @@
 #include "vsgpuexport.h"
 #include "bsshared.h"
 
-#if BS_GPU_HASH
+#if BS_GPU
 
 /* Before any vulkan header, so the platform specific import structures exist. windows.h arrives
    with it and macro-renames things like CreateSemaphore, which is why everything below spells
@@ -412,10 +412,6 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
         return nullptr;
     }
 
-    /* No device identity check: the decoder was created with the core device's UUID as the
-       selector, which FFmpeg resolves to the physical device carrying it or fails creation, so
-       by the time this runs the two are the same device by construction. */
-
     P->Timeline = P->VkAPI->createGPUTimeline(Core, Err, sizeof(Err));
     if (!P->Timeline) {
         Error = std::string("couldn't create a timeline: ") + Err;
@@ -515,7 +511,7 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
     return Dst;
 }
 
-#else /* !BS_GPU_HASH */
+#else /* !BS_GPU */
 
 bool BSVSGpuExport::QueryDevice(VSCore *, const VSAPI *, std::array<uint8_t, 16> &, std::string &Error) {
     Error = "GPU frame output was not compiled into this build";
