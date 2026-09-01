@@ -53,7 +53,6 @@ namespace {
    linking the loader, so BestSource never needs to find libvulkan itself and is guaranteed to be
    using the same loader FFmpeg is. */
 #define BS_VK_FUNCS(F)                     \
-    F(vkGetPhysicalDeviceMemoryProperties) \
     F(vkGetDeviceQueue2)                   \
     F(vkCreateImageView)                   \
     F(vkDestroyImageView)                  \
@@ -369,17 +368,21 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     if (!GetDeviceProcAddr)
         throw BestSourceHWDecoderException("GPU hashing: couldn't load vkGetDeviceProcAddr");
 
-    P->VK.vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
-        P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
-
-#define BS_LOAD(n) if (!P->VK.n) P->VK.n = reinterpret_cast<PFN_##n>(GetDeviceProcAddr(P->Device, #n));
+#define BS_LOAD(n) P->VK.n = reinterpret_cast<PFN_##n>(GetDeviceProcAddr(P->Device, #n));
     BS_VK_FUNCS(BS_LOAD)
 #undef BS_LOAD
 #define BS_CHECK(n) if (!P->VK.n) throw BestSourceHWDecoderException("GPU hashing: missing entry point " #n);
     BS_VK_FUNCS(BS_CHECK)
 #undef BS_CHECK
 
-    P->VK.vkGetPhysicalDeviceMemoryProperties(P->HWCtx->phys_dev, &P->MemProps);
+    /* Instance level, so it has to come from get_proc_addr on the instance: asking
+       vkGetDeviceProcAddr for it is specified to return null, even though some drivers hand the
+       pointer out anyway. */
+    auto GetMemProps = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+        P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
+    if (!GetMemProps)
+        throw BestSourceHWDecoderException("GPU hashing: couldn't load vkGetPhysicalDeviceMemoryProperties");
+    GetMemProps(P->HWCtx->phys_dev, &P->MemProps);
 
     /* Deliberately not gated on device type. On unified memory devices av_hwframe_transfer_data is
        a memory copy rather than a bus transfer, so the readback this avoids is free there and GPU

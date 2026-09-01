@@ -332,7 +332,7 @@ static AVSValue __cdecl CreateBSVideoSource(AVSValue Args, void *UserData, IScri
     int FPSDen = Args[3].AsInt(1);
     bool RFF = Args[4].AsBool(false);
     int Threads = Args[5].AsInt(-1);
-    int SeekPreroll = Args[6].AsInt(1);
+    int SeekPreroll = Args[6].AsInt(-1);
     bool EnableDrefs = Args[7].AsBool(false);
     bool UseAbsolutePath = Args[8].AsBool(false);
     int CacheMode = Args[9].AsInt(1);

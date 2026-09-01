@@ -1181,9 +1181,6 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
     if (LAVFOpts)
         LAVFOptions = *LAVFOpts;
 
-    if (GPU)
-        PreRoll = 10;
-
     if (CacheMode < 0 || CacheMode > 4)
         throw BestSourceException("CacheMode must be between 0 and 4");
 
@@ -1215,13 +1212,6 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
             } catch (const BestSourceException &e) {
                 throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
             }
-
-            /* Every cached frame keeps its device memory allocated -- the decoder's pool grows on
-               demand and never reclaims a frame someone still references -- so the cache is
-               bounded by count to bound VRAM. Sized to the preroll window it exists to serve,
-               inclusive of both ends, plus one for the frame being delivered; SetSeekPreRoll
-               resizes it the same way. */
-            FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 
             Decoder->SetGpuHasher(GpuHasher.get());
         }
@@ -1364,6 +1354,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
 
         InitializeFormatSets();
         SelectFormatSet(-1);
+        UpdateAutoPreRoll();
 
         // Sanity check reported framerate for mpeg timebase files, if it's ridiculous just use the original one
         if (OriginalFPS.Num > 0 && VP.FPS.ToDouble() > 300 && VP.TimeBase.Num == 1 && VP.TimeBase.Den == 90000)
@@ -1401,14 +1392,47 @@ AVBufferRef *BestVideoSource::GetHWDeviceContext() const {
 }
 
 void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
+    MaxCacheBytes = Bytes;
     FrameCache.SetMaxSize(Bytes);
+    UpdateAutoPreRoll();
+}
+
+/* The automatic preroll, recomputed whenever the cache budget changes. The byte cap evicts
+   whatever exceeds it regardless of frame count, so a preroll window bigger than the cache is a
+   promise the cache silently breaks -- at 4K a default sized cache holds only a handful of
+   frames while the old default asked for twenty. The default therefore shrinks until the window
+   fits in at most 80% of the cache size, leaving the rest for the frame being delivered and
+   whatever else lands in the cache. Explicitly set prerolls are honored as given; raising
+   cachesize is then the caller's job. */
+void BestVideoSource::UpdateAutoPreRoll() {
+    if (!PreRollIsDefault)
+        return;
+    /* GPU frames stay resident in VRAM, so the ceiling starts lower there. */
+    int64_t Frames = GPU ? 10 : 20;
+    int64_t FrameBytes = 0;
+    for (const auto &Set : FormatSets) {
+        const int Bytes = av_image_get_buffer_size(static_cast<AVPixelFormat>(Set.Format), Set.Width, Set.Height, 1);
+        FrameBytes = std::max<int64_t>(FrameBytes, Bytes);
+    }
+    if (FrameBytes > 0)
+        Frames = std::clamp<int64_t>((static_cast<int64_t>(MaxCacheBytes) * 8) / (10 * FrameBytes), 1, Frames);
+    PreRoll = Frames;
+    /* The GPU cache is additionally bounded by count to bound VRAM: the window it serves,
+       inclusive of both ends, plus one for the frame being delivered. */
+    if (GPU)
+        FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 }
 
 void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
-    if (Frames < 0 || Frames > 40)
-        throw BestSourceException("SeekPreRoll must be between 0 and 40");
+    if (Frames < 0) {
+        PreRollIsDefault = true;
+        UpdateAutoPreRoll();
+        return;
+    }
+    if (Frames > 40)
+        throw BestSourceException("SeekPreRoll must be between 0 and 40, or negative for the automatic default");
+    PreRollIsDefault = false;
     PreRoll = Frames;
-    /* The GPU cache is sized by the preroll window it serves; see the constructor. */
     if (GPU)
         FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 }

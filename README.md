@@ -109,7 +109,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *threads*: Number of threads to use for decoding. Pass 0 to autodetect.
 
-*seekpreroll*: Number of frames before the requested frame to cache when seeking. Defaults to 10 instead of 20 when *gpu* is set, since with GPU decoding every cached frame stays resident in VRAM and the cache is sized to hold the whole preroll window.
+*seekpreroll*: Number of frames before the requested frame to cache when seeking. When not set, defaults to 20 (10 with *gpu*, where every cached frame stays resident in VRAM) and is automatically reduced until the whole window fits in at most 80% of *cachesize*, so high resolution content gets a preroll the cache can actually hold. Explicit values are used as given; raise *cachesize* to make room for them.
 
 *enable_drefs*: Option passed to the FFmpeg mov demuxer.
 

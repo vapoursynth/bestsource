@@ -359,7 +359,14 @@ private:
        their frames on the same device. Also what the GPU hasher is built on. */
     AVBufferRef *SharedHWDeviceContext = nullptr;
     std::unique_ptr<BSGpuHasher> GpuHasher;
+    /* The effective preroll. Defaults to 20 frames, 10 with GPU where every cached frame stays
+       resident in VRAM, and the default is automatically reduced until the whole window fits in
+       at most 80% of the cache size; explicit SetSeekPreRoll values are used as given. */
     int64_t PreRoll = 20;
+    bool PreRollIsDefault = true;
+    /* Mirrors the cache's byte limit for the automatic preroll budget. */
+    size_t MaxCacheBytes = 100 * 1024 * 1024;
+    void UpdateAutoPreRoll();
     int64_t FileSize = -1;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
@@ -392,7 +399,7 @@ public:
     /* The vulkan device the decoders are on, for a consumer that has to import memory into it.
        Null when not hardware decoding. */
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
-    void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to */
+    void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to; negative returns to the automatic default, which is capped so the window fits in 80% of the cache size */
     [[nodiscard]] const BSVideoProperties &GetVideoProperties() const;
     [[nodiscard]] const std::vector<FormatSet> &GetFormatSets() const; /* Get a listing of all the number of formats  */
     void SelectFormatSet(int Index); /* Sets the output format to the specified format set, passing -1 means the default variable format will be used */
