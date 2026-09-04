@@ -3,16 +3,18 @@ project('BestSource', 'cpp',
     license: 'MIT',
     license_files: 'LICENSE',
     meson_version: '>=1.2.3',
-    version: '21.1',
+    version: '22rc1',
 )
 
 enable_plugin = get_option('enable_plugin')
 
-libavutil_dep = dependency('libavutil', version: '>=61.6.0')
+# FFmpeg 9.0, which is what decoding on the CPU needs. GPU support asks for more than this,
+# see the libavutil check further down.
+libavutil_dep = dependency('libavutil', version: '>=61.1.0')
 
 deps = [
-    dependency('libavcodec', version: '>=62.11.0'),
-    dependency('libavformat', version: '>=62.3.0'),
+    dependency('libavcodec', version: '>=63.1.0'),
+    dependency('libavformat', version: '>=63.1.0'),
     libavutil_dep,
     dependency('libp2p'),
     dependency('libxxhash'),
@@ -61,18 +63,38 @@ has_vulkan_headers = cc.has_header('vulkan/vulkan.h', dependencies: libavutil_de
 # support the same way a missing header does.
 has_vulkan_1_4 = has_vulkan_headers and cc.has_header_symbol('vulkan/vulkan.h', 'VK_API_VERSION_1_4', dependencies: libavutil_dep)
 
-enable_gpu = glslang.found() and has_vulkan_headers and (has_vulkan_1_4 or not enable_plugin)
+# The decoder is pinned to the consumer's physical device by handing FFmpeg that device's UUID,
+# which only the vulkan device selector on FFmpeg master understands, so GPU support needs a newer
+# libavutil than decoding on the CPU does. The selector came with no version bump of its own, so
+# 61.6 is as close as a version can get to it: necessary, but not sufficient on a master checkout
+# from just before it landed, where device creation then fails at runtime and the source falls back
+# to the CPU. Master also carries vulkan decoder fixes that no release branch has.
+# Nothing here fails to compile against 9.0 headers, so this is purely about what the library
+# can do at runtime: a build that cannot put the decoder on the right device is not a GPU build.
+has_ffmpeg_uuid_select = libavutil_dep.version().version_compare('>=61.6.0')
+
+# One reason string for both the error and the message below, so an explicit request and an auto
+# build never disagree about why GPU support is out. Empty means everything is in place.
+gpu_missing = ''
+if not has_vulkan_headers
+    gpu_missing = 'vulkan/vulkan.h was not found'
+elif not has_ffmpeg_uuid_select
+    gpu_missing = 'GPU decoding needs libavutil 61.6 or newer (FFmpeg master), found ' + libavutil_dep.version()
+elif enable_plugin and not has_vulkan_1_4
+    gpu_missing = 'the VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older'
+elif not glslang.found()
+    gpu_missing = 'glslangValidator was not found'
+endif
+
+enable_gpu = gpu_missing == ''
 
 # An explicit request has to say which prerequisite is missing instead of quietly building without
-# GPU support. A missing glslang reports itself, since find_program was told whether it was required.
-if gpu_opt.enabled()
-    if not has_vulkan_headers
-        error('enable_gpu was requested but vulkan/vulkan.h was not found')
-    elif enable_plugin and not has_vulkan_1_4
-        error('enable_gpu was requested but the VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
-    endif
-elif not enable_gpu and glslang.found() and has_vulkan_headers
-    message('GPU support disabled: the VapourSynth GPU frame API needs vulkan headers 1.4 or newer, the ones found are older')
+# GPU support. A missing glslang has already reported itself through find_program, which was told
+# whether the feature was required, so saying so again on auto would only be noise.
+if gpu_opt.enabled() and not enable_gpu
+    error('enable_gpu was requested but ' + gpu_missing)
+elif not enable_gpu and glslang.found()
+    message('GPU support disabled: ' + gpu_missing)
 endif
 
 if enable_gpu

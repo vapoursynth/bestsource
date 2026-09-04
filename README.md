@@ -10,15 +10,16 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 ## Dependencies
 
-- A current FFmpeg master build is required (libavutil 61.6 or newer): GPU device selection uses the UUID selector master added, and master also carries vulkan decoder bug fixes not yet in any release. Only `libavcodec`, `libavformat`, `libavutil` libraries are required.
+- FFmpeg 9.0 or newer. Only the `libavcodec`, `libavformat` and `libavutil` libraries are required. *gpu* asks for more than this, see below.
 - xxHash
 
 Optional, and only needed for *gpu*:
 
 - Vulkan headers, 1.4 or newer, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build. Distributions often still package 1.3.x, which is too old for the plugin, since the VapourSynth GPU frame API uses entry points that only became core in 1.4. A library only build (`-Denable_plugin=false`) is happy with older ones.
 - `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the GPU shader to SPIR-V.
+- An FFmpeg master build (libavutil 61.6 or newer). The decoder is put on the consumer's GPU by device UUID, which only master's Vulkan device selector understands, and master also carries Vulkan decoder fixes not yet in any release. Since that selector arrived without a version bump of its own, a master checkout from shortly before it will configure and then fall back to the CPU at runtime.
 
-Both are picked up automatically. Pass `-Denable_gpu=enabled` to make a missing one fail the build rather than quietly drop GPU decoding.
+These are picked up automatically, and GPU support is dropped when any of them is missing. Pass `-Denable_gpu=enabled` to make that fail the build instead.
 
 Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
 
