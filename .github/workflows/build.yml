@@ -201,100 +201,103 @@ jobs:
         name: bestsource-win_amd64
         path: dist/*.whl
 
-  build-windows-msvc:
-    runs-on: windows-latest
-
-    env:
-      # x64-windows-static plus VCPKG_BUILD_TYPE release, shipped with vcpkg as a community
-      # triplet. Only the release configuration of each dependency is ever linked here, so
-      # building the debug one as well would roughly double the cold build for nothing.
-      VCPKG_TRIPLET: x64-windows-static-release
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
-
-    steps:
-    - uses: actions/checkout@v7
-
-    # Python is needed for meson itself, for tools/spv2c.py, which turns the compiled shaders into
-    # a header, and for the vs.get_include() lookup in meson.build. The VapourSynth wheel is
-    # limited-API (cp312-abi3), so any Python >= 3.12 can import it for that.
-    - uses: actions/setup-python@v6
-      with:
-        python-version: '3.14'
-
-    - uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
-    - name: Install build tools
-      run: pip install meson ninja "vapoursynth>=80a1"
-
-    - name: Prepare vcpkg binary cache
-      run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE
-
-    # A cold FFmpeg build here takes tens of minutes. vcpkg's binary cache is content addressed
-    # per package, so an older restore-keys hit still avoids rebuilding everything.
-    - uses: actions/cache@v4
-      with:
-        path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-        key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('.github/workflows/build.yml') }}
-        restore-keys: vcpkg-${{ env.VCPKG_TRIPLET }}-
-
-    # vcpkg's ffmpeg port has no lcms2 feature, so --enable-lcms2 is patched into the configure
-    # options in place rather than carrying a forked copy of the port. Editing portfile.cmake
-    # changes the port's ABI hash, so the binary cache invalidates on its own instead of serving
-    # an ffmpeg built without it. The substitution is asserted because a silently missed anchor
-    # would just quietly drop ICC profile support.
-    - name: Enable lcms2 in the vcpkg ffmpeg port
-      run: |
-        $portfile = "$env:VCPKG_INSTALLATION_ROOT\ports\ffmpeg\portfile.cmake"
-        $old = Get-Content -Raw $portfile
-        $new = $old -replace '--disable-autodetect', '--disable-autodetect --enable-lcms2'
-        if ($new -eq $old) { throw "Anchor '--disable-autodetect' not found in $portfile" }
-        [System.IO.File]::WriteAllText($portfile, $new)
-
-    # Dependency set as documented in README.md. vcpkg's ffmpeg port has no feature for
-    # libjxl/libdavs2/libuavs3d/libxevd, so this build still decodes less than the CLANG64 one
-    # above.
-    - name: Install dependencies
-      # --vcpkg-root is passed explicitly because the developer environment set up above exports
-      # VCPKG_ROOT pointing at the vcpkg bundled with Visual Studio, which is not the one being
-      # used here. Without it vcpkg warns about the mismatch, and anything that does honour the
-      # variable would look in the wrong tree.
-      run: |
-        # lcms has to be built before ffmpeg. The patched port does not declare the dependency,
-        # and vcpkg is free to order two unrelated top level packages either way, so the separate
-        # invocation is what makes the order deterministic. --enable-lcms2 goes through
-        # require_pkg_config, so getting this wrong fails the ffmpeg configure loudly.
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET lcms
-        # vulkan-headers is listed on its own as well as through ffmpeg's vulkan feature, because
-        # meson probes for vulkan/vulkan.h directly and the GPU path needs it whether or not
-        # ffmpeg's feature happens to keep pulling it in.
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
-          "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,vulkan,openssl,xml2]" `
-          vulkan-headers xxhash
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET pkgconf
-        # glslangValidator compiles the GPU shader. enable_gpu is an auto feature, so
-        # without this the GPU path silently is not built and would rot untested.
-        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET "glslang[tools]"
-
-    # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
-    # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
-    # that the triplet builds its libraries against, and prefer_static makes meson ask pkgconf
-    # for Libs.private so the transitive static deps get linked.
-    - name: Build
-      run: |
-        $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\pkgconf\pkgconf.exe"
-        $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\lib\pkgconfig"
-        $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\glslang;$env:PATH"
-        # enable_gpu is requested rather than left on auto so a missing glslangValidator or
-        # missing vulkan headers fails the build instead of quietly dropping the feature.
-        meson setup build -Denable_plugin=true -Denable_gpu=enabled -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
-        meson compile -C build
-
-    - uses: actions/upload-artifact@v7
-      with:
-        name: msvc-win_amd64
-        path: build/bestsource.dll
+# Disabled: vcpkg's ffmpeg port is older than the libavutil 61.6 this needs, and there is no
+# straightforward way to get a master build through vcpkg here. Uncomment this job, the
+# artifact download and the msvc lines in the release job below to bring it back.
+#  build-windows-msvc:
+#    runs-on: windows-latest
+#
+#    env:
+#      # x64-windows-static plus VCPKG_BUILD_TYPE release, shipped with vcpkg as a community
+#      # triplet. Only the release configuration of each dependency is ever linked here, so
+#      # building the debug one as well would roughly double the cold build for nothing.
+#      VCPKG_TRIPLET: x64-windows-static-release
+#      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
+#
+#    steps:
+#    - uses: actions/checkout@v7
+#
+#    # Python is needed for meson itself, for tools/spv2c.py, which turns the compiled shaders into
+#    # a header, and for the vs.get_include() lookup in meson.build. The VapourSynth wheel is
+#    # limited-API (cp312-abi3), so any Python >= 3.12 can import it for that.
+#    - uses: actions/setup-python@v6
+#      with:
+#        python-version: '3.14'
+#
+#    - uses: ilammy/msvc-dev-cmd@v1
+#      with:
+#        arch: x64
+#
+#    - name: Install build tools
+#      run: pip install meson ninja "vapoursynth>=80a1"
+#
+#    - name: Prepare vcpkg binary cache
+#      run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE
+#
+#    # A cold FFmpeg build here takes tens of minutes. vcpkg's binary cache is content addressed
+#    # per package, so an older restore-keys hit still avoids rebuilding everything.
+#    - uses: actions/cache@v4
+#      with:
+#        path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+#        key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('.github/workflows/build.yml') }}
+#        restore-keys: vcpkg-${{ env.VCPKG_TRIPLET }}-
+#
+#    # vcpkg's ffmpeg port has no lcms2 feature, so --enable-lcms2 is patched into the configure
+#    # options in place rather than carrying a forked copy of the port. Editing portfile.cmake
+#    # changes the port's ABI hash, so the binary cache invalidates on its own instead of serving
+#    # an ffmpeg built without it. The substitution is asserted because a silently missed anchor
+#    # would just quietly drop ICC profile support.
+#    - name: Enable lcms2 in the vcpkg ffmpeg port
+#      run: |
+#        $portfile = "$env:VCPKG_INSTALLATION_ROOT\ports\ffmpeg\portfile.cmake"
+#        $old = Get-Content -Raw $portfile
+#        $new = $old -replace '--disable-autodetect', '--disable-autodetect --enable-lcms2'
+#        if ($new -eq $old) { throw "Anchor '--disable-autodetect' not found in $portfile" }
+#        [System.IO.File]::WriteAllText($portfile, $new)
+#
+#    # Dependency set as documented in README.md. vcpkg's ffmpeg port has no feature for
+#    # libjxl/libdavs2/libuavs3d/libxevd, so this build still decodes less than the CLANG64 one
+#    # above.
+#    - name: Install dependencies
+#      # --vcpkg-root is passed explicitly because the developer environment set up above exports
+#      # VCPKG_ROOT pointing at the vcpkg bundled with Visual Studio, which is not the one being
+#      # used here. Without it vcpkg warns about the mismatch, and anything that does honour the
+#      # variable would look in the wrong tree.
+#      run: |
+#        # lcms has to be built before ffmpeg. The patched port does not declare the dependency,
+#        # and vcpkg is free to order two unrelated top level packages either way, so the separate
+#        # invocation is what makes the order deterministic. --enable-lcms2 goes through
+#        # require_pkg_config, so getting this wrong fails the ffmpeg configure loudly.
+#        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET lcms
+#        # vulkan-headers is listed on its own as well as through ffmpeg's vulkan feature, because
+#        # meson probes for vulkan/vulkan.h directly and the GPU path needs it whether or not
+#        # ffmpeg's feature happens to keep pulling it in.
+#        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET `
+#          "ffmpeg[avcodec,avdevice,avfilter,avformat,swresample,swscale,zlib,bzip2,core,dav1d,gpl,version3,lzma,vulkan,openssl,xml2]" `
+#          vulkan-headers xxhash
+#        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET pkgconf
+#        # glslangValidator compiles the GPU shader. enable_gpu is an auto feature, so
+#        # without this the GPU path silently is not built and would rot untested.
+#        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --vcpkg-root "$env:VCPKG_INSTALLATION_ROOT" --triplet $env:VCPKG_TRIPLET "glslang[tools]"
+#
+#    # enable_plugin builds both the VapourSynth and AviSynth+ bindings into the one dll;
+#    # libp2p and AviSynth+ come from the subproject wraps. b_vscrt=mt matches the static CRT
+#    # that the triplet builds its libraries against, and prefer_static makes meson ask pkgconf
+#    # for Libs.private so the transitive static deps get linked.
+#    - name: Build
+#      run: |
+#        $env:PKG_CONFIG = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\pkgconf\pkgconf.exe"
+#        $env:PKG_CONFIG_PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\lib\pkgconfig"
+#        $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\$env:VCPKG_TRIPLET\tools\glslang;$env:PATH"
+#        # enable_gpu is requested rather than left on auto so a missing glslangValidator or
+#        # missing vulkan headers fails the build instead of quietly dropping the feature.
+#        meson setup build -Denable_plugin=true -Denable_gpu=enabled -Dprefer_static=true -Db_lto=true -Db_vscrt=mt
+#        meson compile -C build
+#
+#    - uses: actions/upload-artifact@v7
+#      with:
+#        name: msvc-win_amd64
+#        path: build/bestsource.dll
 
   publish:
     permissions:
@@ -316,22 +319,22 @@ jobs:
   release:
     permissions:
       contents: write
-    needs: [build-windows-wheel, build-windows-msvc]
+    needs: [build-windows-wheel]
     if: ${{ startsWith(github.ref, 'refs/tags/R') }}
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/download-artifact@v8
-      with:
-        name: msvc-win_amd64
-        path: msvc
+#    - uses: actions/download-artifact@v8
+#      with:
+#        name: msvc-win_amd64
+#        path: msvc
 
     - uses: actions/download-artifact@v8
       with:
         name: bestsource-win_amd64
         path: clang
 
-    # Both dlls are labelled by toolchain in the filename. The clang build targets
+    # The dlls are labelled by toolchain in the filename. The clang build targets
     # x86_64-w64-windows-gnu, whose C++ ABI cannot match the MSVC built AviSynth+, so it
     # is built with enable_avisynth=false and exports VapourSynthPluginInit2 only --
     # hence vs-only. The clang dll is taken out of the wheel so the build job that
@@ -345,10 +348,10 @@ jobs:
         GH_REPO: ${{ github.repository }}
       run: |
         tag="${{ github.ref_name }}"
-        msvc_name="BestSource-$tag-win64-msvc"
+        #msvc_name="BestSource-$tag-win64-msvc"
         clang_name="BestSource-$tag-win64-clang-vs-only"
 
-        mv msvc/bestsource.dll "$msvc_name.dll"
+        #mv msvc/bestsource.dll "$msvc_name.dll"
 
         # Matched loosely on purpose: the gnu toolchain names it libbestsource.dll, msvc
         # would name it bestsource.dll. The wheel is statically linked so it holds one dll.
@@ -359,9 +362,10 @@ jobs:
 
         # One dll per zip, keeping the toolchain suffixed name inside: the two builds are
         # alternatives, so unpacking both into a plugins directory must not collide.
-        zip -qj "$msvc_name.zip" "$msvc_name.dll"
+        #zip -qj "$msvc_name.zip" "$msvc_name.dll"
         zip -qj "$clang_name.zip" "$clang_name.dll"
 
         gh release view "$tag" >/dev/null 2>&1 \
           || gh release create "$tag" --title "$tag" --generate-notes
-        gh release upload "$tag" "$msvc_name.zip" "$clang_name.zip" --clobber
+        #gh release upload "$tag" "$msvc_name.zip" "$clang_name.zip" --clobber
+        gh release upload "$tag" "$clang_name.zip" --clobber
