@@ -71,10 +71,8 @@ struct ImportFunctions {
     BS_VS_VK_FUNCS(BS_VK_DECLARE_FUNC)
 #ifdef _WIN32
     PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR = nullptr;
-    PFN_vkGetMemoryWin32HandlePropertiesKHR vkGetMemoryWin32HandlePropertiesKHR = nullptr;
 #else
     PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR = nullptr;
-    PFN_vkGetMemoryFdPropertiesKHR vkGetMemoryFdPropertiesKHR = nullptr;
 #endif
 };
 
@@ -101,8 +99,6 @@ struct BSVSGpuExport::Impl {
     AVVulkanDeviceContext *HWCtx = nullptr;
     VkDevice Device = VK_NULL_HANDLE;
     ImportFunctions VK;
-    /* Queried once at creation; the answer cannot change for the device's lifetime. */
-    VkPhysicalDeviceMemoryProperties MemProps = {};
 
     /* Ours to signal, the core's to hand to consumers. Created once and released in the
        destructor; planes published on it hold their own references, so frames still in flight
@@ -205,36 +201,16 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
         throw BestSourceException("GPU export: the imported allocation is smaller than the buffer's memory requirements");
     }
 
-    /* Which memory types the handle may legally be imported as, intersected with what the buffer
-       accepts. Both devices are the same physical device so the indices line up, but asking is the
-       only way to know that rather than assume it. */
-    uint32_t AllowedTypes = Req.memoryTypeBits;
-#ifdef _WIN32
-    VkMemoryWin32HandlePropertiesKHR HandleProps = {};
-    HandleProps.sType = VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR;
-    if (VK.vkGetMemoryWin32HandlePropertiesKHR &&
-        VK.vkGetMemoryWin32HandlePropertiesKHR(Device,
-            static_cast<VkExternalMemoryHandleTypeFlagBits>(Exported.handleType),
-            reinterpret_cast<HANDLE>(Exported.handle), &HandleProps) == VK_SUCCESS)
-        AllowedTypes &= HandleProps.memoryTypeBits;
-#else
-    VkMemoryFdPropertiesKHR HandleProps = {};
-    HandleProps.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR;
-    if (VK.vkGetMemoryFdPropertiesKHR &&
-        VK.vkGetMemoryFdPropertiesKHR(Device,
-            static_cast<VkExternalMemoryHandleTypeFlagBits>(Exported.handleType),
-            static_cast<int>(Exported.handle), &HandleProps) == VK_SUCCESS)
-        AllowedTypes &= HandleProps.memoryTypeBits;
-#endif
-
-    /* Device local preferred, anything importable as the fallback. */
-    uint32_t TypeIndex = BSFindVkMemoryType(MemProps, AllowedTypes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (TypeIndex == UINT32_MAX)
-        TypeIndex = BSFindVkMemoryType(MemProps, AllowedTypes, 0);
-    if (TypeIndex == UINT32_MAX) {
+    /* An opaque handle is imported as exactly the allocation it came from, the core's
+       memoryTypeIndex and memorySize as allocated: that is what Vulkan requires for opaque handle
+       types, and the memory property queries are invalid for them, so there is nothing to choose
+       here. Type numbering is per physical device, and the decoder was put on the core's by UUID,
+       so the index means the same thing on this device. What can still refuse is the buffer,
+       whose requirements have to admit that type. */
+    if (Exported.memoryTypeIndex >= VK_MAX_MEMORY_TYPES || !(Req.memoryTypeBits & (1u << Exported.memoryTypeIndex))) {
         VK.vkDestroyBuffer(Device, New.Buffer, HWCtx->alloc);
         CloseExportedHandle(Exported.handle, false);
-        throw BestSourceException("GPU export: no memory type accepts the imported allocation");
+        throw BestSourceException("GPU export: the buffer can't be bound to memory of the exported allocation's type");
     }
 
 #ifdef _WIN32
@@ -253,7 +229,7 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
     AI.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     AI.pNext = &ImportInfo;
     AI.allocationSize = Exported.memorySize;
-    AI.memoryTypeIndex = TypeIndex;
+    AI.memoryTypeIndex = Exported.memoryTypeIndex;
     Res = VK.vkAllocateMemory(Device, &AI, HWCtx->alloc, &New.Memory);
     Succeeded = (Res == VK_SUCCESS);
     CloseExportedHandle(Exported.handle, Succeeded);
@@ -386,24 +362,13 @@ std::unique_ptr<BSVSGpuExport> BSVSGpuExport::Create(BestVideoSource *Source, in
 #define BS_LOAD(n) P->VK.n = reinterpret_cast<PFN_##n>(GetDeviceProcAddr(P->Device, #n));
     BS_VS_VK_FUNCS(BS_LOAD)
 #undef BS_LOAD
-    PFN_vkGetPhysicalDeviceMemoryProperties GetMemProps = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
-        P->HWCtx->get_proc_addr(P->HWCtx->inst, "vkGetPhysicalDeviceMemoryProperties"));
-    if (!GetMemProps) {
-        Error = "couldn't load vkGetPhysicalDeviceMemoryProperties";
-        return nullptr;
-    }
-    GetMemProps(P->HWCtx->phys_dev, &P->MemProps);
 #ifdef _WIN32
     P->VK.vkImportSemaphoreWin32HandleKHR = reinterpret_cast<PFN_vkImportSemaphoreWin32HandleKHR>(
         GetDeviceProcAddr(P->Device, "vkImportSemaphoreWin32HandleKHR"));
-    P->VK.vkGetMemoryWin32HandlePropertiesKHR = reinterpret_cast<PFN_vkGetMemoryWin32HandlePropertiesKHR>(
-        GetDeviceProcAddr(P->Device, "vkGetMemoryWin32HandlePropertiesKHR"));
     const bool HaveImport = P->VK.vkImportSemaphoreWin32HandleKHR != nullptr;
 #else
     P->VK.vkImportSemaphoreFdKHR = reinterpret_cast<PFN_vkImportSemaphoreFdKHR>(
         GetDeviceProcAddr(P->Device, "vkImportSemaphoreFdKHR"));
-    P->VK.vkGetMemoryFdPropertiesKHR = reinterpret_cast<PFN_vkGetMemoryFdPropertiesKHR>(
-        GetDeviceProcAddr(P->Device, "vkGetMemoryFdPropertiesKHR"));
     const bool HaveImport = P->VK.vkImportSemaphoreFdKHR != nullptr;
 #endif
 
