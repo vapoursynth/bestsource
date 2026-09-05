@@ -897,28 +897,20 @@ BestAudioSource::FrameRange BestAudioSource::GetFrameRangeBySamples(int64_t Star
     const int64_t DataSamples = AP.NumSamples - SampleDelay;
     if (Count <= 0 || Start >= DataSamples)
         return Result;
-    if (Start < 0) {
-        Result.First = 0;
-    } else {
-        for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
-            if (Start >= TrackIndex.Frames[i].Start && Start < TrackIndex.Frames[i].Start + TrackIndex.Frames[i].Length) {
-                Result.First = i;
-                break;
-            }
-        }
-    }
+
+    auto FrameAt = [this](int64_t Pos) -> int64_t {
+        auto It = std::upper_bound(TrackIndex.Frames.begin(), TrackIndex.Frames.end(), Pos,
+            [](int64_t P, const FrameInfo &F) { return P < F.Start; });
+        if (It == TrackIndex.Frames.begin())
+            return -1;
+        --It;
+        return (Pos < It->Start + It->Length) ? static_cast<int64_t>(It - TrackIndex.Frames.begin()) : -1;
+    };
+
+    Result.First = (Start < 0) ? 0 : FrameAt(Start);
 
     int64_t EndPos = Start + Count;
-    if (EndPos >= DataSamples) {
-        Result.Last = AP.NumFrames - 1;
-    } else {
-        for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
-            if (EndPos - 1 >= TrackIndex.Frames[i].Start && EndPos - 1 < TrackIndex.Frames[i].Start + TrackIndex.Frames[i].Length) {
-                Result.Last = i;
-                break;
-            }
-        }
-    }
+    Result.Last = (EndPos >= DataSamples) ? AP.NumFrames - 1 : FrameAt(EndPos - 1);
 
     assert(Result.First >= 0 && Result.Last >= 0);
 

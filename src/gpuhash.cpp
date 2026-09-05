@@ -528,10 +528,11 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
        matter too: the submission below waits on and signals each source's timeline once, and doing
        that twice for the same semaphore in one submit is not a legal thing to ask for. */
     AVVkFrame *Vkf[MaxDispatchSources] = {};
+    AVHWFramesContext *FC[MaxDispatchSources] = {};
     for (int s = 0; s < NumSources; s++) {
         const AVFrame *F = Sources[s].Frame;
-        const AVHWFramesContext *FC = reinterpret_cast<const AVHWFramesContext *>(F->hw_frames_ctx->data);
-        if (F->width != Frame->width || F->height != Frame->height || FC->sw_format != Frames->sw_format)
+        FC[s] = reinterpret_cast<AVHWFramesContext *>(F->hw_frames_ctx->data);
+        if (F->width != Frame->width || F->height != Frame->height || FC[s]->sw_format != Frames->sw_format)
             throw BestSourceHWDecoderException("GPU export: merged frames must have the same format and size");
         Vkf[s] = reinterpret_cast<AVVkFrame *>(F->data[0]);
         for (int t = 0; t < s; t++)
@@ -609,6 +610,35 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         }
     }
 
+    /* FFmpeg's frame lock, held from the first read of a frame's synchronization state until the
+       new state has been published after submission, and never across the host wait: that is
+       the contract in hwcontext_vulkan.h, and the decoder's worker threads take the same lock
+       when they add these frames as decode references, so without it the two race over
+       sem_value and layout. Address order, so two merges holding each other's frames cannot
+       deadlock. */
+    int LockOrder[MaxDispatchSources] = { 0, 1 };
+    if (NumSources > 1 && reinterpret_cast<uintptr_t>(Vkf[1]) < reinterpret_cast<uintptr_t>(Vkf[0])) {
+        LockOrder[0] = 1;
+        LockOrder[1] = 0;
+    }
+    bool FramesLocked = false;
+    auto LockFrames = [&]() {
+        for (int i = 0; i < NumSources; i++) {
+            const int s = LockOrder[i];
+            reinterpret_cast<AVVulkanFramesContext *>(FC[s]->hwctx)->lock_frame(FC[s], Vkf[s]);
+        }
+        FramesLocked = true;
+    };
+    auto UnlockFrames = [&]() {
+        if (!FramesLocked)
+            return;
+        FramesLocked = false;
+        for (int i = NumSources - 1; i >= 0; i--) {
+            const int s = LockOrder[i];
+            reinterpret_cast<AVVulkanFramesContext *>(FC[s]->hwctx)->unlock_frame(FC[s], Vkf[s]);
+        }
+    };
+
     uint64_t Result = 0;
     try {
         VkDescriptorImageInfo ImgInfo[MaxDispatchSources][2] = {};
@@ -674,6 +704,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
            One barrier per source covers both of its planes. queue_family is
            VK_QUEUE_FAMILY_IGNORED because FFmpeg allocates CONCURRENT, so there is no ownership
            transfer to perform. */
+        LockFrames();
         VkImageMemoryBarrier ImgBar[MaxDispatchSources] = {};
         for (int s = 0; s < NumSources; s++) {
             ImgBar[s].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -806,6 +837,20 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         if (Res != VK_SUCCESS)
             ThrowVk("vkQueueSubmit", Res);
 
+        /* The frames' new state, published the moment the submission that produces it is in
+           flight and before anything waits on it, so the next user of a frame -- possibly a
+           decoder thread already blocked on the lock -- orders against this work rather than
+           against stale values. access must be 0 and not SHADER_READ: whatever touches the frame
+           next uses it as srcAccessMask, and FFmpeg's transfer path runs on a transfer only queue
+           where SHADER_READ is not a legal access. Zero is also correct in its own right, since
+           availability operations exist for writes and this pass only reads. */
+        for (int s = 0; s < NumSources; s++) {
+            Vkf[s]->sem_value[0] = FrameSignalValues[s];
+            Vkf[s]->layout[0] = VK_IMAGE_LAYOUT_GENERAL;
+            Vkf[s]->access[0] = {};
+        }
+        UnlockFrames();
+
         VkSemaphoreWaitInfo SWI = {};
         SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         SWI.semaphoreCount = static_cast<uint32_t>(NumSources);
@@ -815,20 +860,10 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         if (Res != VK_SUCCESS)
             ThrowVk("vkWaitSemaphores", Res);
 
-        /* Bookkeeping the caller owns once an image has been transitioned. access must be 0 and
-           not SHADER_READ: whatever touches the frame next uses it as srcAccessMask, and FFmpeg's
-           transfer path runs on a transfer only queue where SHADER_READ is not a legal access.
-           Zero is also correct in its own right, since availability operations exist for writes
-           and this pass only reads. */
-        for (int s = 0; s < NumSources; s++) {
-            Vkf[s]->sem_value[0] = FrameSignalValues[s];
-            Vkf[s]->layout[0] = VK_IMAGE_LAYOUT_GENERAL;
-            Vkf[s]->access[0] = {};
-        }
-
         const uint32_t *Lanes = static_cast<const uint32_t *>(P->Acc.Mapped);
         Result = (static_cast<uint64_t>(Lanes[1]) << 32) | Lanes[0];
     } catch (...) {
+        UnlockFrames();
         DestroyViews();
         throw;
     }
