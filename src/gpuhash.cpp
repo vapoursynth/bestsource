@@ -180,9 +180,13 @@ struct BSGpuHasher::Impl {
         /* The Done value whose completion retires it; 0 while free. */
         uint64_t Value = 0;
     };
-    /* Bounds how many exports can be in flight: with every context claimed, the next dispatch
-       waits for the oldest to complete. */
-    static constexpr int NumContexts = 4;
+    /* Two is what the steady state needs: the next frame's hash has to record while the previous
+       export is still running, and any hash drains the ring, since on one queue its completion
+       implies everything submitted before it. More would only smooth runs of exports with no
+       hash in between -- frames served from the cache -- at the price of one held pool frame
+       per context between requests. With every context claimed, the next dispatch waits for
+       the oldest to complete. */
+    static constexpr int NumContexts = 2;
     ExecContext Contexts[NumContexts];
 
     /* Signalled by every submission with its sequence number, so completion is a counter read
