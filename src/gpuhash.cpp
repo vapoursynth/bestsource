@@ -88,7 +88,10 @@ namespace {
     F(vkBindBufferMemory)                  \
     F(vkMapMemory)                         \
     F(vkQueueSubmit)                       \
-    F(vkWaitSemaphores)
+    F(vkWaitSemaphores)                    \
+    F(vkCreateSemaphore)                   \
+    F(vkDestroySemaphore)                  \
+    F(vkGetSemaphoreCounterValue)
 
 struct VulkanFunctions {
     BS_VK_FUNCS(BS_VK_DECLARE_FUNC)
@@ -157,13 +160,35 @@ struct BSGpuHasher::Impl {
 
     VkDescriptorSetLayout SetLayout = VK_NULL_HANDLE;
     VkDescriptorPool DescPool = VK_NULL_HANDLE;
-    /* One per possible source frame. A merge binds a different image pair per dispatch, and a
-       descriptor set cannot be rewritten between two dispatches already recorded into the same
-       command buffer, so the sets have to be distinct rather than reused. */
-    VkDescriptorSet DescSet[MaxDispatchSources] = {};
     VkPipelineLayout PipeLayout = VK_NULL_HANDLE;
-    VkCommandPool CmdPool = VK_NULL_HANDLE;
-    VkCommandBuffer Cmd = VK_NULL_HANDLE;
+
+    /* Everything one submission needs to keep until the GPU is done with it. An export returns
+       as soon as it is submitted, so its context stays claimed until the Done timeline says the
+       work has completed; a hash waits for its result and retires its context on the spot. One
+       descriptor set per possible source frame, because a merge binds a different image pair
+       per dispatch and a set cannot be rewritten between two dispatches recorded into the same
+       command buffer. A command pool each, so recycling one context never resets another's
+       buffer. */
+    struct ExecContext {
+        VkCommandPool CmdPool = VK_NULL_HANDLE;
+        VkCommandBuffer Cmd = VK_NULL_HANDLE;
+        VkDescriptorSet DescSet[MaxDispatchSources] = {};
+        VkImageView Views[MaxDispatchSources][2] = {};
+        /* References that keep the source frames, and with them the images the views name,
+           alive until the context is retired. */
+        AVFrame *Held[MaxDispatchSources] = {};
+        /* The Done value whose completion retires it; 0 while free. */
+        uint64_t Value = 0;
+    };
+    /* Bounds how many exports can be in flight: with every context claimed, the next dispatch
+       waits for the oldest to complete. */
+    static constexpr int NumContexts = 4;
+    ExecContext Contexts[NumContexts];
+
+    /* Signalled by every submission with its sequence number, so completion is a counter read
+       and teardown knows when the last one is done. */
+    VkSemaphore Done = VK_NULL_HANDLE;
+    uint64_t Submitted = 0;
 
     /* One pipeline per sample size and pass, created on first use. Which pass it is comes in as a
        specialization constant, so the hash pipeline carries no plane writing code and the export
@@ -184,6 +209,16 @@ struct BSGpuHasher::Impl {
     VkPipeline GetPipeline(int BytesPerSample, bool DoExport);
     void LockQueue();
     void UnlockQueue();
+    /* Retires what has completed and hands out a free context, waiting for the oldest in
+       flight when every one is claimed. */
+    ExecContext &AcquireContext();
+    /* Releases everything a context held and marks it free. Only for a context whose work
+       has completed or was never submitted. */
+    void RetireContext(ExecContext &C);
+    void RetireCompleted();
+    /* Waits for every submission so far, then retires all contexts. A failed wait can only be
+       a lost device, where nothing further is reachable anyway, so it does not throw. */
+    void FinishAll();
     /* Targets is what selects the pass. Null hashes, and ExportWidth/ExportHeight are then ignored
        -- a hash must cover the full decoded frame, since that is what the index hashes were computed
        over. Set, it exports, and they bound the writes to the destination's extent, which for odd
@@ -295,8 +330,70 @@ void BSGpuHasher::Impl::UnlockQueue() {
 #endif
 }
 
+void BSGpuHasher::Impl::RetireContext(ExecContext &C) {
+    for (int s = 0; s < MaxDispatchSources; s++) {
+        for (int p = 0; p < 2; p++) {
+            if (C.Views[s][p])
+                VK.vkDestroyImageView(Device, C.Views[s][p], HWCtx->alloc);
+            C.Views[s][p] = VK_NULL_HANDLE;
+        }
+        av_frame_free(&C.Held[s]);
+    }
+    C.Value = 0;
+}
+
+void BSGpuHasher::Impl::RetireCompleted() {
+    uint64_t Completed = 0;
+    if (!Done || VK.vkGetSemaphoreCounterValue(Device, Done, &Completed) != VK_SUCCESS)
+        return;
+    for (auto &C : Contexts)
+        if (C.Value && C.Value <= Completed)
+            RetireContext(C);
+}
+
+BSGpuHasher::Impl::ExecContext &BSGpuHasher::Impl::AcquireContext() {
+    RetireCompleted();
+    ExecContext *Oldest = nullptr;
+    for (auto &C : Contexts) {
+        if (!C.Value)
+            return C;
+        if (!Oldest || C.Value < Oldest->Value)
+            Oldest = &C;
+    }
+
+    VkSemaphoreWaitInfo SWI = {};
+    SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    SWI.semaphoreCount = 1;
+    SWI.pSemaphores = &Done;
+    SWI.pValues = &Oldest->Value;
+    VkResult Res = VK.vkWaitSemaphores(Device, &SWI, UINT64_MAX);
+    if (Res != VK_SUCCESS)
+        ThrowVk("vkWaitSemaphores", Res);
+    RetireContext(*Oldest);
+    return *Oldest;
+}
+
+void BSGpuHasher::Impl::FinishAll() {
+    if (Done && Submitted) {
+        VkSemaphoreWaitInfo SWI = {};
+        SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        SWI.semaphoreCount = 1;
+        SWI.pSemaphores = &Done;
+        SWI.pValues = &Submitted;
+        (void)VK.vkWaitSemaphores(Device, &SWI, UINT64_MAX);
+    }
+    for (auto &C : Contexts)
+        RetireContext(C);
+}
+
 BSGpuHasher::Impl::~Impl() {
     if (Device) {
+        FinishAll();
+        for (auto &C : Contexts)
+            if (C.CmdPool)
+                VK.vkDestroyCommandPool(Device, C.CmdPool, HWCtx->alloc);
+        if (Done)
+            VK.vkDestroySemaphore(Device, Done, HWCtx->alloc);
         for (int i = 0; i < 2; i++) {
             for (int m = 0; m < 2; m++)
                 if (Pipeline[i][m])
@@ -304,8 +401,6 @@ BSGpuHasher::Impl::~Impl() {
             if (Module[i])
                 VK.vkDestroyShaderModule(Device, Module[i], HWCtx->alloc);
         }
-        if (CmdPool)
-            VK.vkDestroyCommandPool(Device, CmdPool, HWCtx->alloc);
         if (PipeLayout)
             VK.vkDestroyPipelineLayout(Device, PipeLayout, HWCtx->alloc);
         if (DescPool)
@@ -424,13 +519,14 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreateDescriptorSetLayout", Res);
 
+    constexpr uint32_t NumSets = Impl::NumContexts * MaxDispatchSources;
     VkDescriptorPoolSize PoolSizes[2] = {
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * MaxDispatchSources },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * MaxDispatchSources },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * NumSets },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * NumSets },
     };
     VkDescriptorPoolCreateInfo DPCI = {};
     DPCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    DPCI.maxSets = MaxDispatchSources;
+    DPCI.maxSets = NumSets;
     DPCI.poolSizeCount = 2;
     DPCI.pPoolSizes = PoolSizes;
     Res = P->VK.vkCreateDescriptorPool(P->Device, &DPCI, P->HWCtx->alloc, &P->DescPool);
@@ -440,33 +536,38 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     VkDescriptorSetLayout SetLayouts[MaxDispatchSources];
     for (auto &L : SetLayouts)
         L = P->SetLayout;
-    VkDescriptorSetAllocateInfo DSAI = {};
-    DSAI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    DSAI.descriptorPool = P->DescPool;
-    DSAI.descriptorSetCount = MaxDispatchSources;
-    DSAI.pSetLayouts = SetLayouts;
-    Res = P->VK.vkAllocateDescriptorSets(P->Device, &DSAI, P->DescSet);
-    if (Res != VK_SUCCESS)
-        ThrowVk("vkAllocateDescriptorSets", Res);
-
-    /* The buffer half of every descriptor set never changes; only the two images do, per frame. */
+    /* The buffer bindings are written once so every set is complete from the start; the
+       destinations are rewritten per dispatch and the accumulator never changes. */
     VkBuffer BufOrder[4] = { P->Dummy[0].Buffer, P->Dummy[1].Buffer, P->Dummy[2].Buffer, P->Acc.Buffer };
     VkDescriptorBufferInfo BufInfo[4] = {};
-    VkWriteDescriptorSet Writes[4 * MaxDispatchSources] = {};
     for (int i = 0; i < 4; i++) {
         BufInfo[i].buffer = BufOrder[i];
         BufInfo[i].range = VK_WHOLE_SIZE;
-        for (int s = 0; s < MaxDispatchSources; s++) {
-            VkWriteDescriptorSet &W = Writes[s * 4 + i];
-            W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            W.dstSet = P->DescSet[s];
-            W.dstBinding = i + 2;
-            W.descriptorCount = 1;
-            W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            W.pBufferInfo = &BufInfo[i];
-        }
     }
-    P->VK.vkUpdateDescriptorSets(P->Device, 4 * MaxDispatchSources, Writes, 0, nullptr);
+    for (auto &C : P->Contexts) {
+        VkDescriptorSetAllocateInfo DSAI = {};
+        DSAI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        DSAI.descriptorPool = P->DescPool;
+        DSAI.descriptorSetCount = MaxDispatchSources;
+        DSAI.pSetLayouts = SetLayouts;
+        Res = P->VK.vkAllocateDescriptorSets(P->Device, &DSAI, C.DescSet);
+        if (Res != VK_SUCCESS)
+            ThrowVk("vkAllocateDescriptorSets", Res);
+
+        VkWriteDescriptorSet Writes[4 * MaxDispatchSources] = {};
+        for (int i = 0; i < 4; i++) {
+            for (int s = 0; s < MaxDispatchSources; s++) {
+                VkWriteDescriptorSet &W = Writes[s * 4 + i];
+                W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                W.dstSet = C.DescSet[s];
+                W.dstBinding = i + 2;
+                W.descriptorCount = 1;
+                W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                W.pBufferInfo = &BufInfo[i];
+            }
+        }
+        P->VK.vkUpdateDescriptorSets(P->Device, 4 * MaxDispatchSources, Writes, 0, nullptr);
+    }
 
     VkPushConstantRange PCR = {};
     PCR.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -481,21 +582,33 @@ BSGpuHasher::BSGpuHasher(AVBufferRef *HWDeviceContext) : P(new Impl) {
     if (Res != VK_SUCCESS)
         ThrowVk("vkCreatePipelineLayout", Res);
 
-    VkCommandPoolCreateInfo CPCI = {};
-    CPCI.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    CPCI.queueFamilyIndex = P->QueueFamily;
-    Res = P->VK.vkCreateCommandPool(P->Device, &CPCI, P->HWCtx->alloc, &P->CmdPool);
-    if (Res != VK_SUCCESS)
-        ThrowVk("vkCreateCommandPool", Res);
+    for (auto &C : P->Contexts) {
+        VkCommandPoolCreateInfo CPCI = {};
+        CPCI.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        CPCI.queueFamilyIndex = P->QueueFamily;
+        Res = P->VK.vkCreateCommandPool(P->Device, &CPCI, P->HWCtx->alloc, &C.CmdPool);
+        if (Res != VK_SUCCESS)
+            ThrowVk("vkCreateCommandPool", Res);
 
-    VkCommandBufferAllocateInfo CBAI = {};
-    CBAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    CBAI.commandPool = P->CmdPool;
-    CBAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    CBAI.commandBufferCount = 1;
-    Res = P->VK.vkAllocateCommandBuffers(P->Device, &CBAI, &P->Cmd);
+        VkCommandBufferAllocateInfo CBAI = {};
+        CBAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        CBAI.commandPool = C.CmdPool;
+        CBAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        CBAI.commandBufferCount = 1;
+        Res = P->VK.vkAllocateCommandBuffers(P->Device, &CBAI, &C.Cmd);
+        if (Res != VK_SUCCESS)
+            ThrowVk("vkAllocateCommandBuffers", Res);
+    }
+
+    VkSemaphoreTypeCreateInfo DoneType = {};
+    DoneType.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    DoneType.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo DoneCI = {};
+    DoneCI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    DoneCI.pNext = &DoneType;
+    Res = P->VK.vkCreateSemaphore(P->Device, &DoneCI, P->HWCtx->alloc, &P->Done);
     if (Res != VK_SUCCESS)
-        ThrowVk("vkAllocateCommandBuffers", Res);
+        ThrowVk("vkCreateSemaphore", Res);
 }
 
 BSGpuHasher::~BSGpuHasher() = default;
@@ -576,18 +689,19 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         PC.ExportShift = (BytesPerSample == 2) ? (16 - Depth) : 0;
     }
 
-    /* Views are created per call. FFmpeg's frame pool recycles a bounded set of images so caching
-       them by VkImage would pay off, but a cached view outliving its image after a decoder reset
-       is a worse bug than the allocation is a cost. */
-    VkImageView Views[MaxDispatchSources][2] = {};
+    /* What the GPU may still be using after this returns is kept in a context: image views
+       (created per call, since a cached view outliving its image after a decoder reset is a worse
+       bug than the allocation is a cost), references to the source frames, and the command buffer
+       and descriptor sets. A hash retires it before returning; an export leaves it claimed until
+       the Done timeline says the work has completed. */
+    ExecContext &C = P->AcquireContext();
     const VkImageAspectFlagBits Aspects[2] = { VK_IMAGE_ASPECT_PLANE_0_BIT, VK_IMAGE_ASPECT_PLANE_1_BIT };
-    auto DestroyViews = [&]() {
-        for (int s = 0; s < MaxDispatchSources; s++)
-            for (int p = 0; p < 2; p++)
-                if (Views[s][p])
-                    P->VK.vkDestroyImageView(P->Device, Views[s][p], P->HWCtx->alloc);
-        };
     for (int s = 0; s < NumSources; s++) {
+        C.Held[s] = av_frame_clone(Sources[s].Frame);
+        if (!C.Held[s]) {
+            P->RetireContext(C);
+            throw BestSourceHWDecoderException("GPU hashing: couldn't reference a source frame");
+        }
         for (int p = 0; p < 2; p++) {
             VkImageViewUsageCreateInfo Usage = {};
             Usage.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
@@ -601,10 +715,10 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             CI.subresourceRange.aspectMask = Aspects[p];
             CI.subresourceRange.levelCount = 1;
             CI.subresourceRange.layerCount = 1;
-            VkResult Res = P->VK.vkCreateImageView(P->Device, &CI, P->HWCtx->alloc, &Views[s][p]);
+            VkResult Res = P->VK.vkCreateImageView(P->Device, &CI, P->HWCtx->alloc, &C.Views[s][p]);
             if (Res != VK_SUCCESS) {
-                Views[s][p] = VK_NULL_HANDLE;
-                DestroyViews();
+                C.Views[s][p] = VK_NULL_HANDLE;
+                P->RetireContext(C);
                 ThrowVk("vkCreateImageView", Res);
             }
         }
@@ -645,11 +759,11 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         VkWriteDescriptorSet Writes[MaxDispatchSources * 2] = {};
         for (int s = 0; s < NumSources; s++) {
             for (int p = 0; p < 2; p++) {
-                ImgInfo[s][p].imageView = Views[s][p];
+                ImgInfo[s][p].imageView = C.Views[s][p];
                 ImgInfo[s][p].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
                 VkWriteDescriptorSet &W = Writes[s * 2 + p];
                 W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                W.dstSet = P->DescSet[s];
+                W.dstSet = C.DescSet[s];
                 W.dstBinding = p;
                 W.descriptorCount = 1;
                 W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -676,7 +790,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             for (int s = 0; s < NumSources; s++) {
                 VkWriteDescriptorSet &W = DstWrites[s * 3 + i];
                 W.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                W.dstSet = P->DescSet[s];
+                W.dstSet = C.DescSet[s];
                 W.dstBinding = 2 + i;
                 W.descriptorCount = 1;
                 W.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -687,18 +801,21 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
 
         VkPipeline Pipe = P->GetPipeline(BytesPerSample, DoExport);
 
-        VkResult Res = P->VK.vkResetCommandPool(P->Device, P->CmdPool, 0);
+        VkResult Res = P->VK.vkResetCommandPool(P->Device, C.CmdPool, 0);
         if (Res != VK_SUCCESS)
             ThrowVk("vkResetCommandPool", Res);
 
         VkCommandBufferBeginInfo BI = {};
         BI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         BI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        Res = P->VK.vkBeginCommandBuffer(P->Cmd, &BI);
+        Res = P->VK.vkBeginCommandBuffer(C.Cmd, &BI);
         if (Res != VK_SUCCESS)
             ThrowVk("vkBeginCommandBuffer", Res);
 
-        P->VK.vkCmdFillBuffer(P->Cmd, P->Acc.Buffer, 0, VK_WHOLE_SIZE, 0);
+        /* The accumulator only exists for the hash pass; the export pass never touches it, so it
+           pays for neither the clear nor the barriers around it. */
+        if (!DoExport)
+            P->VK.vkCmdFillBuffer(C.Cmd, P->Acc.Buffer, 0, VK_WHOLE_SIZE, 0);
 
         /* Frames arrive in VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR; a compute read needs GENERAL.
            One barrier per source covers both of its planes. queue_family is
@@ -719,7 +836,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
                non-disjoint multiplanar image the spec requires a barrier to name COLOR, which
                covers every plane (VUID-VkImageMemoryBarrier-image-01671). FFmpeg's own frame
                barriers do the same. The per plane aspects remain correct for the image views
-               below, where they select a plane rather than describe the transition. */
+               above, where they select a plane rather than describe the transition. */
             ImgBar[s].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             ImgBar[s].subresourceRange.levelCount = 1;
             ImgBar[s].subresourceRange.layerCount = 1;
@@ -734,11 +851,11 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         FillBar.buffer = P->Acc.Buffer;
         FillBar.size = VK_WHOLE_SIZE;
 
-        P->VK.vkCmdPipelineBarrier(P->Cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &FillBar,
+        P->VK.vkCmdPipelineBarrier(C.Cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, DoExport ? 0 : 1, &FillBar,
             static_cast<uint32_t>(NumSources), ImgBar);
 
-        P->VK.vkCmdBindPipeline(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipe);
+        P->VK.vkCmdBindPipeline(C.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipe);
         /* Each workgroup covers 16 invocations of BS_GPU_SAMPLES_X samples along x. */
         const int XPerGroup = 16 * BS_GPU_SAMPLES_X;
         for (int s = 0; s < NumSources; s++) {
@@ -748,24 +865,25 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             const int Rows = (Height - PC.RowOffset + PC.RowStep - 1) / PC.RowStep;
             if (Rows <= 0)
                 continue;
-            P->VK.vkCmdBindDescriptorSets(P->Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, P->PipeLayout, 0, 1, &P->DescSet[s], 0, nullptr);
-            P->VK.vkCmdPushConstants(P->Cmd, P->PipeLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PC), &PC);
+            P->VK.vkCmdBindDescriptorSets(C.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, P->PipeLayout, 0, 1, &C.DescSet[s], 0, nullptr);
+            P->VK.vkCmdPushConstants(C.Cmd, P->PipeLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PC), &PC);
             /* No barrier between the dispatches: they read different images and write disjoint rows
                of the same buffers, so there is nothing for them to race over. */
-            P->VK.vkCmdDispatch(P->Cmd, (Width + XPerGroup - 1) / XPerGroup,
+            P->VK.vkCmdDispatch(C.Cmd, (Width + XPerGroup - 1) / XPerGroup,
                 (Rows + 15) / 16, 2);
         }
 
         /* The accumulator has to become host readable; the exported planes have to become visible
            to whatever reads them next, which may be another device picking them up after the
            semaphore signal, hence MEMORY_READ rather than anything narrower. */
-        VkBufferMemoryBarrier OutBars[4] = {};
+        VkBufferMemoryBarrier OutBars[3] = {};
         uint32_t NumOutBars = 0;
-        OutBars[NumOutBars] = FillBar;
-        OutBars[NumOutBars].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        OutBars[NumOutBars].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-        NumOutBars++;
-        if (DoExport) {
+        if (!DoExport) {
+            OutBars[NumOutBars] = FillBar;
+            OutBars[NumOutBars].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            OutBars[NumOutBars].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            NumOutBars++;
+        } else {
             for (int i = 0; i < 3; i++) {
                 /* Planes commonly share one buffer, so skip the duplicates. */
                 bool Seen = false;
@@ -780,23 +898,24 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
                 NumOutBars++;
             }
         }
-        P->VK.vkCmdPipelineBarrier(P->Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        P->VK.vkCmdPipelineBarrier(C.Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            DoExport ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : (VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT),
             0, 0, nullptr, NumOutBars, OutBars, 0, nullptr);
 
-        Res = P->VK.vkEndCommandBuffer(P->Cmd);
+        Res = P->VK.vkEndCommandBuffer(C.Cmd);
         if (Res != VK_SUCCESS)
             ThrowVk("vkEndCommandBuffer", Res);
 
         /* AVVkFrame's timeline contract: wait on sem_value, signal an incremented value. Each source
            gets that treatment separately, since they are separate frames with separate timelines.
            The caller's timeline, when given, is signalled alongside them so a consumer on another
-           device can order its work against this without a host round trip. */
+           device can order its work against this without a host round trip, and Done last, with
+           the sequence number that retires the context. */
         VkSemaphore WaitSems[MaxDispatchSources] = {};
         uint64_t WaitValues[MaxDispatchSources] = {};
         VkPipelineStageFlags WaitStages[MaxDispatchSources] = {};
-        VkSemaphore SignalSems[MaxDispatchSources + 1] = {};
-        uint64_t SignalValues[MaxDispatchSources + 1] = {};
+        VkSemaphore SignalSems[MaxDispatchSources + 2] = {};
+        uint64_t SignalValues[MaxDispatchSources + 2] = {};
         uint64_t FrameSignalValues[MaxDispatchSources] = {};
         for (int s = 0; s < NumSources; s++) {
             WaitSems[s] = Vkf[s]->sem[0];
@@ -812,6 +931,10 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
             SignalValues[NumSignals] = SignalValue;
             NumSignals++;
         }
+        const uint64_t DoneValue = P->Submitted + 1;
+        SignalSems[NumSignals] = P->Done;
+        SignalValues[NumSignals] = DoneValue;
+        NumSignals++;
 
         VkTimelineSemaphoreSubmitInfo TL = {};
         TL.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -827,7 +950,7 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         SI.pWaitSemaphores = WaitSems;
         SI.pWaitDstStageMask = WaitStages;
         SI.commandBufferCount = 1;
-        SI.pCommandBuffers = &P->Cmd;
+        SI.pCommandBuffers = &C.Cmd;
         SI.signalSemaphoreCount = NumSignals;
         SI.pSignalSemaphores = SignalSems;
 
@@ -836,6 +959,8 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         P->UnlockQueue();
         if (Res != VK_SUCCESS)
             ThrowVk("vkQueueSubmit", Res);
+        P->Submitted = DoneValue;
+        C.Value = DoneValue;
 
         /* The frames' new state, published the moment the submission that produces it is in
            flight and before anything waits on it, so the next user of a frame -- possibly a
@@ -851,24 +976,30 @@ uint64_t BSGpuHasher::Impl::RunDispatch(const DispatchSource *Sources, int NumSo
         }
         UnlockFrames();
 
-        VkSemaphoreWaitInfo SWI = {};
-        SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        SWI.semaphoreCount = static_cast<uint32_t>(NumSources);
-        SWI.pSemaphores = WaitSems;
-        SWI.pValues = FrameSignalValues;
-        Res = P->VK.vkWaitSemaphores(P->Device, &SWI, UINT64_MAX);
-        if (Res != VK_SUCCESS)
-            ThrowVk("vkWaitSemaphores", Res);
+        /* Only the hash has to come back to the host. An export is complete for its consumer when
+           the semaphores say so, and its context waits for that in the background. */
+        if (!DoExport) {
+            VkSemaphoreWaitInfo SWI = {};
+            SWI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+            SWI.semaphoreCount = 1;
+            SWI.pSemaphores = &P->Done;
+            SWI.pValues = &C.Value;
+            Res = P->VK.vkWaitSemaphores(P->Device, &SWI, UINT64_MAX);
+            if (Res != VK_SUCCESS)
+                ThrowVk("vkWaitSemaphores", Res);
 
-        const uint32_t *Lanes = static_cast<const uint32_t *>(P->Acc.Mapped);
-        Result = (static_cast<uint64_t>(Lanes[1]) << 32) | Lanes[0];
+            const uint32_t *Lanes = static_cast<const uint32_t *>(P->Acc.Mapped);
+            Result = (static_cast<uint64_t>(Lanes[1]) << 32) | Lanes[0];
+            P->RetireContext(C);
+        }
     } catch (...) {
         UnlockFrames();
-        DestroyViews();
+        /* Nothing submitted means nothing the GPU could still be using; a submitted context stays
+           claimed and retires once the timeline says the work is done. */
+        if (!C.Value)
+            P->RetireContext(C);
         throw;
     }
-
-    DestroyViews();
 
     return Result;
 }
@@ -902,6 +1033,11 @@ void BSGpuHasher::ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const A
     const DispatchSource Sources[2] = { { EvenRows, 0, 2 }, { OddRows, 1, 2 } };
     std::lock_guard<std::mutex> Lock(P->Mutex);
     (void)P->RunDispatch(Sources, 2, Width, Height, Targets, SignalTimeline, SignalValue);
+}
+
+void BSGpuHasher::FinishExports() {
+    std::lock_guard<std::mutex> Lock(P->Mutex);
+    P->FinishAll();
 }
 
 #else /* !BS_GPU */

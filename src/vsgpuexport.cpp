@@ -145,6 +145,9 @@ void CloseExportedHandle(intptr_t Handle, bool ImportSucceeded) {
 } // namespace
 
 BSVSGpuExport::Impl::~Impl() {
+    /* An export in flight may still be writing one of the imported buffers freed below. */
+    if (Hasher)
+        Hasher->FinishExports();
     if (Device) {
         for (auto &Iter : Imports) {
             if (Iter.second.Buffer)
@@ -246,11 +249,14 @@ VkBuffer BSVSGpuExport::Impl::ImportAllocation(const VSVulkanExportedMemory &Exp
     }
 
     /* Least recently used first, freeing the core's allocation to actually die when its own
-       eviction let go of it. Safe at any moment: every export dispatch blocks the host until the
-       GPU is done, so no imported buffer is referenced by in-flight work between calls. The one
-       hazard is the current frame's other planes, imported moments ago and about to be handed to
-       the same dispatch -- the recency guard keeps those out of reach, with room to spare against
-       the three planes a frame can have. */
+       eviction let go of it. An export still in flight may be writing the victim, so everything
+       pending is finished first; eviction only happens past MaxImports live allocations, rarely
+       enough for the wait to cost nothing in practice. What the wait cannot cover is the current
+       frame's other planes, imported moments ago and about to be handed to the same dispatch --
+       the recency guard keeps those out of reach, with room to spare against the three planes a
+       frame can have. */
+    if (Imports.size() >= MaxImports)
+        Hasher->FinishExports();
     while (Imports.size() >= MaxImports) {
         auto Victim = Imports.end();
         for (auto It = Imports.begin(); It != Imports.end(); ++It) {

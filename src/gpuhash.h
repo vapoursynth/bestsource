@@ -110,9 +110,11 @@ public:
        completes, in addition to the frame's own semaphore. That is what lets a consumer on another
        device wait on the device rather than on the host; pass the semaphore it imported for this.
 
-       Still blocks until the GPU is done, because the image views this creates cannot be destroyed
-       before the dispatch that reads them has finished. The signal is what the consumer's later work
-       orders against regardless. */
+       Returns as soon as the work is submitted. Completion is what the frame's own timeline and
+       SignalTimeline mark, and everything the GPU still needs -- the source frame, the views made
+       for it, the command buffer -- is kept until then and released by a later call or by
+       FinishExports. Targets have to outlive the export as well: free a target's buffer only
+       after FinishExports. */
     void ExportAsPlanarGPU(const AVFrame *Frame, int Width, int Height, const BSGpuPlaneTarget *Targets,
         VkSemaphore SignalTimeline, uint64_t SignalValue);
 
@@ -125,6 +127,11 @@ public:
     void ExportMergedFieldsAsPlanarGPU(const AVFrame *EvenRows, const AVFrame *OddRows,
         int Width, int Height, const BSGpuPlaneTarget *Targets,
         VkSemaphore SignalTimeline, uint64_t SignalValue);
+
+    /* Waits for every export still in flight and releases what it held. A plane target's buffer
+       may only be freed after this, since an export may still be writing it; beyond that it is
+       only needed at teardown, which the destructor does itself. */
+    void FinishExports();
 #endif
 
     /* Whether the frame's format and residency are something HashFrame can handle. */
