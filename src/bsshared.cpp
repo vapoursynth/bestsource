@@ -262,11 +262,6 @@ bool ReadCompareDouble(file_ptr_t &F, double Value) {
     return (Value == Value2);
 }
 
-bool ReadCompareString(file_ptr_t &F, const std::string &Value) {
-    std::string Value2 = ReadString(F);
-    return (Value == Value2);
-}
-
 bool ReadBSHeader(file_ptr_t &F, bool Video) {
     char Magic[4] = {};
     if (fread(Magic, 1, sizeof(Magic), F.get()) != sizeof(Magic))

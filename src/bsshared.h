@@ -96,7 +96,6 @@ std::string ReadString(file_ptr_t &F);
 bool ReadCompareInt(file_ptr_t &F, int Value);
 bool ReadCompareInt64(file_ptr_t &F, int64_t Value);
 bool ReadCompareDouble(file_ptr_t &F, double Value);
-bool ReadCompareString(file_ptr_t &F, const std::string &Value);
 bool ReadBSHeader(file_ptr_t &F, bool Video);
 bool PlausibleRecordCount(file_ptr_t &F, int64_t Count, size_t MinRecordBytes);
 

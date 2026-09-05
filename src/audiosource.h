@@ -92,7 +92,7 @@ public:
     [[nodiscard]] int64_t GetSourcePosition() const;
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
-    [[nodiscard]] int64_t GetSamplePos() const; // The frame you will get when calling GetNextFrame()
+    [[nodiscard]] int64_t GetSamplePos() const; // The first sample of the frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N, int64_t SampleNumber); // Use after seeking to update internal frame number
     void GetAudioProperties(LWAudioProperties &VP); // Decodes one frame and advances the position to retrieve the full properties, only call directly after creation
     [[nodiscard]] AVFrame *GetNextFrame(int *BitsPerSample = nullptr);
