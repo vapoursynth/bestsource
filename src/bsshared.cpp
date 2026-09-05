@@ -35,6 +35,9 @@ extern "C" {
 
 #ifdef _WIN32
 #include <ShlObj.h>
+#include <io.h>
+#else
+#include <sys/stat.h>
 #endif
 
 BSRational::BSRational(const AVRational &r) {
@@ -273,4 +276,20 @@ bool ReadBSHeader(file_ptr_t &F, bool Video) {
         ReadCompareInt(F, avutil_version()) &&
         ReadCompareInt(F, avformat_version()) &&
         ReadCompareInt(F, avcodec_version());
+}
+
+bool PlausibleRecordCount(file_ptr_t &F, int64_t Count, size_t MinRecordBytes) {
+    if (Count <= 0)
+        return false;
+#ifdef _WIN32
+    const int64_t Pos = _ftelli64(F.get());
+    const int64_t Size = _filelengthi64(_fileno(F.get()));
+#else
+    struct stat St;
+    const int64_t Pos = ftello(F.get());
+    const int64_t Size = fstat(fileno(F.get()), &St) ? -1 : static_cast<int64_t>(St.st_size);
+#endif
+    if (Pos < 0 || Size < Pos)
+        return false;
+    return Count <= (Size - Pos) / static_cast<int64_t>(MinRecordBytes);
 }

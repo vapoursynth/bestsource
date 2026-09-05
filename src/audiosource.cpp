@@ -426,6 +426,7 @@ bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
+    TrackIndex = {};
     int64_t NumSamples = 0;
 
     while (true) {
@@ -1051,7 +1052,7 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
 
 void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count) {
     // FIXME, relax the restriction to only requiring the same format within the range if anyone complains
-    if (AP.Format == 0 || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
+    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
         throw BestSourceException("GetPackedAudio() can only be used when variable format is disabled");
 
     Start -= SampleDelay;
@@ -1214,6 +1215,10 @@ bool BestAudioSource::WriteAudioTrackIndex(bool AbsolutePath, const std::filesys
 }
 
 bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
+    /* Parsed into a local index that only replaces the real one once every record has been read,
+       so a damaged file leaves nothing behind for the reindex that follows to build on. */
+    AudioTrackIndex Index;
+    int64_t NumSamples = 0;
     try {
         file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, AudioTrack, false);
         if (!F)
@@ -1239,12 +1244,14 @@ bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesyst
             return false;
         int64_t NumFrames = ReadInt64(F);
 
-        TrackIndex.Frames.reserve(NumFrames);
-        AP.NumSamples = 0;
-
         int DictSize = ReadInt(F);
         if (DictSize > 0xFF)
             return false;
+
+        /* Every record carries at least a dictionary key and a hash. */
+        if (!PlausibleRecordCount(F, NumFrames, 1 + HashSize))
+            return false;
+        Index.Frames.reserve(NumFrames);
 
         if (DictSize > 0) {
             int64_t LastPTSValue = ReadInt64(F);
@@ -1270,11 +1277,11 @@ bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesyst
                     FI.PTS += LastPTSValue;
                     LastPTSValue = FI.PTS;
                 }
-                FI.Start = AP.NumSamples;
+                FI.Start = NumSamples;
                 if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
                     return false;
-                AP.NumSamples += FI.Length;
-                TrackIndex.Frames.push_back(FI);
+                NumSamples += FI.Length;
+                Index.Frames.push_back(FI);
             }
         } else {
             for (int i = 0; i < NumFrames; i++) {
@@ -1282,22 +1289,24 @@ bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesyst
                 if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
                     return false;
                 FI.PTS = ReadInt64(F);
-                FI.Start = AP.NumSamples;
+                FI.Start = NumSamples;
                 FI.Length = ReadInt64(F);
                 FI.Format = ReadInt(F);
                 FI.BitsPerSample = ReadInt(F);
                 FI.SampleRate = ReadInt(F);
                 FI.Channels = ReadInt(F);
                 FI.ChannelLayout = ReadInt64(F);
-                AP.NumSamples += FI.Length;
-                TrackIndex.Frames.push_back(FI);
+                NumSamples += FI.Length;
+                Index.Frames.push_back(FI);
             }
         }
-
-        return true;
     } catch (const std::exception &) {
         return false;
     }
+
+    TrackIndex = std::move(Index);
+    AP.NumSamples = NumSamples;
+    return true;
 }
 
 const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) const {

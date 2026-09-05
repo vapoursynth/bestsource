@@ -1261,7 +1261,6 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
             } else {
                 av_frame_free(&Probe);
                 BSDebugPrint("Cached index does not match what the decoder produces, reindexing");
-                TrackIndex = {};
                 if (!IndexTrack(Progress))
                     throw BestSourceHWDecoderException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed after the cached index proved stale, which usually means the GPU can't decode this track");
                 if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
@@ -1440,7 +1439,7 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
 
     int64_t FileSize = Progress ? Decoder->GetSourceSize() : -1;
 
-    TrackIndex.LastFrameDuration = 0;
+    TrackIndex = {};
     bool HasKeyFrames = false;
     bool HasEarlyKeyFrames = false;
     bool HasValidPTS = false;
@@ -2240,6 +2239,9 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
 }
 
 bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesystem::path &CachePath) {
+    /* Parsed into a local index that only replaces the real one once every record has been read,
+       so a damaged file leaves nothing behind for the reindex that follows to build on. */
+    VideoTrackIndex Index;
     try {
         file_ptr_t F = OpenCacheFile(AbsolutePath, CachePath, Source, VideoTrack, false);
         if (!F)
@@ -2266,12 +2268,16 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         if (LAVFOptions != IndexLAVFOptions)
             return false;
         int64_t NumFrames = ReadInt64(F);
-        TrackIndex.LastFrameDuration = ReadInt64(F);
-        TrackIndex.Frames.reserve(NumFrames);
+        Index.LastFrameDuration = ReadInt64(F);
 
         int DictSize = ReadInt(F);
         if (DictSize > 0xFF)
             return false;
+
+        /* Every record carries at least a dictionary key and a hash. */
+        if (!PlausibleRecordCount(F, NumFrames, 1 + HashSize))
+            return false;
+        Index.Frames.reserve(NumFrames);
 
         if (DictSize > 0) {
             int64_t LastPTSValue = ReadInt64(F);
@@ -2300,7 +2306,7 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
                 }
                 if (fread(FI.Hash.data(), 1, FI.Hash.size(), F.get()) != FI.Hash.size())
                     return false;
-                TrackIndex.Frames.push_back(FI);
+                Index.Frames.push_back(FI);
             }
         } else {
             for (int i = 0; i < NumFrames; i++) {
@@ -2315,14 +2321,15 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
                 uint8_t Flags = ReadByte(F);
                 FI.KeyFrame = !!(Flags & 1);
                 FI.TFF = !!(Flags & 2);
-                TrackIndex.Frames.push_back(FI);
+                Index.Frames.push_back(FI);
             }
         }
-
-        return true;
     } catch (const std::exception &) {
         return false;
     }
+
+    TrackIndex = std::move(Index);
+    return true;
 }
 
 bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
