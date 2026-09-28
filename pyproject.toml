@@ -1,5 +1,5 @@
 [build-system]
-requires = ["meson-python", "VapourSynth>=80a1"]
+requires = ["meson-python", "VapourSynth>=80"]
 build-backend = "mesonpy"
 
 [project]

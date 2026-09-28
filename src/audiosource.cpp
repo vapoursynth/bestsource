@@ -671,6 +671,7 @@ BestAudioFrame *BestAudioSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
     FrameHolder MatchFrames;
 
     while (true) {
+        CancelPoint.ThrowIfCancelled();
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
             BadSeekLocations.insert(SeekFrame);
@@ -840,6 +841,9 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
     for (int i = 0; i < MaxUsedAudioDecoders; i++) {
+        /* Seeked but never positioned: something interrupted its seek, so its frame number means nothing. */
+        if (Decoders[i] && Decoders[i]->GetFrameNumber() < 0)
+            Decoders[i].reset();
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
         if (!Decoders[i])

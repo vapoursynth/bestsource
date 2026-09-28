@@ -226,7 +226,7 @@ jobs:
         arch: x64
 
     - name: Install build tools
-      run: pip install meson ninja "vapoursynth>=80a1"
+      run: pip install meson ninja "vapoursynth>=80"
 
     - name: Prepare vcpkg binary cache
       run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE

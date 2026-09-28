@@ -1773,6 +1773,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
     };
 
     while (true) {
+        CancelPoint.ThrowIfCancelled();
         AVFrame *F = Decoder->GetNextFrame();
         if (!F && MatchFrames.empty()) {
             BSDebugPrint("No frame could be decoded after seeking, added as bad seek location", N, SeekFrame);
@@ -1932,6 +1933,9 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     int EmptySlot = -1;
     int LeastRecentlyUsed = 0;
     for (int i = 0; i < MaxUsedVideoDecoders; i++) {
+        /* Seeked but never positioned: something interrupted its seek, so its frame number means nothing. */
+        if (Decoders[i] && Decoders[i]->GetFrameNumber() < 0)
+            Decoders[i].reset();
         if (Decoders[i] && (!ForceUnseeked || !Decoders[i]->HasSeeked()) && Decoders[i]->GetFrameNumber() <= N && (Index < 0 || Decoders[Index]->GetFrameNumber() < Decoders[i]->GetFrameNumber()))
             Index = i;
         if (!Decoders[i])

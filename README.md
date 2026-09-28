@@ -23,7 +23,7 @@ These are picked up automatically, and GPU support is dropped when any of them i
 
 Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
 
-The VapourSynth headers come from the installed VapourSynth via `vs.get_include()`. GPU frames need the API 4.3 declarations, which VapourSynth ships from R80a1 onwards.
+The VapourSynth headers come from the installed VapourSynth via `vs.get_include()`. GPU frames need the API 4.3 declarations, which VapourSynth ships from R80 onwards.
 
 ### Windows Compilation
 
