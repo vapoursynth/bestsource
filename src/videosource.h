@@ -289,7 +289,7 @@ public:
 
 private:
     struct VideoTrackIndex {
-        int64_t LastFrameDuration = 0; // fixme, is LastFrameDuration actually applied?
+        int64_t LastFrameDuration = 0; // the decoder's duration for the last frame, the preferred estimate of where the track ends
         std::vector<FrameInfo> Frames;
     };
 

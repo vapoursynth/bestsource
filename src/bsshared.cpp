@@ -116,18 +116,30 @@ static std::filesystem::path GetDefaultCacheSubTreePath() {
 
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
     std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
-    const std::string Full = Source.u8string();
-    std::string Tmp;
-    Tmp.reserve(Full.size());
+    /* Normalized first so different spellings of one path share an index, and any '.' or '..'
+       left after that is dropped rather than kept, since it would otherwise lead out of the cache
+       directory. */
+    const std::string Full = Source.lexically_normal().u8string();
+    std::string Tmp, Segment;
+    auto Flush = [&]() {
+        if (!Segment.empty() && Segment != "." && Segment != "..") {
+            if (!Tmp.empty())
+                Tmp += '/';
+            Tmp += Segment;
+        }
+        Segment.clear();
+    };
     for (char iter : Full) {
         if (iter == '?' || iter == '*' || iter == '<' || iter == '>' || iter == '|' || iter == '"')
             iter = '_';
         else if (iter == ':' || (iter == '\\' && std::filesystem::path::preferred_separator == '\\'))
             iter = '/';
-        if (iter == '/' && (Tmp.empty() || Tmp.back() == '/'))
-            continue;
-        Tmp += iter;
+        if (iter == '/')
+            Flush();
+        else
+            Segment += iter;
     }
+    Flush();
     CachePath /= std::filesystem::u8path(Tmp);
     return CachePath.make_preferred();
 }

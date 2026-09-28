@@ -916,8 +916,9 @@ bool BestVideoFrame::ExportAsPlanar(uint8_t *const *const Dsts1, const ptrdiff_t
             Dsts[0] += Stride[0];
             Dsts[1] += Stride[1];
             Dsts[2] += Stride[2];
-            AlphaDst += AlphaStride;
-        }   
+            if (AlphaDst)
+                AlphaDst += AlphaStride;
+        }
         return true;
     }
 

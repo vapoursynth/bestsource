@@ -85,7 +85,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
 
             VSVideoFormat VideoFormat = {};
             if (!vsapi->queryVideoFormat(&VideoFormat, Src->VF.ColorFamily, Src->VF.Float ? stFloat : stInteger, Src->VF.Bits, Src->VF.SubSamplingW, Src->VF.SubSamplingH, Core))
-                throw BestSourceException("Unsupported video format from decoder in frame " + std::to_string(n) + " (probably less than 8 bit or palette)");
+                throw BestSourceException("Unsupported video format from decoder in frame " + std::to_string(n) + " (probably less than 8 bit)");
             VSVideoFormat AlphaFormat = {};
             vsapi->queryVideoFormat(&AlphaFormat, cfGray, VideoFormat.sampleType, VideoFormat.bitsPerSample, 0, 0, Core);
 
@@ -342,9 +342,9 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         const bool VariableNode = (VariableFormat == -1);
         if (VP.VF.ColorFamily == 0) {
             if (!VariableNode)
-                throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
+                throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit)");
         } else if (!vsapi->queryVideoFormat(&D->VI.format, VP.VF.ColorFamily, VP.VF.Float, VP.VF.Bits, VP.VF.SubSamplingW, VP.VF.SubSamplingH, Core)) {
-            throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit or palette)");
+            throw BestSourceException("Unsupported video format from decoder (probably less than 8 bit)");
         }
 
         if ((VP.SSModWidth == 0 || VP.SSModHeight == 0) && !(VariableNode && VP.Width == 0 && VP.Height == 0))
@@ -535,7 +535,7 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         const BSAudioProperties &AP = D->A->GetAudioProperties();
         D->Is8Bit = (AP.AF.Bits <= 8);
         if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, D->Is8Bit ? 16 : AP.AF.Bits, AP.ChannelLayout, Core))
-            throw BestSourceException("Unsupported audio format from decoder (probably 8-bit)");
+            throw BestSourceException("Unsupported audio format from decoder (probably 64 bit float or a channel layout VapourSynth can't represent)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
         D->AI.numFrames = static_cast<int>((AP.NumSamples + VS_AUDIO_FRAME_SAMPLES - 1) / VS_AUDIO_FRAME_SAMPLES);

@@ -484,13 +484,19 @@ VSFrame *BSVSGpuExport::ExportFrame(const BestVideoFrame *Src, const VSVideoForm
             P->Hasher->ExportAsPlanarGPU(Src->GetAVFrame(), Width, Height, Targets, P->ImportedTimeline, SignalValue);
         }
 
-        /* Every plane is produced by the same submission, so they share the pair. Each takes its
+        /* Every plane is written by the same submission -- for a field merge the second of two, whose
+           completion on the shared queue implies the first's -- so they share the pair. Each takes its
            own reference to the timeline, which is what lets this object release its reference in
            the destructor without waiting for frames still in flight. */
         for (int Plane = 0; Plane < 3; Plane++)
             P->VkAPI->setGPUPlaneProducer(Dst, Plane, P->Timeline, SignalValue);
     } catch (...) {
-        vsapi->freeFrame(Dst);
+        /* A field merge is two submissions, and the first may already be writing Dst when the
+           second fails, so the frame is only released once nothing can still write it. */
+        if (P->Hasher->FinishExports())
+            vsapi->freeFrame(Dst);
+        else
+            BSDebugPrint("GPU export: leaking a frame, couldn't establish the GPU finished writing it");
         throw;
     }
 
