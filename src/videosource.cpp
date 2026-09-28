@@ -1259,9 +1259,10 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
                 throw BestSourceException(What);
             }
 
-            if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
-                if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
+            if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size()) && !WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
+                if (IndexWriteFailureIsFatal(CacheMode))
                     throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+                BSDebugPrint("Failed to write index for track #" + std::to_string(VideoTrack) + ", continuing without one");
             }
         }
 
@@ -1292,9 +1293,10 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
                 BSDebugPrint("Cached index does not match what the decoder produces, reindexing");
                 if (!IndexTrack(Progress))
                     throw BestSourceHWDecoderException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed after the cached index proved stale, which usually means the GPU can't decode this track");
-                if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
-                    if (!WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
+                if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size()) && !WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
+                    if (IndexWriteFailureIsFatal(CacheMode))
                         throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
+                    BSDebugPrint("Failed to write index for track #" + std::to_string(VideoTrack) + ", continuing without one");
                 }
                 if (TrackIndex.Frames[0].RepeatPict < 0)
                     throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
@@ -1375,7 +1377,7 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
             }
         }
 
-        InitializeFormatSets();
+        InitializeFormatSets(LastFrameDuration);
         SelectFormatSet(-1);
         UpdateAutoPreRoll();
 
@@ -2062,7 +2064,7 @@ bool BestVideoSource::InitializeRFF() {
     return true;
 }
 
-void BestVideoSource::InitializeFormatSets() {
+void BestVideoSource::InitializeFormatSets(int64_t LastFrameDuration) {
     std::map<std::tuple<int, int, int>, std::tuple<int64_t, int64_t, int64_t, bool>> SeenSets;
     for (const auto &Iter : TrackIndex.Frames) {
         auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
@@ -2082,9 +2084,37 @@ void BestVideoSource::InitializeFormatSets() {
         Iter.VF.Set(av_pix_fmt_desc_get(static_cast<AVPixelFormat>(Iter.Format)));
     }
 
+    /* Each set's own span, so constant rate output of a selected set covers that set and not the
+       whole track: from its first frame to where its last frame ends, which is the next frame of
+       the track or, for the track's final frame, the estimated last frame duration. */
+    if (FormatSets.size() == 1) {
+        FormatSets[0].Duration = VP.Duration;
+    } else {
+        std::map<std::tuple<int, int, int>, std::pair<int64_t, int64_t>> Spans;
+        for (size_t i = 0; i < TrackIndex.Frames.size(); i++) {
+            const auto &Iter = TrackIndex.Frames[i];
+            if (Iter.PTS == AV_NOPTS_VALUE)
+                continue;
+            int64_t End = Iter.PTS + LastFrameDuration;
+            if (i + 1 < TrackIndex.Frames.size() && TrackIndex.Frames[i + 1].PTS != AV_NOPTS_VALUE && TrackIndex.Frames[i + 1].PTS > Iter.PTS)
+                End = TrackIndex.Frames[i + 1].PTS;
+            const auto V = std::make_tuple(Iter.Format, Iter.Width, Iter.Height);
+            auto It = Spans.find(V);
+            if (It == Spans.end())
+                Spans.emplace(V, std::make_pair(Iter.PTS, End));
+            else
+                It->second.second = End;
+        }
+        for (auto &Iter : FormatSets) {
+            auto It = Spans.find(std::make_tuple(Iter.Format, Iter.Width, Iter.Height));
+            Iter.Duration = (It != Spans.end()) ? (It->second.second - It->second.first) : VP.Duration;
+        }
+    }
+
     DefaultFormatSet = FormatSets[0];
     DefaultFormatSet.NumFrames = TrackIndex.Frames.size();
     DefaultFormatSet.NumRFFFrames = 0;
+    DefaultFormatSet.Duration = VP.Duration;
 
     for (auto &Iter : FormatSets) {
         DefaultFormatSet.NumRFFFrames += Iter.NumRFFFrames;
@@ -2196,6 +2226,7 @@ void BestVideoSource::SelectFormatSet(int Index) {
     VP.SSModHeight = VP.Height - (VP.Height % (1 << VP.VF.SubSamplingH));
 
     VP.StartTime = SrcSet.StartTime;
+    VP.Duration = SrcSet.Duration;
 
     VP.NumFrames = SrcSet.NumFrames;
     VP.NumRFFFrames = SrcSet.NumRFFFrames;
@@ -2426,8 +2457,8 @@ bool BestVideoSource::GetFrameIsTFF(int64_t N, bool RFF) {
 }
 
 void BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) const {
-    for (const auto &Iter : TrackIndex.Frames)
-        if (Iter.PTS == AV_NOPTS_VALUE)
+    for (int64_t i = 0; i < VP.NumFrames; i++)
+        if (GetFrameInfo(i).PTS == AV_NOPTS_VALUE)
             throw BestSourceException("Cannot write valid timecode file, track contains frames with unknown timestamp");
 
     file_ptr_t F(OpenNormalFile(TimecodeFile, true));
@@ -2436,7 +2467,8 @@ void BestVideoSource::WriteTimecodes(const std::filesystem::path &TimecodeFile) 
 
     if (fprintf(F.get(), "# timecode format v2\n") < 0)
         throw BestSourceException("Failed to write timecode file");
-    for (const auto &Iter : TrackIndex.Frames) {
+    for (int64_t i = 0; i < VP.NumFrames; i++) {
+        const FrameInfo &Iter = GetFrameInfo(i);
         double timestamp = ((Iter.PTS * VP.TimeBase.Num) / (double)VP.TimeBase.Den) * 1000;
         char buffer[100];
         auto res = std::to_chars(buffer, buffer + sizeof(buffer), timestamp, std::chars_format::fixed, 2);

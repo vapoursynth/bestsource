@@ -43,9 +43,9 @@ static void BSInit() {
     // Slightly ugly to avoid header inclusions
     std::call_once(BSInitOnce, []() {
 #ifndef NDEBUG
-        SetFFmpegLogLevel(32); // quiet
+        SetFFmpegLogLevel(32); // info
 #else
-        SetFFmpegLogLevel(-8); // info
+        SetFFmpegLogLevel(-8); // quiet
 #endif
         });
 }
@@ -300,6 +300,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         }
 
         auto MakeSource = [&](bool UseGPU) {
+            D->V.reset();
             D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
             };
 
@@ -480,6 +481,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         AdjustDelay = -1;
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
     bool ShowProgress = !!vsapi->mapGetInt(In, "showprogress", 0, &err);
+    if (err)
+        ShowProgress = true;
     int CacheMode = vsapi->mapGetIntSaturated(In, "cachemode", 0, &err);
     if (err)
         CacheMode = 1;

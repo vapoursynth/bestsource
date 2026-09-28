@@ -241,7 +241,7 @@ public:
 
     BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
-    void SetMaxCacheSize(size_t Bytes); /* default max size is 1GB */
+    void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */
     void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
     void SetCancellationCallback(CancellationFunction Callback);
     double GetRelativeStartTime(int Track) const;
@@ -253,7 +253,7 @@ public:
     [[nodiscard]] FrameRange GetFrameRangeBySamples(int64_t Start, int64_t Count) const;
     void GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count);
     void GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count);
-    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const;
+    [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const; /* Note that this function is always in relation to the frame returned by GetFrame() and takes the current format set into account */
     [[nodiscard]] bool GetLinearDecodingState() const;
     int SetMaxDecoderInstances(int NumInstances); /* Default value is MaxAudioDecoders */
 };

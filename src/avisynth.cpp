@@ -57,9 +57,9 @@ static void BSInit() {
     // Slightly ugly to avoid header inclusions
     std::call_once(BSInitOnce, []() {
 #ifndef NDEBUG
-        SetFFmpegLogLevel(32); // quiet
+        SetFFmpegLogLevel(32); // info
 #else
-        SetFFmpegLogLevel(-8); // info
+        SetFFmpegLogLevel(-8); // quiet
 #endif
         });
 }

@@ -25,6 +25,7 @@
 #include <thread>
 #include <cassert>
 #include <iterator>
+#include <limits>
 
 #include <p2p_api.h>
 
@@ -123,10 +124,10 @@ void LWAudioDecoder::OpenFile(const std::filesystem::path &SourceFile, int Track
 
     CodecContext = avcodec_alloc_context3(Codec);
     if (CodecContext == nullptr)
-        throw BestSourceException("Could not allocate video decoding context");
+        throw BestSourceException("Could not allocate audio decoding context");
 
     if (avcodec_parameters_to_context(CodecContext, FormatContext->streams[TrackNumber]->codecpar) < 0)
-        throw BestSourceException("Could not copy video codec parameters");
+        throw BestSourceException("Could not copy audio codec parameters");
 
     if (Threads < 1) {
         int HardwareConcurrency = std::thread::hardware_concurrency();
@@ -392,9 +393,10 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
         if (!IndexTrack(Progress))
             throw BestSourceException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(AudioTrack) + " failed");
 
-        if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size())) {
-            if (!WriteAudioTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath))
+        if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size()) && !WriteAudioTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
+            if (IndexWriteFailureIsFatal(CacheMode))
                 throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(AudioTrack));
+            BSDebugPrint("Failed to write index for track #" + std::to_string(AudioTrack) + ", continuing without one");
         }
     }
 
@@ -1340,6 +1342,13 @@ bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesyst
         return false;
     }
 
+    /* Only what decoding can actually have produced; anything else is a damaged cache, and
+       returning false rebuilds the index instead of computing sample positions from it. */
+    for (const auto &FI : Index.Frames)
+        if (av_get_bytes_per_sample(static_cast<AVSampleFormat>(FI.Format)) <= 0 || FI.BitsPerSample <= 0 || FI.SampleRate <= 0 ||
+            FI.Channels <= 0 || FI.Length < 0 || FI.Length > std::numeric_limits<int>::max())
+            return false;
+
     TrackIndex = std::move(Index);
     AP.NumSamples = NumSamples;
     return true;
@@ -1350,7 +1359,7 @@ int64_t BestAudioSource::GetOriginalFrameNumber(int64_t N) const {
 }
 
 const BestAudioSource::FrameInfo &BestAudioSource::GetFrameInfo(int64_t N) const {
-    return TrackIndex.Frames[N];
+    return TrackIndex.Frames[GetOriginalFrameNumber(N)];
 }
 
 bool BestAudioSource::GetLinearDecodingState() const {

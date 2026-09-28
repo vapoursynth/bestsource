@@ -184,8 +184,8 @@ private:
     mutable AVFrame *CPUFrame = nullptr;
     /* Set by MergeField on a device resident frame, where the merge cannot be done by writing into
        Frame: the image belongs to FFmpeg's pool and every other holder of it would see the result.
-       The merge is deferred to whoever consumes the pixels instead -- ExportGPUFields does it in the
-       shader, GetCPUFrame does it on the readback. */
+       The merge is deferred to whoever consumes the pixels instead -- the GPU export does it in the
+       shader (BSGpuHasher::ExportMergedFieldsAsPlanarGPU), GetCPUFrame does it on the readback. */
     AVFrame *FieldSrcFrame = nullptr;
     bool FieldSrcIsTop = false;
     [[nodiscard]] const AVFrame *GetCPUFrame() const;
@@ -267,6 +267,7 @@ public:
         int Height = 0;
 
         double StartTime = 0;
+        int64_t Duration = 0; /* in TimeBase units, from the set's first frame to the end of its last */
 
         int64_t NumFrames = 0;
         int64_t NumRFFFrames = 0;
@@ -382,7 +383,7 @@ private:
     [[nodiscard]] bool IndexTrack(const ProgressFunction &Progress = nullptr);
     bool InitializeRFF();
     bool NearestCommonFrameRate(BSRational &FPS);
-    void InitializeFormatSets();
+    void InitializeFormatSets(int64_t LastFrameDuration);
 public:
     /* GPU turns on vulkan hardware decoding with GPU resident output. DeviceUUID picks which
        physical device by the binary VkPhysicalDeviceIDProperties::deviceUUID vulkan reports for
@@ -393,7 +394,7 @@ public:
     /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
     ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
-    void SetMaxCacheSize(size_t Bytes); /* Default max size is 1GB */
+    void SetMaxCacheSize(size_t Bytes); /* Default max size is 100MB */
     /* Whether this source is decoding on the GPU, and therefore handing out GPU resident frames. */
     [[nodiscard]] bool IsGPU() const;
     /* Null unless decoding on the GPU. Borrowed; it lives as long as this source does. A binding

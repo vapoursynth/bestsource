@@ -95,6 +95,7 @@ void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64
 
 bool ShouldWriteIndex(int CacheMode, size_t Frames);
 bool IsAbsolutePathCacheMode(int CacheMode);
+bool IndexWriteFailureIsFatal(int CacheMode);
 
 file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write);
 file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source, int Track, bool Write);
