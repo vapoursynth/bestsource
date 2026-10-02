@@ -3,7 +3,7 @@ project('BestSource', 'cpp',
     license: 'MIT',
     license_files: 'LICENSE',
     meson_version: '>=1.2.3',
-    version: '22',
+    version: '23',
 )
 
 enable_plugin = get_option('enable_plugin')
