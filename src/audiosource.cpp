@@ -22,6 +22,7 @@
 #include "videosource.h"
 #include "version.h"
 #include <algorithm>
+#include <cmath>
 #include <thread>
 #include <cassert>
 #include <iterator>
@@ -34,6 +35,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
 }
 
 bool LWAudioDecoder::ReadPacket() {
@@ -138,10 +140,15 @@ void LWAudioDecoder::OpenFile(const std::filesystem::path &SourceFile, int Track
     if (DrcScale < 0)
         throw BestSourceException("Invalid drc_scale value");
 
-    AVDictionary *CodecDict = nullptr;
-    if (Codec->id == AV_CODEC_ID_AC3 || Codec->id == AV_CODEC_ID_EAC3)
-        av_dict_set(&CodecDict, "drc_scale", std::to_string(DrcScale).c_str(), 0);
+    if (Codec->id == AV_CODEC_ID_AC3 || Codec->id == AV_CODEC_ID_EAC3) {
+        av_dict_set(&CodecOptions, "drc_scale", std::to_string(DrcScale).c_str(), 0);
+        /* Dither seeded from each frame's own data instead of by one generator running through the
+           whole file, which no seek can reproduce */
+        av_dict_set(&CodecOptions, "cons_noisegen", "1", 0);
+    }
 
+    AVDictionary *CodecDict = nullptr;
+    av_dict_copy(&CodecDict, CodecOptions, 0);
     if (avcodec_open2(CodecContext, Codec, &CodecDict) < 0) {
         av_dict_free(&CodecDict);
         throw BestSourceException("Could not open audio codec");
@@ -165,6 +172,7 @@ void LWAudioDecoder::Free() {
     av_frame_free(&DecodeFrame);
     avcodec_free_context(&CodecContext);
     avformat_close_input(&FormatContext);
+    av_dict_free(&CodecOptions);
 }
 
 LWAudioDecoder::~LWAudioDecoder() {
@@ -181,6 +189,10 @@ int64_t LWAudioDecoder::GetSourcePosition() const {
 
 int LWAudioDecoder::GetTrack() const {
     return TrackNumber;
+}
+
+const AVCodec *LWAudioDecoder::GetCodec() const {
+    return CodecContext->codec;
 }
 
 int64_t LWAudioDecoder::GetFrameNumber() const {
@@ -246,6 +258,13 @@ bool LWAudioDecoder::HasMoreFrames() const {
 bool LWAudioDecoder::Seek(int64_t PTS) {
     Seeked = true;
     avcodec_flush_buffers(CodecContext);
+    /* The AC-3 decoders' flush zeroes their options along with the decoding state */
+    if (CodecOptions) {
+        AVDictionary *Opts = nullptr;
+        av_dict_copy(&Opts, CodecOptions, 0);
+        av_opt_set_dict(CodecContext->priv_data, &Opts);
+        av_dict_free(&Opts);
+    }
     CurrentFrame = INT64_MIN;
     CurrentSample = INT64_MIN;
     // Mild variable reuse, if seek fails then there's no point to decode more either
@@ -398,6 +417,18 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
                 throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(AudioTrack));
             BSDebugPrint("Failed to write index for track #" + std::to_string(AudioTrack) + ", continuing without one");
         }
+    }
+
+    /* Opus takes up to most of a second of decoding after a seek before its output matches linear
+       decoding exactly, which at its shorter frame sizes is far more frames than the default preroll
+       skips. Half the preroll is skipped before matching, so this makes that at least 1.5 seconds. */
+    if (Decoder->GetCodec()->id == AV_CODEC_ID_OPUS) {
+        double Seconds = 0;
+        for (const auto &Iter : TrackIndex.Frames)
+            if (Iter.SampleRate > 0)
+                Seconds += static_cast<double>(Iter.Length) / Iter.SampleRate;
+        if (Seconds > 0)
+            PreRoll = std::max<int64_t>(PreRoll, static_cast<int64_t>(std::ceil(3 * TrackIndex.Frames.size() / Seconds)));
     }
 
     AdjustDelayRequest = AjustDelay;

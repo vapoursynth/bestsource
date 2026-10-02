@@ -32,7 +32,9 @@
 #include <memory>
 
 struct AVFormatContext;
+struct AVCodec;
 struct AVCodecContext;
+struct AVDictionary;
 struct AVBufferRef;
 struct AVFrame;
 struct AVPacket;
@@ -73,6 +75,7 @@ class LWAudioDecoder {
 private:
     AVFormatContext *FormatContext = nullptr;
     AVCodecContext *CodecContext = nullptr;
+    AVDictionary *CodecOptions = nullptr;
     AVFrame *DecodeFrame = nullptr;
     int64_t CurrentFrame = 0;
     int64_t CurrentSample = 0;
@@ -91,6 +94,7 @@ public:
     [[nodiscard]] int64_t GetSourceSize() const;
     [[nodiscard]] int64_t GetSourcePosition() const;
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
+    [[nodiscard]] const AVCodec *GetCodec() const;
     [[nodiscard]] int64_t GetFrameNumber() const; // The frame you will get when calling GetNextFrame()
     [[nodiscard]] int64_t GetSamplePos() const; // The first sample of the frame you will get when calling GetNextFrame()
     void SetFrameNumber(int64_t N, int64_t SampleNumber); // Use after seeking to update internal frame number

@@ -46,7 +46,7 @@ meson install -C build
 ### Known issues and limitations
 
 - Seeking performance in mpeg/ts/vob files can be quite poor due to the FFmpeg demuxer
-- Seeking and decoding performance for lossy audio formats (aac, mp3, dts, ac3, vorbis) can be poor
+- Seeking and decoding performance for lossy audio formats (aac, mp3, dts, vorbis) can be poor
 - VC1 codec is unseekable due to FFmpeg not having bitexact output after seeking
 - The unholy combination of VFR H264 in AVI has poor seeking performance
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
