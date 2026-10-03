@@ -407,6 +407,7 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
     Decoder->GetAudioProperties(AP);
     AudioTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
+    Codec = Decoder->GetCodec();
 
     if (CacheMode == bcmDisable || !ReadAudioTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
         if (!IndexTrack(Progress))
@@ -419,21 +420,10 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
         }
     }
 
-    /* Opus takes up to most of a second of decoding after a seek before its output matches linear
-       decoding exactly, which at its shorter frame sizes is far more frames than the default preroll
-       skips. Half the preroll is skipped before matching, so this makes that at least 1.5 seconds. */
-    if (Decoder->GetCodec()->id == AV_CODEC_ID_OPUS) {
-        double Seconds = 0;
-        for (const auto &Iter : TrackIndex.Frames)
-            if (Iter.SampleRate > 0)
-                Seconds += static_cast<double>(Iter.Length) / Iter.SampleRate;
-        if (Seconds > 0)
-            PreRoll = std::max<int64_t>(PreRoll, static_cast<int64_t>(std::ceil(3 * TrackIndex.Frames.size() / Seconds)));
-    }
-
     AdjustDelayRequest = AjustDelay;
     InitializeFormatSets();
     SelectFormatSet(-1);
+    UpdateAutoPreRoll();
 
     Decoders[0] = std::move(Decoder);
 }
@@ -450,8 +440,32 @@ void BestAudioSource::SetCancellationCallback(CancellationFunction Callback) {
     CancelPoint.Set(std::move(Callback));
 }
 
+/* The automatic preroll. Opus takes up to most of a second of decoding after a seek before its
+   output matches linear decoding exactly, which at its shorter frame sizes is far more frames than
+   the default skips, so its window is widened to cover 3 seconds. Half the preroll is skipped
+   before matching starts, which makes that at least 1.5 seconds. */
+void BestAudioSource::UpdateAutoPreRoll() {
+    if (!PreRollIsDefault)
+        return;
+    PreRoll = 40;
+    if (Codec->id == AV_CODEC_ID_OPUS) {
+        double Seconds = 0;
+        for (const auto &Iter : TrackIndex.Frames)
+            if (Iter.SampleRate > 0)
+                Seconds += static_cast<double>(Iter.Length) / Iter.SampleRate;
+        if (Seconds > 0)
+            PreRoll = std::max<int64_t>(PreRoll, static_cast<int64_t>(std::ceil(3 * TrackIndex.Frames.size() / Seconds)));
+    }
+}
+
 void BestAudioSource::SetSeekPreRoll(int64_t Frames) {
-    PreRoll = std::max<int64_t>(Frames, 0);
+    if (Frames < 0) {
+        PreRollIsDefault = true;
+        UpdateAutoPreRoll();
+        return;
+    }
+    PreRollIsDefault = false;
+    PreRoll = Frames;
 }
 
 bool BestAudioSource::IndexTrack(const ProgressFunction &Progress) {

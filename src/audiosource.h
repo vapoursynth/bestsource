@@ -194,6 +194,7 @@ private:
     int MaxUsedAudioDecoders = MaxAudioDecoders;
     std::map<std::string, std::string> LAVFOptions;
     double DrcScale;
+    const AVCodec *Codec = nullptr;
     BSAudioProperties AP = {};
     std::filesystem::path Source;
     int AudioTrack;
@@ -210,6 +211,8 @@ private:
     uint64_t DecoderLastUse[MaxAudioDecoders] = {};
     std::unique_ptr<LWAudioDecoder> Decoders[MaxAudioDecoders];
     int64_t PreRoll = 40;
+    bool PreRollIsDefault = true;
+    void UpdateAutoPreRoll();
     int64_t SampleDelay = 0;
     int AdjustDelayRequest = -2;
     /* GetRelativeStartTime's probe of the reference track, cached because opening the file and
@@ -246,7 +249,7 @@ public:
     BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress = nullptr);
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* default max size is 100MB */
-    void SetSeekPreRoll(int64_t Frames); /* the number of frames to cache before the position being fast forwarded to */
+    void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to; negative returns to the automatic default */
     void SetCancellationCallback(CancellationFunction Callback);
     double GetRelativeStartTime(int Track) const;
     [[nodiscard]] const BSAudioProperties &GetAudioProperties() const;
