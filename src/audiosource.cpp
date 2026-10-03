@@ -903,6 +903,10 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
         if (FrameNumber >= N - PreRoll) {
             AVFrame *Frame = Decoder->GetNextFrame();
 
+            /* Running out is left to the fallback after the loop */
+            if (!Frame && SeekedDecoder)
+                break;
+
             // This is the most central sanity check. It primarily exists to catch the case
             // when a decoder has successfully seeked and had its location identified but
             // still returns frames out of order. Possibly open gop related but hard to tell.
