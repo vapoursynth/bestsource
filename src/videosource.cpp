@@ -1958,6 +1958,7 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
     DecoderLastUse[Index] = DecoderSequenceNum++;
 
     BestVideoFrame *RetFrame = nullptr;
+    const bool SeekedDecoder = Decoder && Decoder->HasSeeked();
 
     while (Decoder && Decoder->GetFrameNumber() <= N && Decoder->HasMoreFrames()) {
         CancelPoint.ThrowIfCancelled();
@@ -2006,6 +2007,15 @@ BestVideoFrame *BestVideoSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
 
         if (!Decoder->HasMoreFrames())
             Decoder.reset();
+    }
+
+    /* A seeked decoder that runs out before reaching N has lost the stream rather than reached its
+       end, which is what FFmpeg's ogg demuxer does to every stream after the first in a chained file
+       once it has seeked. No other seek point can help with that. */
+    if (!RetFrame && SeekedDecoder) {
+        BSDebugPrint("Seeked decoder ran out of frames before the requested one, setting linear mode", N, SeekFrame);
+        SetLinearMode();
+        return GetFrameLinearInternal(N, -1, 0, true);
     }
 
     return RetFrame;
