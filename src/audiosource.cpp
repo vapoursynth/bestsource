@@ -915,8 +915,14 @@ BestAudioFrame *BestAudioSource::GetFrameLinearInternal(int64_t N, int64_t SeekF
                 av_frame_free(&Frame);
 
                 if (Decoder->HasSeeked()) {
+                    /* A reused decoder's seek location is unknown, so start over without it */
+                    if (SeekFrame < 0) {
+                        BSDebugPrint("Decoded frame does not match hash in GetFrameLinearInternal() and the seek location is unknown, starting over", N, FrameNumber);
+                        Decoder.reset();
+                        return GetFrameInternal(N);
+                    }
+
                     BSDebugPrint("Decoded frame does not match hash in GetFrameLinearInternal() or no frame produced at all, added as bad seek location", N, FrameNumber);
-                    assert(SeekFrame >= 0);
                     BadSeekLocations.insert(SeekFrame);
                     if (Depth < RetrySeekAttempts) {
                         int64_t SeekFrameNext = GetSeekFrame(SeekFrame - 100);
