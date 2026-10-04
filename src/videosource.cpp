@@ -1877,7 +1877,7 @@ BestVideoFrame *BestVideoSource::SeekAndDecode(int64_t N, int64_t SeekFrame, std
 
             // Now that we have done everything we can and aren't holding on to the frame to output let the linear function do the rest
             MatchFrames.clear();
-            return GetFrameLinearInternal(N, SeekFrame);
+            return GetFrameLinearInternal(N, SeekFrame, Depth);
         }
 
         assert(Matches.size() > 1);
