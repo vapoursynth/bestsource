@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Multimedia :: Video",
 ]
-dependencies = ["VapourSynth>=80"]
+dependencies = ["VapourSynth>=81"]
 dynamic = ["version"]
 
 [project.urls]
