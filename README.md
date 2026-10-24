@@ -109,7 +109,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *rff*: Apply RFF flags to the video. If the video doesn't have or use RFF flags the output is unchanged compare to when the option is disabled. Cannot be combined with *fpsnum*.
 
-*threads*: Number of threads to use for decoding. Pass 0 to autodetect.
+*threads*: Number of threads to use for decoding. Pass 0 to autodetect. Defaults to autodetection, except when *gpu* decodes on the graphics card, where it defaults to 1: more threads don't make hardware decoding any faster, but every extra one keeps another frame's worth of decoder surfaces in video memory and makes seeking slower.
 
 *seekpreroll*: Number of frames before the requested frame to cache when seeking. When not set, defaults to 20 (10 with *gpu*, where every cached frame stays resident in VRAM) and is automatically reduced until the whole window fits in at most 80% of *cachesize*, so high resolution content gets a preroll the cache can actually hold. Explicit values are used as given; raise *cachesize* to make room for them.
 
@@ -143,7 +143,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *showprogress*: Print indexing progress as VapourSynth information level log messages.
 
-*maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. Passing a number outside the 1-4 range will set it to the biggest number supported.
+*maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 (1 when *gpu* decodes on the graphics card) but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. On the GPU the same material takes about 700MB of video memory per decoder instance, which is why only one is kept by default there. More instances only help scripts that keep jumping between distant parts of the clip. Passing a number outside the 1-4 range will set it to the biggest number supported.
 
 *gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires a driver with Vulkan video decoding for the codec and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one.
 
