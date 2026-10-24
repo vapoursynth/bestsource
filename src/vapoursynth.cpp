@@ -200,6 +200,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         VariableFormat = -1;
     int Threads = vsapi->mapGetIntSaturated(In, "threads", 0, &err);
+    const bool ThreadsSet = !err;
     int StartNumber = vsapi->mapGetIntSaturated(In, "start_number", 0, &err);
     if (err)
         StartNumber = -1;
@@ -210,6 +211,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
     if (err)
         CacheMode = 1;
     int MaxDecoders = vsapi->mapGetIntSaturated(In, "maxdecoders", 0, &err);
+    const bool MaxDecodersSet = !err;
     bool ExportTimestamps = !!vsapi->mapGetInt(In, "exporttimestamps", 0, &err);
     bool ApplyRotation = !!vsapi->mapGetInt(In, "apply_rotation", 0, &err);
     if (err)
@@ -301,7 +303,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
 
         auto MakeSource = [&](bool UseGPU) {
             D->V.reset();
-            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, Threads, CacheMode, CachePath, &Opts, ProgressCB));
+            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, (UseGPU && !ThreadsSet) ? 1 : Threads, CacheMode, CachePath, &Opts, ProgressCB));
             };
 
         try {
@@ -329,6 +331,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             }
         }
 
+        if (GPU && !MaxDecodersSet)
+            MaxDecoders = 1;
         D->V->SetMaxDecoderInstances(MaxDecoders);
         D->V->SelectFormatSet(VariableFormat);
 
