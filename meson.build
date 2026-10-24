@@ -39,7 +39,8 @@ cpp_args = []
 # One switch for all of GPU support, because there is only one thing to gate: hardware decoding
 # cannot be used without the GPU hash -- identifying a frame would mean reading it back, which is
 # the cost decoding on the GPU exists to avoid -- so the hash, the frame export and the decoding
-# either all build or none of them do.
+# either all build or none of them do. macOS is the exception: there gpu decodes with VideoToolbox
+# into frames mapped for the CPU, which needs none of this and works either way.
 #
 # It needs the vulkan headers to compile against FFmpeg's AVVkFrame, and glslangValidator to turn
 # the compute shader into SPIR-V. Nothing links the vulkan loader: every entry point is resolved

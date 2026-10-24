@@ -144,8 +144,10 @@ public:
        use by the decoder count. */
     /* GPU selects vulkan hardware decoding, which always keeps frames on the device: there is no
        mode that decodes on hardware and reads back, since anything wanting pixels in memory is
-       better off decoding on the CPU. DeviceUUID picks which physical device by its binary
-       VkPhysicalDeviceIDProperties::deviceUUID; empty lets FFmpeg choose. */
+       better off decoding on the CPU. The exception is macOS, which has no vulkan video decoding:
+       there GPU selects VideoToolbox, whose frames are mapped for the CPU instead. DeviceUUID
+       picks which vulkan physical device by its binary VkPhysicalDeviceIDProperties::deviceUUID;
+       empty lets FFmpeg choose. */
     LWVideoDecoder(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice = nullptr); // Positive track numbers are absolute. Negative track numbers mean nth audio track to simplify things.
     ~LWVideoDecoder();
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
@@ -344,6 +346,7 @@ private:
     BSVideoProperties VP = {};
     std::filesystem::path Source;
     bool GPU;
+    bool GPUResident; /* GPU with GPU resident frames, see GPUFramesAreResident */
     /* Which physical device to put the decoder on, as the binary deviceUUID vulkan reports.
        Kept out of the index because it picks hardware rather than changing what is decoded. */
     std::optional<std::array<uint8_t, 16>> DeviceUUID;
@@ -364,8 +367,8 @@ private:
        their frames on the same device. Also what the GPU hasher is built on. */
     AVBufferRef *SharedHWDeviceContext = nullptr;
     std::unique_ptr<BSGpuHasher> GpuHasher;
-    /* The effective preroll. Defaults to 20 frames, 10 with GPU where every cached frame stays
-       resident in VRAM, and the default is automatically reduced until the whole window fits in
+    /* The effective preroll. Defaults to 20 frames, 10 with GPU resident frames where every cached
+       frame stays in VRAM, and the default is automatically reduced until the whole window fits in
        at most 80% of the cache size; explicit SetSeekPreRoll values are used as given. */
     int64_t PreRoll = 20;
     bool PreRollIsDefault = true;
@@ -385,24 +388,36 @@ private:
     bool NearestCommonFrameRate(BSRational &FPS);
     void InitializeFormatSets(int64_t LastFrameDuration);
 public:
-    /* GPU turns on vulkan hardware decoding with GPU resident output. DeviceUUID picks which
+    /* GPU turns on vulkan hardware decoding with GPU resident output, or VideoToolbox decoding
+       with output in memory on macOS, see GPUFramesAreResident. DeviceUUID picks which vulkan
        physical device by the binary VkPhysicalDeviceIDProperties::deviceUUID vulkan reports for
        it, so a consumer that has to share memory with the decoder passes the UUID of the device
-       it is itself on; an empty optional lets FFmpeg choose. Only GPU is recorded in the index,
-       since the device choice picks hardware rather than changing what is decoded. */
+       it is itself on; an empty optional lets FFmpeg choose. Only the decode path is recorded in
+       the index, since the device choice picks hardware rather than changing what is decoded. */
     BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress = nullptr);
     /* Defined out of line because GpuHasher is held by pointer to an incomplete type here. */
     ~BestVideoSource();
     [[nodiscard]] int GetTrack() const; // Useful when opening nth video track to get the actual number
     void SetMaxCacheSize(size_t Bytes); /* Default max size is 100MB */
-    /* Whether this source is decoding on the GPU, and therefore handing out GPU resident frames. */
+    /* Whether this source is decoding on the GPU and handing out GPU resident frames. */
     [[nodiscard]] bool IsGPU() const;
-    /* Null unless decoding on the GPU. Borrowed; it lives as long as this source does. A binding
-       needs it to run the planar GPU export, which is typed in terms of Vulkan objects and so
-       cannot live on this interface. */
+    /* Whether GPU decoding hands out GPU resident frames on this platform. It does everywhere but
+       macOS, which has no vulkan video decoding at all: neither MoltenVK nor KosmicKrisp
+       implements it. There GPU decodes with VideoToolbox and hands out ordinary frames mapped from
+       the decoder's own buffers, which on Apple silicon are memory the CPU reads in place. */
+    [[nodiscard]] static constexpr bool GPUFramesAreResident() {
+#ifdef __APPLE__
+        return false;
+#else
+        return true;
+#endif
+    }
+    /* Null unless IsGPU(). Borrowed; it lives as long as this source does. A binding needs it to
+       run the planar GPU export, which is typed in terms of Vulkan objects and so cannot live on
+       this interface. */
     [[nodiscard]] BSGpuHasher *GetGpuHasher() const;
     /* The vulkan device the decoders are on, for a consumer that has to import memory into it.
-       Null when not hardware decoding. */
+       Null unless IsGPU(). */
     [[nodiscard]] AVBufferRef *GetHWDeviceContext() const;
     void SetSeekPreRoll(int64_t Frames); /* The number of frames to cache before the position being fast forwarded to; negative returns to the automatic default, which is capped so the window fits in 80% of the cache size */
     void SetCancellationCallback(CancellationFunction Callback);

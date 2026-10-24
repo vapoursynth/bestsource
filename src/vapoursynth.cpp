@@ -227,9 +227,10 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
        the answer is what pins the decoder to the same one: sharing memory between two Vulkan
        devices only works when both come from the same physical device. The selector is the core
        device's UUID, which FFmpeg resolves to that exact physical device or fails, so the two
-       cannot end up apart. */
+       cannot end up apart. On macOS the frames come out in memory, so the core's device is never
+       involved. */
     std::optional<std::array<uint8_t, 16>> GpuDevice;
-    if (GPU) {
+    if (GPU && BestVideoSource::GPUFramesAreResident()) {
         std::string GpuError;
         std::array<uint8_t, 16> CoreUUID = {};
         if (BSVSGpuExport::QueryDevice(Core, vsapi, CoreUUID, GpuError)) {
@@ -316,7 +317,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
             MakeSource(false);
         }
 
-        if (GPU) {
+        if (GPU && BestVideoSource::GPUFramesAreResident()) {
             std::string GpuError;
             D->GpuExport = BSVSGpuExport::Create(D->V.get(), VariableFormat, Core, vsapi, GpuError);
             if (!D->GpuExport) {

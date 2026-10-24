@@ -152,9 +152,14 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
                            whole source on the CPU, where the index is honest about its origin. */
                         if (GpuHasher)
                             throw BestSourceHWDecoderException("GPU hashing: the decoder produced a frame the hasher cannot process");
-                        if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
-                            return false;
-                        av_frame_copy_props(DecodeFrame, HWFrame);
+                        /* Without GPU resident output, VideoToolbox on macOS, the frame is mapped
+                           so the CPU reads the decoder's buffer in place, and the mapping brings
+                           the properties along. A device that can't map is read back instead. */
+                        if (av_hwframe_map(DecodeFrame, HWFrame, AV_HWFRAME_MAP_READ) < 0) {
+                            if (av_hwframe_transfer_data(DecodeFrame, HWFrame, 0) < 0)
+                                return false;
+                            av_frame_copy_props(DecodeFrame, HWFrame);
+                        }
                     }
                 }
             }
@@ -177,13 +182,16 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
 void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice) {
     TrackNumber = Track;
 
-    /* Vulkan is the only backend. Every other one would need its own path to get frames out of
-       device memory and several cannot avoid a full readback per frame at all, which is the cost
-       decoding on the GPU exists to remove. The name resolves through an unconditional table, so
-       an FFmpeg built without vulkan gets this far and fails at device creation instead. */
-    const AVHWDeviceType Type = GPU ? av_hwdevice_find_type_by_name("vulkan") : AV_HWDEVICE_TYPE_NONE;
+    /* Vulkan is the only backend that keeps frames on the device. Every other one would need its
+       own path to get frames out of device memory and several cannot avoid a full readback per
+       frame at all, which is the cost decoding on the GPU exists to remove. macOS has no vulkan
+       video decoding, so there VideoToolbox decodes instead and its frames are mapped for the CPU.
+       The name resolves through an unconditional table, so an FFmpeg built without the device gets
+       this far and fails at device creation instead. */
+    const char *const HWDeviceName = BestVideoSource::GPUFramesAreResident() ? "vulkan" : "videotoolbox";
+    const AVHWDeviceType Type = GPU ? av_hwdevice_find_type_by_name(HWDeviceName) : AV_HWDEVICE_TYPE_NONE;
     if (GPU && Type == AV_HWDEVICE_TYPE_NONE)
-        throw BestSourceHWDecoderException("This FFmpeg build doesn't know the vulkan device type");
+        throw BestSourceHWDecoderException(std::string("This FFmpeg build doesn't know the ") + HWDeviceName + " device type");
 
     HWMode = (Type != AV_HWDEVICE_TYPE_NONE);
 
@@ -306,21 +314,22 @@ void LWVideoDecoder::OpenFile(const std::filesystem::path &SourceFile, bool GPU,
             if (!HWDeviceContext)
                 throw BestSourceException("Couldn't reference the shared HW device");
         } else {
-            /* Also a HW decoder exception: with vulkan the only backend there is no other device to
-               fall back to, so a build without vulkan support or a driver that cannot provide one has
+            /* Also a HW decoder exception: with one backend per platform there is no other device to
+               fall back to, so a build without support for it or a driver that cannot provide one has
                to degrade to CPU decoding rather than fail the whole source. Note that
-               av_hwdevice_find_type_by_name matches against an unconditional name table, so "vulkan"
+               av_hwdevice_find_type_by_name matches against an unconditional name table, so the name
                resolves even in an FFmpeg built without it and only fails here. */
-            /* The one place the binary UUID meets FFmpeg, whose device selector takes it in the
+            /* The one place the binary UUID meets FFmpeg, whose vulkan device selector takes it in the
                RFC 4122 text form; a caller never has to know that form exists. */
+            const bool UseUUID = DeviceUUID && Type == AV_HWDEVICE_TYPE_VULKAN;
             char UUIDText[37] = {};
-            if (DeviceUUID) {
+            if (UseUUID) {
                 static_assert(sizeof(AVUUID) == std::tuple_size_v<std::decay_t<decltype(*DeviceUUID)>>);
                 av_uuid_unparse(DeviceUUID->data(), UUIDText);
             }
-            if (av_hwdevice_ctx_create(&HWDeviceContext, Type, DeviceUUID ? UUIDText : nullptr, nullptr, 0) < 0)
-                throw BestSourceHWDecoderException("Failed to create a vulkan HW device" +
-                    (DeviceUUID ? " with UUID " + std::string(UUIDText) : std::string()) +
+            if (av_hwdevice_ctx_create(&HWDeviceContext, Type, UseUUID ? UUIDText : nullptr, nullptr, 0) < 0)
+                throw BestSourceHWDecoderException(std::string("Failed to create a ") + HWDeviceName + " HW device" +
+                    (UseUUID ? " with UUID " + std::string(UUIDText) : std::string()) +
                     ", it may be missing from this FFmpeg build or unsupported by the installed drivers");
         }
         CodecContext->hw_device_ctx = av_buffer_ref(HWDeviceContext);
@@ -852,8 +861,22 @@ void BestVideoFrame::MergeField(bool Top, const BestVideoFrame *AFieldSrc) {
         return;
     }
 
-    if (av_frame_make_writable(Frame) < 0)
+    /* Merged into a private copy rather than after av_frame_make_writable, which only checks whether
+       the frame's buffers are shared: a frame mapped from a hardware decoder has the mapping as its
+       only buffer, while the pixels are the decoder's own, locked for reading. The cache nearly
+       always shares the frame anyway, so this is rarely an extra copy. */
+    AVFrame *Copy = av_frame_alloc();
+    if (!Copy)
+        throw BestSourceException("Couldn't allocate frame");
+    Copy->format = Frame->format;
+    Copy->width = Frame->width;
+    Copy->height = Frame->height;
+    if (av_frame_get_buffer(Copy, 0) < 0 || av_frame_copy(Copy, Frame) < 0 || av_frame_copy_props(Copy, Frame) < 0) {
+        av_frame_free(&Copy);
         throw BestSourceException("Failed to make AVFrame writable");
+    }
+    av_frame_free(&Frame);
+    Frame = Copy;
 
     MergeFieldInto(Frame, FieldSrc, Top);
 }
@@ -1121,6 +1144,12 @@ BestVideoSource::Cache::CacheBlock::CacheBlock(int64_t FrameNumber, AVFrame *Fra
     for (int i = 0; i < AV_NUM_DATA_POINTERS; i++)
         if (Frame->buf[i])
             Size += Frame->buf[i]->size;
+
+    /* A frame mapped from a hardware decoder has only the mapping's bookkeeping as its buffer, a
+       few dozen bytes; the pixels stay in the decoder's buffer, which the frame keeps alive. */
+    const int ImageSize = av_image_get_buffer_size(static_cast<AVPixelFormat>(Frame->format), Frame->width, Frame->height, 1);
+    if (ImageSize > 0)
+        Size = std::max(Size, static_cast<size_t>(ImageSize));
 }
 
 BestVideoSource::Cache::CacheBlock::~CacheBlock() {
@@ -1202,7 +1231,7 @@ bool BestVideoSource::NearestCommonFrameRate(BSRational &FPS) {
 }
 
 BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, const ProgressFunction &Progress)
-    : Source(SourceFile), GPU(GPU), DeviceUUID(DeviceUUID), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
+    : Source(SourceFile), GPU(GPU), GPUResident(GPU && GPUFramesAreResident()), DeviceUUID(DeviceUUID), VideoTrack(Track), ViewID(ViewID), Threads(Threads) {
     // Only make file path absolute if it exists to pass through special protocol paths
     std::error_code ec;
     if (std::filesystem::exists(SourceFile, ec))
@@ -1231,14 +1260,17 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
 
             /* A device that cannot hash counts as one that cannot decode, since identifying a frame
                would otherwise mean reading it back: thrown as a HW decoder exception so callers
-               treat it the same as hardware decoding being unavailable. */
-            try {
-                GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
-            } catch (const BestSourceException &e) {
-                throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
-            }
+               treat it the same as hardware decoding being unavailable. Frames that are mapped for
+               the CPU anyway are hashed there. */
+            if (GPUResident) {
+                try {
+                    GpuHasher.reset(new BSGpuHasher(SharedHWDeviceContext));
+                } catch (const BestSourceException &e) {
+                    throw BestSourceHWDecoderException(std::string("GPU decoding unavailable: ") + e.what());
+                }
 
-            Decoder->SetGpuHasher(GpuHasher.get());
+                Decoder->SetGpuHasher(GpuHasher.get());
+            }
         }
 
         Decoder->GetVideoProperties(VP);
@@ -1270,20 +1302,20 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         if (TrackIndex.Frames[0].RepeatPict < 0)
             throw BestSourceException("Found an unexpected RFF quirk, please submit a bug report and attach the source file");
 
-        /* A cached index skips the decoding that would otherwise prove the hasher can process this
-           file's frames -- a driver update can change the image layout FFmpeg allocates into one
-           the hasher rejects, while the index still validates. Decode one frame here so that
-           failure surfaces as a hardware decoder exception inside the constructor, where the
-           fallback can still rebuild the source on the CPU, instead of on the first frame request
-           where nothing can. The frame is kept when it checks out: it is frame 0 from a fresh
-           decoder, so the probe costs a request nothing.
+        /* A cached index skips the decoding that would otherwise prove the hardware decoder, and the
+           hasher where there is one, can process this file's frames -- a driver update can change
+           the image layout FFmpeg allocates into one the hasher rejects, while the index still
+           validates. Decode one frame here so that failure surfaces as a hardware decoder exception
+           inside the constructor, where the fallback can still rebuild the source on the CPU,
+           instead of on the first frame request where nothing can. The frame is kept when it checks
+           out: it is frame 0 from a fresh decoder, so the probe costs a request nothing.
 
            A frame that decodes but hashes differently means the index no longer describes what
            this decoder produces -- a replaced file, or a decoder update that changed its output.
            Left alone, every frame request would fail the central hash check forever, so the index
            is rebuilt on the spot instead, at the one moment reindexing and the CPU fallback are
            both still available. */
-        if (GpuHasher && IndexFromCache) {
+        if (GPU && IndexFromCache) {
             AVFrame *Probe = Decoder->GetNextFrame();
             if (!Probe)
                 throw BestSourceHWDecoderException("Couldn't decode the first frame with the GPU decoder the cached index was made for");
@@ -1406,7 +1438,7 @@ int BestVideoSource::GetTrack() const {
 }
 
 bool BestVideoSource::IsGPU() const {
-    return GPU;
+    return GPUResident;
 }
 
 BSGpuHasher *BestVideoSource::GetGpuHasher() const {
@@ -1414,7 +1446,7 @@ BSGpuHasher *BestVideoSource::GetGpuHasher() const {
 }
 
 AVBufferRef *BestVideoSource::GetHWDeviceContext() const {
-    return SharedHWDeviceContext;
+    return GPUResident ? SharedHWDeviceContext : nullptr;
 }
 
 void BestVideoSource::SetMaxCacheSize(size_t Bytes) {
@@ -1433,7 +1465,7 @@ void BestVideoSource::UpdateAutoPreRoll() {
     if (!PreRollIsDefault)
         return;
     /* GPU frames stay resident in VRAM, so the ceiling starts lower there. */
-    int64_t Frames = GPU ? 10 : 20;
+    int64_t Frames = GPUResident ? 10 : 20;
     int64_t FrameBytes = 0;
     for (const auto &Set : FormatSets) {
         const int Bytes = av_image_get_buffer_size(static_cast<AVPixelFormat>(Set.Format), Set.Width, Set.Height, 1);
@@ -1444,7 +1476,7 @@ void BestVideoSource::UpdateAutoPreRoll() {
     PreRoll = Frames;
     /* The GPU cache is additionally bounded by count to bound VRAM: the window it serves,
        inclusive of both ends, plus one for the frame being delivered. */
-    if (GPU)
+    if (GPUResident)
         FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 }
 
@@ -1462,7 +1494,7 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
         throw BestSourceException("SeekPreRoll must be between 0 and 40, or negative for the automatic default");
     PreRollIsDefault = false;
     PreRoll = Frames;
-    if (GPU)
+    if (GPUResident)
         FrameCache.SetMaxFrames(static_cast<size_t>(PreRoll + 2));
 }
 
@@ -2286,9 +2318,10 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
     WriteInt64(F, FileSize);
     WriteInt(F, VideoTrack);
     WriteInt(F, ViewID);
-    /* Which decode path produced the stored hashes. The GPU hash is a different algorithm to the CPU
-       XXH3 by design, and GPU decoding always uses it, so this one flag keeps the two apart. */
-    WriteInt(F, GPU ? 1 : 0);
+    /* Which decode path produced the stored hashes: 0 for the CPU, 1 for vulkan, whose GPU hash is a
+       different algorithm to the CPU XXH3 by design, and 2 for VideoToolbox, hashed with XXH3 but
+       in the decoder's own layout, so neither of the others matches it. */
+    WriteInt(F, !GPU ? 0 : GPUResident ? 1 : 2);
 
     WriteInt(F, static_cast<int>(LAVFOptions.size()));
     for (const auto &Iter : LAVFOptions) {
@@ -2375,7 +2408,7 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
             return false;
         if (!ReadCompareInt(F, ViewID))
             return false;
-        if (!ReadCompareInt(F, GPU ? 1 : 0))
+        if (!ReadCompareInt(F, !GPU ? 0 : GPUResident ? 1 : 2))
             return false;
 
         int LAVFOptCount = ReadInt(F);

@@ -13,7 +13,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 - FFmpeg 9.0 or newer. Only the `libavcodec`, `libavformat` and `libavutil` libraries are required. *gpu* asks for more than this, see below.
 - xxHash
 
-Optional, and only needed for *gpu*:
+Optional, and only needed for *gpu* outside macOS, where it uses VideoToolbox instead:
 
 - Vulkan headers, 1.4 or newer, plus an FFmpeg built with `--enable-vulkan`. Nothing links the Vulkan loader: every entry point is resolved through FFmpeg's own at runtime, so the headers alone are enough to build. Distributions often still package 1.3.x, which is too old for the plugin, since the VapourSynth GPU frame API uses entry points that only became core in 1.4. A library only build (`-Denable_plugin=false`) is happy with older ones.
 - `glslangValidator` (or `glslang`, depending on how the distribution names it), which compiles the GPU shader to SPIR-V.
@@ -21,7 +21,7 @@ Optional, and only needed for *gpu*:
 
 These are picked up automatically, and GPU support is dropped when any of them is missing. Pass `-Denable_gpu=enabled` to make that fail the build instead.
 
-Hardware decoding is Vulkan only, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
+Hardware decoding is Vulkan only, or VideoToolbox on macOS, so the QSV and CUDA/nvcodec headers that older versions wanted are no longer used by anything and can be left out.
 
 The VapourSynth headers come from the installed VapourSynth via `vs.get_include()`. GPU frames need the API 4.3 declarations, which VapourSynth ships from R80 onwards.
 
@@ -145,7 +145,7 @@ In *BSSource* the two tracks are set separately as *vvariableformat* and *avaria
 
 *maxdecoders*: The maximum number of decoder instances kept around, defaults to 4 (1 when *gpu* decodes on the graphics card) but when decoding high resolution content it may be beneficial to reduce it to 1 to reduce peak memory usage. For example 4k h264 material will use approximately 250MB of ram in addition to the specified cache size for decoder instance. On the GPU the same material takes about 700MB of video memory per decoder instance, which is why only one is kept by default there. More instances only help scripts that keep jumping between distant parts of the clip. Passing a number outside the 1-4 range will set it to the biggest number supported.
 
-*gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires a driver with Vulkan video decoding for the codec and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one.
+*gpu*: Decode on the graphics card with Vulkan and output GPU resident frames, instead of decoding on the CPU. VapourSynth only, and requires a driver with Vulkan video decoding for the codec and a device that can share memory. It always uses the same graphics card VapourSynth itself is on, since sharing frames between two devices only works when they are the same one. On macOS, which has no Vulkan video decoding, it decodes with VideoToolbox instead and outputs ordinary frames in memory, mapped from the decoder's buffers rather than copied out of them.
 
 The frames are written directly into VapourSynth's own GPU memory by the decoder and never travel over the bus. They can be fed to any filter taking a GPU clip, and `std.GPUDownload` brings them back to memory.
 
