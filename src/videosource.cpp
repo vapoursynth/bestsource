@@ -596,6 +596,19 @@ bool LWVideoDecoder::Seek(int64_t PTS) {
         SkipFrames(1);
     Seeked = true;
     avcodec_flush_buffers(CodecContext);
+    /* FFmpeg's hevc decoder doesn't empty its output queue on a flush. Frames land in it several at a
+       time whenever an IDR picture or the end of the file pushes out everything still waiting to be
+       shown, so a decoder stopped partway through such a batch would hand out the rest after the
+       seek as if they came from the new position. Frame threading discards them on its own, which is
+       why only single threaded decoding, the default on the GPU, ever saw this. Nothing has been
+       sent since the flush, so anything still returned is stale. */
+    if (!DecodeFrame) {
+        DecodeFrame = av_frame_alloc();
+        if (!DecodeFrame)
+            throw BestSourceException("Couldn't allocate frame");
+    }
+    while (avcodec_receive_frame(CodecContext, HWMode ? HWFrame : DecodeFrame) == 0)
+        av_frame_unref(HWMode ? HWFrame : DecodeFrame);
     CurrentFrame = INT64_MIN;
     // Mild variable reuse, if seek fails then there's no point to decode more either
     DecodeSuccess = (av_seek_frame(FormatContext, TrackNumber, PTS, AVSEEK_FLAG_BACKWARD) >= 0);
