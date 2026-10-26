@@ -133,6 +133,8 @@ private:
     uint64_t LastGpuHash = 0;
     bool LastGpuHashValid = false;
 
+    std::vector<int64_t> *PacketDTSLog = nullptr; /* Borrowed, see SetPacketDTSLog() */
+
     void OpenFile(const std::filesystem::path &SourceFile, bool GPU, const std::optional<std::array<uint8_t, 16>> &DeviceUUID, int Track, int ViewID, int Threads, const std::map<std::string, std::string> &LAVFOpts, AVBufferRef *SharedHWDevice);
     bool ReadPacket();
     bool DecodeNextFrame(bool SkipOutput = false);
@@ -155,6 +157,10 @@ public:
     /* Hashes hardware frames on the GPU while they are still resident, so the frame never has to
        be read back purely to identify it. Borrowed; must outlive the decoder. */
     void SetGpuHasher(BSGpuHasher *Hasher);
+
+    /* Records the DTS of every packet sent to the decoder, which indexing uses to reconstruct the
+       PTS of files that have none, such as H.264 in AVI. Borrowed; must outlive the decoder. */
+    void SetPacketDTSLog(std::vector<int64_t> *Log);
 
     /* Valid for the frame most recently returned by GetNextFrame(), and only when that frame was
        hashed on the GPU. Callers must use this in preference to hashing the returned AVFrame:

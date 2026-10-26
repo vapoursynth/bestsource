@@ -166,6 +166,8 @@ bool LWVideoDecoder::DecodeNextFrame(bool SkipOutput) {
             return true;
         } else if (Ret == AVERROR(EAGAIN) || Ret == AVERROR_INPUT_CHANGED) { // AVERROR_INPUT_CHANGED is only used for two things inside FFmpeg and the other one can't happen, therefore we don't need to care about whether or not variable format is allowed
             if (ReadPacket()) {
+                if (PacketDTSLog)
+                    PacketDTSLog->push_back(Packet->dts);
                 avcodec_send_packet(CodecContext, Packet);
                 av_packet_unref(Packet);
             } else {
@@ -391,6 +393,10 @@ AVBufferRef *LWVideoDecoder::GetHWDeviceContext() const {
 
 void LWVideoDecoder::SetGpuHasher(BSGpuHasher *Hasher) {
     GpuHasher = HWMode ? Hasher : nullptr;
+}
+
+void LWVideoDecoder::SetPacketDTSLog(std::vector<int64_t> *Log) {
+    PacketDTSLog = Log;
 }
 
 bool LWVideoDecoder::HasGpuHash() const {
@@ -1512,8 +1518,10 @@ void BestVideoSource::SetSeekPreRoll(int64_t Frames) {
 }
 
 bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
+    std::vector<int64_t> PacketDTS;
     std::unique_ptr<LWVideoDecoder> Decoder(new LWVideoDecoder(Source, GPU, DeviceUUID, VideoTrack, ViewID, Threads, LAVFOptions, SharedHWDeviceContext));
     Decoder->SetGpuHasher(GpuHasher.get());
+    Decoder->SetPacketDTSLog(&PacketDTS);
     /* Indexing looks at nothing but frame properties and the hash, so with a GPU hash the whole
        readback can go. This is the pass that most obviously does not need it: every frame is
        transferred and then immediately freed. */
@@ -1576,8 +1584,11 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
     }
 
     if (!HasValidPTS) {
-        // Probably H264 in AVI
-        if (VP.Duration == TrackIndex.Frames.size()) {
+        std::sort(PacketDTS.begin(), PacketDTS.end());
+        if (!PacketDTS.empty() && PacketDTS.size() == TrackIndex.Frames.size() && PacketDTS.front() != AV_NOPTS_VALUE && std::adjacent_find(PacketDTS.begin(), PacketDTS.end()) == PacketDTS.end()) {
+            for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
+                TrackIndex.Frames[i].PTS = PacketDTS[i];
+        } else if (VP.Duration == TrackIndex.Frames.size()) {
             // It's CFR so we know every frame duration is 1 unit
             for (size_t i = 0; i < TrackIndex.Frames.size(); i++)
                 TrackIndex.Frames[i].PTS = i;
