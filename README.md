@@ -48,7 +48,7 @@ meson install -C build
 - Seeking performance in mpeg/ts/vob files can be quite poor due to the FFmpeg demuxer
 - Seeking and decoding performance for some lossy audio formats (most notably aac) can be poor
 - Chained ogg files (several streams one after another) are decoded linearly since the FFmpeg demuxer loses every stream after the first once it has seeked
-- VC1 codec is unseekable due to FFmpeg not having bitexact output after seeking
+- VC1 codec has seek issues due to parser bugs that put incorrect timestamps and keyframe flags in some cases
 - The unholy combination of VFR H264 in AVI has poor seeking performance
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
 - Mod files can't be decoded correctly using libmodplug due to the library not having repeatable bitexact output

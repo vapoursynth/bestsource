@@ -347,11 +347,13 @@ BestAudioSource::Cache::Cache(const AudioTrackIndex &TrackIndex) : TrackIndex(Tr
 void BestAudioSource::Cache::ApplyMaxSize() {
     while (Size > MaxSize) {
         Size -= Data.back().Size;
+        Index.erase(Data.back().FrameNumber);
         Data.pop_back();
     }
 }
 
 void BestAudioSource::Cache::Clear() {
+    Index.clear();
     Data.clear();
     Size = 0;
 }
@@ -365,28 +367,26 @@ void BestAudioSource::Cache::CacheFrame(int64_t FrameNumber, AVFrame *Frame) {
     assert(Frame);
     assert(FrameNumber >= 0);
     // Don't cache the same frame twice, get rid of the oldest copy instead
-    for (auto Iter = Data.begin(); Iter != Data.end(); ++Iter) {
-        if (Iter->FrameNumber == FrameNumber) {
-            Size -= Iter->Size;
-            Data.erase(Iter);
-            break;
-        }
+    auto Old = Index.find(FrameNumber);
+    if (Old != Index.end()) {
+        Size -= Old->second->Size;
+        Data.erase(Old->second);
+        Index.erase(Old);
     }
 
     Data.emplace_front(FrameNumber, Frame);
+    Index[FrameNumber] = Data.begin();
     Size += Data.front().Size;
     ApplyMaxSize();
 }
 
 BestAudioFrame *BestAudioSource::Cache::GetFrame(int64_t N) {
-    for (auto Iter = Data.begin(); Iter != Data.end(); ++Iter) {
-        if (Iter->FrameNumber == N) {
-            AVFrame *F = Iter->Frame;
-            Data.splice(Data.begin(), Data, Iter);
-            return new BestAudioFrame(F, TrackIndex.Frames[N].BitsPerSample);
-        }
-    }
-    return nullptr;
+    auto Iter = Index.find(N);
+    if (Iter == Index.end())
+        return nullptr;
+    AVFrame *F = Iter->second->Frame;
+    Data.splice(Data.begin(), Data, Iter->second);
+    return new BestAudioFrame(F, TrackIndex.Frames[N].BitsPerSample);
 }
 
 BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Track, int AjustDelay, int Threads, int CacheMode, const std::filesystem::path &CachePath, const std::map<std::string, std::string> *LAVFOpts, double DrcScale, const ProgressFunction &Progress)

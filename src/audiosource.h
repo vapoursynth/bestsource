@@ -26,6 +26,7 @@
 #include <list>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <vector>
 #include <array>
@@ -175,6 +176,7 @@ private:
         size_t Size = 0;
         size_t MaxSize = 100 * 1024 * 1024;
         std::list<CacheBlock> Data;
+        std::unordered_map<int64_t, std::list<CacheBlock>::iterator> Index;
         void ApplyMaxSize();
     public:
         Cache(const AudioTrackIndex &TrackIndex);
