@@ -286,16 +286,14 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         ProgressFunction ProgressCB;
         if (ShowProgress) {
             ProgressCB = [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
-                if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                    if (Total == INT64_MAX && Cur == Total) {
-                        vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                    } else {
-                        int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
-                        if (PValue != LastValue) {
-                            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
-                            LastValue = PValue;
-                            NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                        }
+                if (Total == INT64_MAX && Cur == Total) {
+                    vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
+                } else if (NextUpdate < std::chrono::high_resolution_clock::now()) {
+                    int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
+                    if (PValue != LastValue) {
+                        vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
+                        LastValue = PValue;
+                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                     }
                 }
                 return true;
@@ -515,16 +513,14 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
             int LastValue = -1;
             D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale,
                 [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
-                    if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                        if (Total == INT64_MAX && Cur == Total) {
-                            vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                        } else {
-                            int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
-                            if (PValue != LastValue) {
-                                vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
-                                LastValue = PValue;
-                                NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                            }
+                    if (Total == INT64_MAX && Cur == Total) {
+                        vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
+                    } else if (NextUpdate < std::chrono::high_resolution_clock::now()) {
+                        int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
+                        if (PValue != LastValue) {
+                            vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
+                            LastValue = PValue;
+                            NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
                         }
                     }
                     return true;
