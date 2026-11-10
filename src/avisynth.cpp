@@ -33,6 +33,10 @@
 #include <chrono>
 #include <mutex>
 #include <cassert>
+#include <cstring>
+
+/* AviSynth+ 3.7.6 */
+static constexpr int MinAvisynthInterfaceVersion = 14;
 
 #ifdef _WIN32
 #define AVS_EXPORT __declspec(dllexport)
@@ -129,7 +133,9 @@ public:
             if (VP.SSModWidth == 0 || VP.SSModHeight == 0)
                 throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
 
-            if (VP.VF.ColorFamily == cfGray) {
+            if (VP.VF.ColorFamily == cfGray && VP.VF.Alpha) {
+                VI.pixel_type = VideoInfo::CS_GENERIC_YA;
+            } else if (VP.VF.ColorFamily == cfGray) {
                 VI.pixel_type = VideoInfo::CS_GENERIC_Y;
             } else if (VP.VF.ColorFamily == cfYUV && VP.VF.Alpha) {
                 VI.pixel_type = VideoInfo::CS_PLANAR | VideoInfo::CS_YUVA | VideoInfo::CS_VPlaneFirst; // Why is there no generic YUVA constant?
@@ -151,14 +157,22 @@ public:
                 // https://github.com/AviSynth/AviSynthPlus/blob/master/avs_core/core/avisynth.cpp#L4377
                 const bool Supported =
                     (VP.VF.SubSamplingW == 0 && VP.VF.SubSamplingH == 0) ||
+                    (VP.VF.SubSamplingW == 0 && VP.VF.SubSamplingH == 1) ||
                     (VP.VF.SubSamplingW == 1 && VP.VF.SubSamplingH == 0) ||
                     (VP.VF.SubSamplingW == 1 && VP.VF.SubSamplingH == 1) ||
-                    (VP.VF.SubSamplingW == 2 && VP.VF.SubSamplingH == 0 && VP.VF.Bits == 8 && !VP.VF.Float && !VP.VF.Alpha);
+                    (VP.VF.SubSamplingW == 2 && VP.VF.SubSamplingH == 0) ||
+                    (VP.VF.SubSamplingW == 2 && VP.VF.SubSamplingH == 2);
 
                 if (!Supported)
-                    throw BestSourceException("Avisynth+ has no " + DescribeYUVFormat(VP.VF) + " pixel format, only 4:2:0, 4:2:2 and 4:4:4 at every bitdepth and 8 bit 4:1:1 without alpha can be output");
+                    throw BestSourceException("Avisynth+ has no " + DescribeYUVFormat(VP.VF) + " pixel format, only 4:4:4, 4:4:0, 4:2:2, 4:2:0, 4:1:1 and 4:1:0 can be output");
 
-                VI.pixel_type |= (VP.VF.SubSamplingH == 0) ? VideoInfo::CS_Sub_Height_1 : VideoInfo::CS_Sub_Height_2;
+                if (VP.VF.SubSamplingH == 0) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_1;
+                } else if (VP.VF.SubSamplingH == 1) {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_2;
+                } else {
+                    VI.pixel_type |= VideoInfo::CS_Sub_Height_4;
+                }
 
                 if (VP.VF.SubSamplingW == 0) {
                     VI.pixel_type |= VideoInfo::CS_Sub_Width_1;
@@ -204,7 +218,7 @@ public:
                 VI.num_frames = vsh::int64ToIntS(VP.NumRFFFrames);
             }
 
-            RFFIsUsed = (VP.NumFrames != VP.NumRFFFrames);
+            RFFIsUsed = RFF && (VP.NumFrames != VP.NumRFFFrames);
 
             V->SetSeekPreRoll(SeekPreRoll);
 
@@ -223,12 +237,24 @@ public:
         return V->GetVideoProperties();
     }
 
+    /* Constant rate output picks the source frame by time */
+    int64_t GetSourceFrameNumber(int n) const {
+        const int64_t SrcN = std::min(n, VI.num_frames - 1);
+        if (RFF || FPSNum <= 0)
+            return SrcN;
+        return V->GetFrameNumberByTime(V->GetVideoProperties().StartTime + (double)SrcN * FPSDen / FPSNum);
+    }
+
     bool __stdcall GetParity(int n) {
-        return V->GetFrameIsTFF(n, RFF);
+        try {
+            return V->GetFrameIsTFF(GetSourceFrameNumber(n), RFF);
+        } catch (const std::exception &) {
+            return false;
+        }
     }
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) {
-        return 0;
+        return (cachehints == CACHE_GET_MTMODE) ? MT_SERIALIZED : 0;
     }
 
     const VideoInfo &__stdcall GetVideoInfo() {
@@ -242,16 +268,10 @@ public:
         PVideoFrame Dst;
 
         std::unique_ptr<BestVideoFrame> Src;
+        int64_t SrcN = 0;
         try {
-            if (RFF) {
-                Src.reset(V->GetFrameWithRFF(std::min(n, VI.num_frames - 1)));
-            } else if (FPSNum > 0) {
-                double currentTime = V->GetVideoProperties().StartTime +
-                    (double)std::min(n, VI.num_frames - 1) * FPSDen / FPSNum;
-                Src.reset(V->GetFrameByTime(currentTime));
-            } else {
-                Src.reset(V->GetFrame(std::min(n, VI.num_frames - 1)));
-            }
+            SrcN = GetSourceFrameNumber(n);
+            Src.reset(RFF ? V->GetFrameWithRFF(SrcN) : V->GetFrame(SrcN));
 
             if (!Src)
                 throw BestSourceException("No frame returned for frame number " + std::to_string(n) + ". This may be due to an FFmpeg bug. Retry with threads=1 if not already set.");
@@ -263,7 +283,10 @@ public:
 
             bool DestHasAlpha = (VI.IsYUVA() || VI.IsPlanarRGBA());
 
-            if (VI.IsYUV() || VI.IsYUVA()) {
+            if (VI.IsY() || VI.IsYA()) {
+                DstPtrs[0] = Dst->GetWritePtr(PLANAR_Y);
+                DstStride[0] = Dst->GetPitch(PLANAR_Y);
+            } else if (VI.IsYUV() || VI.IsYUVA()) {
                 DstPtrs[0] = Dst->GetWritePtr(PLANAR_Y);
                 DstStride[0] = Dst->GetPitch(PLANAR_Y);
                 DstPtrs[1] = Dst->GetWritePtr(PLANAR_U);
@@ -277,9 +300,6 @@ public:
                 DstStride[1] = Dst->GetPitch(PLANAR_G);
                 DstPtrs[2] = Dst->GetWritePtr(PLANAR_B);
                 DstStride[2] = Dst->GetPitch(PLANAR_B);
-            } else if (VI.IsY()) {
-                DstPtrs[0] = Dst->GetWritePtr(PLANAR_Y);
-                DstStride[0] = Dst->GetPitch(PLANAR_Y);
             } else {
                 assert(false);
             }
@@ -294,10 +314,10 @@ public:
 
         AVSMap *Props = Env->getFramePropsRW(Dst);
 
-        SetSynthFrameProperties(n, Src, *V, RFFIsUsed, V->GetFrameIsTFF(n, RFF), ApplyRotation,
+        SetSynthFrameProperties(SrcN, Src, *V, RFFIsUsed, V->GetFrameIsTFF(SrcN, RFF), ApplyRotation,
             [Props, Env](const char *Name, int64_t V) { Env->propSetInt(Props, Name, V, 1); },
             [Props, Env](const char *Name, double V) { Env->propSetFloat(Props, Name, V, 1); },
-            [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetData(Props, Name, V, Size, 1); },
+            [Props, Env](const char *Name, const char *V, int Size, bool Utf8) { Env->propSetDataH(Props, Name, V, Size, Utf8 ? PROPDATATYPEHINT_UTF8 : PROPDATATYPEHINT_BINARY, 1); },
             FPSNum > 0 ? FPSNum : 0, FPSDen);
 
         return Dst;
@@ -384,15 +404,16 @@ public:
             A->SelectFormatSet(VariableFormat);
 
             const BSAudioProperties &AP = A->GetAudioProperties();
-            if (AP.AF.Float && AP.AF.Bits == 32) {
+            /* 24 bit samples are packed from 4 bytes into 3 by GetAudio */
+            if (AP.AF.Float && AP.AF.BytesPerSample == 4) {
                 VI.sample_type = SAMPLE_FLOAT;
-            } else if (!AP.AF.Float && AP.AF.Bits <= 8) {
+            } else if (!AP.AF.Float && AP.AF.BytesPerSample == 1) {
                 VI.sample_type = SAMPLE_INT8;
-            } else if (!AP.AF.Float && AP.AF.Bits <= 16) {
+            } else if (!AP.AF.Float && AP.AF.BytesPerSample == 2) {
                 VI.sample_type = SAMPLE_INT16;
-            } else if (!AP.AF.Float && AP.AF.Bits <= 24) {
+            } else if (!AP.AF.Float && AP.AF.BytesPerSample == 4 && AP.AF.Bits <= 24) {
                 VI.sample_type = SAMPLE_INT24;
-            } else if (!AP.AF.Float && AP.AF.Bits <= 32) {
+            } else if (!AP.AF.Float && AP.AF.BytesPerSample == 4) {
                 VI.sample_type = SAMPLE_INT32;
             } else {
                 Env->ThrowError("BestAudioSource: Unsupported audio format");
@@ -417,7 +438,7 @@ public:
     }
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) {
-        return 0;
+        return (cachehints == CACHE_GET_MTMODE) ? MT_SERIALIZED : 0;
     }
 
     const VideoInfo &__stdcall GetVideoInfo() {
@@ -605,6 +626,8 @@ const AVS_Linkage *AVS_linkage = nullptr;
 
 extern "C" AVS_EXPORT const char *__stdcall AvisynthPluginInit3(IScriptEnvironment * Env, const AVS_Linkage *const vectors) {
     AVS_linkage = vectors;
+
+    Env->CheckVersion(MinAvisynthInterfaceVersion);
 
     Env->AddFunction("BSVideoSource", BSVideoSourceAvsArgs, CreateBSVideoSource, nullptr);
     Env->AddFunction("BSAudioSource", BSAudioSourceAvsArgs, CreateBSAudioSource, nullptr);

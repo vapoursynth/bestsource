@@ -12,6 +12,7 @@ It can be used as either a C++ library directly or through the combined VapourSy
 
 - FFmpeg 9.0 or newer. Only the `libavcodec`, `libavformat` and `libavutil` libraries are required. *gpu* asks for more than this, see below.
 - xxHash
+- Avisynth+ 3.7.6 or newer for the Avisynth+ plugin, both to build it and to load it
 
 Optional, and only needed for *gpu* outside macOS, where it uses VideoToolbox instead:
 
@@ -52,7 +53,7 @@ meson install -C build
 - The unholy combination of VFR H264 in AVI has poor seeking performance
 - Needs FFmpeg compiled with Little CMS2 or the color information reported for most image files will be less complete
 - Mod files can't be decoded correctly using libmodplug due to the library not having repeatable bitexact output
-- Gray+alpha format isn't supported in Avisynth+ and as a result only the Y component is returned
+- 8 bit FLAC, ALS and WavPack audio can't be opened, since FFmpeg's decoders return it in 16 bit samples
 - Files with dimensions that aren't a multiple of the subsampling value will be cropped
 
 ## VapourSynth usage
@@ -71,7 +72,7 @@ meson install -C build
 
 The *TrackInfo* function only returns the most basic information about a track which is the type, codec and disposition. Its main use is to be able to implement custom track selection logic for the source functions. It returns one entry per track in *tracktype*, *tracktypestr*, *codec*, *codecstr*, *disposition* and *dispositionstr*, so the track number to pass to a source function is the index into those arrays.
 
-The *Metadata* function returns all the file or track metadata as key-value pairs depending on whether or not *track* is specified.
+The *Metadata* function returns all the file or track metadata as key-value pairs depending on whether or not *track* is specified. A key can only contain letters, digits and underscores in VapourSynth, so every other character in a metadata key is replaced by an underscore, which makes *DURATION-eng* come back as *DURATION_eng*.
 
 ## Avisynth+ usage
 

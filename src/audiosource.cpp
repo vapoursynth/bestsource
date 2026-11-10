@@ -23,6 +23,7 @@
 #include "version.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <thread>
 #include <cassert>
 #include <iterator>
@@ -279,7 +280,8 @@ bool LWAudioDecoder::HasSeeked() const {
 void BSAudioFormat::Set(int Format, int BitsPerRawSample) {
     Float = (Format == AV_SAMPLE_FMT_FLTP || Format == AV_SAMPLE_FMT_FLT || Format == AV_SAMPLE_FMT_DBLP || Format == AV_SAMPLE_FMT_DBL);
     BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(Format));
-    Bits = BitsPerRawSample ? BitsPerRawSample : (BytesPerSample * 8);
+    /* A demuxer can report more bits than the samples hold */
+    Bits =(BitsPerRawSample > 0 && BitsPerRawSample < BytesPerSample * 8 && !Float) ? BitsPerRawSample : (BytesPerSample * 8);
 }
 
 BestAudioFrame::BestAudioFrame(AVFrame *F, int BitsPerSample) {
@@ -407,6 +409,7 @@ BestAudioSource::BestAudioSource(const std::filesystem::path &SourceFile, int Tr
     Decoder->GetAudioProperties(AP);
     AudioTrack = Decoder->GetTrack();
     FileSize = Decoder->GetSourceSize();
+    SourceTime = GetSourceModificationTime(Source);
     Codec = Decoder->GetCodec();
 
     if (CacheMode == bcmDisable || !ReadAudioTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
@@ -526,6 +529,9 @@ void BestAudioSource::InitializeFormatSets() {
         if (std::get<2>(SeenSets[V]) != AV_NOPTS_VALUE)
             Iter.StartTime = (static_cast<double>(AP.TimeBase.Num) * std::get<2>(SeenSets[V])) / AP.TimeBase.Den;
         Iter.AF.Set(Iter.Format, Iter.BitsPerSample);
+        if (!Iter.AF.Float && Iter.AF.Bits <= 8 && Iter.AF.BytesPerSample >= 2)
+            throw BestSourceException("The " + std::string(Codec->name) + " decoder returns " + std::to_string(Iter.AF.Bits) + " bit audio in " +
+                std::to_string(Iter.AF.BytesPerSample * 8) + " bit samples, which isn't supported");
     }
 
     DefaultFormatSet = FormatSets[0];
@@ -1246,6 +1252,7 @@ bool BestAudioSource::WriteAudioTrackIndex(bool AbsolutePath, const std::filesys
         return false;
     WriteBSHeader(F, false);
     WriteInt64(F, FileSize);
+    WriteInt64(F, SourceTime);
     WriteInt(F, AudioTrack);
     WriteDouble(F, DrcScale);
 
@@ -1330,6 +1337,8 @@ bool BestAudioSource::ReadAudioTrackIndex(bool AbsolutePath, const std::filesyst
         if (!ReadBSHeader(F, false))
             return false;
         if (!ReadCompareInt64(F, FileSize))
+            return false;
+        if (!ReadCompareInt64(F, SourceTime))
             return false;
         if (!ReadCompareInt(F, AudioTrack))
             return false;

@@ -26,6 +26,6 @@
 #include <functional>
 #include <cstdint>
 
-void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, bool RotationApplied, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData, int64_t CFRNum = 0, int64_t CFRDen = 1);
+void SetSynthFrameProperties(int64_t n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, bool RotationApplied, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData, int64_t CFRNum = 0, int64_t CFRDen = 1);
 
 #endif

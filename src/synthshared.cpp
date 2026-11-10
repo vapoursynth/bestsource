@@ -25,13 +25,14 @@ extern "C" {
 #include <libavutil/avutil.h>
 }
 
-void SetSynthFrameProperties(int n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, bool RotationApplied, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData, int64_t CFRNum, int64_t CFRDen) {
+void SetSynthFrameProperties(int64_t n, const std::unique_ptr<BestVideoFrame> &Src, const BestVideoSource &VS, bool RFF, bool TFF, bool RotationApplied, const std::function<void(const char *, int64_t)> &mapSetInt, const std::function<void(const char *, double)> &mapSetFloat, const std::function<void(const char *, const char *, int, bool)> &mapSetData, int64_t CFRNum, int64_t CFRDen) {
     const BSVideoProperties VP = VS.GetVideoProperties();
 
     // Set AR variables
     if (VP.SAR.Num > 0 && VP.SAR.Den > 0) {
-        mapSetInt("_SARNum", VP.SAR.Num);
-        mapSetInt("_SARDen", VP.SAR.Den);
+        const bool Turned = RotationApplied && (VP.Rotation % 180 == 90);
+        mapSetInt("_SARNum", Turned ? VP.SAR.Den : VP.SAR.Num);
+        mapSetInt("_SARDen", Turned ? VP.SAR.Num : VP.SAR.Den);
     }
 
     // Don't flag grayscale as RGB and instead set it as unspecified because it gives zimg resizers indigestion and doesn't make sense in general

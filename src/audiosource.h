@@ -40,10 +40,12 @@ struct AVBufferRef;
 struct AVFrame;
 struct AVPacket;
 
+/* BytesPerSample is always the smallest size Bits fits in, and 8 bit samples are unsigned. A source
+   for 8 bit audio in 16 bit samples, which FFmpeg's flac, als and wavpack decoders return, throws. */
 struct BSAudioFormat {
     bool Float;
     int Bits;
-    int BytesPerSample; // FIXME, kinda odd to have it exposed here but very useful to store internally
+    int BytesPerSample;
 
     void Set(int Format, int BitsPerRawSample);
 };
@@ -225,6 +227,7 @@ private:
     mutable bool ProbedStartValid = false;
     mutable double ProbedStartTime = 0;
     int64_t FileSize = -1;
+    int64_t SourceTime = NoSourceModificationTime;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();

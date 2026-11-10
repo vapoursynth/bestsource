@@ -24,6 +24,9 @@
 #include <algorithm>
 #include <thread>
 #include <cassert>
+#include <climits>
+#include <cmath>
+#include <cstring>
 #include <iterator>
 #include <charconv>
 
@@ -464,8 +467,8 @@ void LWVideoDecoder::GetVideoProperties(LWVideoProperties &VP) {
 
     VP.NumFrames = FormatContext->streams[TrackNumber]->nb_frames;
     if (VP.NumFrames <= 0 && VP.Duration > 0) {
-        if (VP.FPS.Num)
-            VP.NumFrames = (VP.Duration * VP.FPS.Num) / VP.FPS.Den;
+        if (VP.FPS.Num > 0 && VP.FPS.Den > 0 && VP.TimeBase.Num > 0 && VP.TimeBase.Den > 0)
+            VP.NumFrames = av_rescale(VP.Duration, static_cast<int64_t>(VP.TimeBase.Num) * VP.FPS.Num, static_cast<int64_t>(VP.TimeBase.Den) * VP.FPS.Den);
     }
 
     if (VP.NumFrames <= 0)
@@ -916,7 +919,7 @@ static const std::map<AVPixelFormat, p2p_packing> FormatMap = {
     { AV_PIX_FMT_RGB48BE, p2p_rgb48_be },
     { AV_PIX_FMT_RGB48LE, p2p_bgr48_le },
 
-    { AV_PIX_FMT_RGBA64LE, p2p_rgba64_le },
+    { AV_PIX_FMT_RGBA64LE, p2p_abgr64_le },
     { AV_PIX_FMT_RGBA64BE, p2p_rgba64_be },
 
     // The somewhat more esoteric formats below are primarily used by hardware decoders
@@ -1117,7 +1120,11 @@ static std::array<uint8_t, HashSize> GetHash(const AVFrame *Frame) {
             Width >>= desc->log2_chroma_w;
             Height >>= desc->log2_chroma_h;
         }
-        Width *= SampleSize[p];
+        /* The step is in bits here */
+        if (desc->flags & AV_PIX_FMT_FLAG_BITSTREAM)
+            Width = (Width * SampleSize[p] + 7) / 8;
+        else
+            Width *= SampleSize[p];
         assert(Width <= Frame->linesize[p]);
         const uint8_t *Data = Frame->data[p];
         for (int h = 0; h < Height; h++) {
@@ -1295,6 +1302,8 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
         Decoder->GetVideoProperties(VP);
         VideoTrack = Decoder->GetTrack();
         FileSize = Decoder->GetSourceSize();
+        SourceTime = GetSourceModificationTime(Source);
+        StreamDuration = VP.Duration;
 
         const bool IndexFromCache = (CacheMode != bcmDisable) && ReadVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath);
         if (!IndexFromCache) {
@@ -1333,18 +1342,24 @@ BestVideoSource::BestVideoSource(const std::filesystem::path &SourceFile, bool G
            this decoder produces -- a replaced file, or a decoder update that changed its output.
            Left alone, every frame request would fail the central hash check forever, so the index
            is rebuilt on the spot instead, at the one moment reindexing and the CPU fallback are
-           both still available. */
-        if (GPU && IndexFromCache) {
+           both still available. Sources with no size or modification time to check, such as image
+           sequences, get the same check. */
+        const bool Unidentified = (FileSize < 0 && SourceTime == NoSourceModificationTime);
+        if (IndexFromCache && (GPU || Unidentified)) {
             AVFrame *Probe = Decoder->GetNextFrame();
-            if (!Probe)
+            if (!Probe && GPU)
                 throw BestSourceHWDecoderException("Couldn't decode the first frame with the GPU decoder the cached index was made for");
-            if (HashDecodedFrame(Decoder.get(), Probe) == TrackIndex.Frames[0].Hash) {
+            if (Probe && HashDecodedFrame(Decoder.get(), Probe) == TrackIndex.Frames[0].Hash) {
                 FrameCache.CacheFrame(0, Probe);
             } else {
                 av_frame_free(&Probe);
                 BSDebugPrint("Cached index does not match what the decoder produces, reindexing");
-                if (!IndexTrack(Progress))
-                    throw BestSourceHWDecoderException("Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed after the cached index proved stale, which usually means the GPU can't decode this track");
+                if (!IndexTrack(Progress)) {
+                    const std::string What = "Indexing of '" + Source.u8string() + "' track #" + std::to_string(VideoTrack) + " failed after the cached index proved stale";
+                    if (GPU)
+                        throw BestSourceHWDecoderException(What + ", which usually means the GPU can't decode this track");
+                    throw BestSourceException(What);
+                }
                 if (ShouldWriteIndex(CacheMode, TrackIndex.Frames.size()) && !WriteVideoTrackIndex(IsAbsolutePathCacheMode(CacheMode), CachePath)) {
                     if (IndexWriteFailureIsFatal(CacheMode))
                         throw BestSourceException("Failed to write index to '" + CachePath.u8string() + "' for track #" + std::to_string(VideoTrack));
@@ -2127,15 +2142,11 @@ bool BestVideoSource::InitializeRFF() {
         N++;
     }
 
-    if (DestFieldTop > DestFieldBottom) {
-        if (DestFieldBottom > 0 && DestFieldBottom < FieldFrames)
-            RFFFields[DestFieldBottom].second = RFFFields[DestFieldBottom - 1].second;
-        DestFieldBottom++;
-    } else if (DestFieldTop < DestFieldBottom) {
-        if (DestFieldTop > 0 && DestFieldTop < FieldFrames)
-            RFFFields[DestFieldTop].first = RFFFields[DestFieldTop - 1].first;
-        DestFieldTop++;
-    }
+    /* The parity that ran out first repeats its last field */
+    for (int64_t i = std::max<int64_t>(DestFieldTop, 1); i < FieldFrames; i++)
+        RFFFields[i].first = RFFFields[i - 1].first;
+    for (int64_t i = std::max<int64_t>(DestFieldBottom, 1); i < FieldFrames; i++)
+        RFFFields[i].second = RFFFields[i - 1].second;
 
     RFFState = RFFStateEnum::Ready;
 
@@ -2247,6 +2258,11 @@ BestVideoFrame *BestVideoSource::GetFrameWithRFF(int64_t N, bool Linear) {
 }
 
 BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
+    const int64_t N = GetFrameNumberByTime(Time);
+    return (N < 0) ? nullptr : GetFrame(N, Linear);
+}
+
+int64_t BestVideoSource::GetFrameNumberByTime(double Time) const {
     if (!CanSeekByTime)
         throw BestSourceException("Can't get frame by time, file has frames with unknown timestamps");
 
@@ -2257,7 +2273,7 @@ BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
        so a binary search still applies; GetOriginalFrameNumber is the O(1) mapping. */
     const int64_t Count = VP.NumFrames;
     if (Count <= 0)
-        return nullptr;
+        return -1;
     auto FramePTS = [&](int64_t Sel) { return TrackIndex.Frames[GetOriginalFrameNumber(Sel)].PTS; };
     int64_t Lo = 0, Hi = Count;
     while (Lo < Hi) {
@@ -2268,10 +2284,10 @@ BestVideoFrame *BestVideoSource::GetFrameByTime(double Time, bool Linear) {
             Hi = Mid;
     }
     if (Lo == Count)
-        return GetFrame(Count - 1, Linear);
+        return Count - 1;
     if (Lo == 0 || std::abs(FramePTS(Lo) - PTS) <= std::abs(FramePTS(Lo - 1) - PTS))
-        return GetFrame(Lo, Linear);
-    return GetFrame(Lo - 1, Linear);
+        return Lo;
+    return Lo - 1;
 }
 
 const std::vector<BestVideoSource::FormatSet> &BestVideoSource::GetFormatSets() const {
@@ -2341,6 +2357,8 @@ bool BestVideoSource::WriteVideoTrackIndex(bool AbsolutePath, const std::filesys
         return false;
     WriteBSHeader(F, true);
     WriteInt64(F, FileSize);
+    WriteInt64(F, SourceTime);
+    WriteInt64(F, StreamDuration);
     WriteInt(F, VideoTrack);
     WriteInt(F, ViewID);
     /* Which decode path produced the stored hashes: 0 for the CPU, 1 for vulkan, whose GPU hash is a
@@ -2428,6 +2446,10 @@ bool BestVideoSource::ReadVideoTrackIndex(bool AbsolutePath, const std::filesyst
         if (!ReadBSHeader(F, true))
             return false;
         if (!ReadCompareInt64(F, FileSize))
+            return false;
+        if (!ReadCompareInt64(F, SourceTime))
+            return false;
+        if (!ReadCompareInt64(F, StreamDuration))
             return false;
         if (!ReadCompareInt(F, VideoTrack))
             return false;

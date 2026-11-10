@@ -381,7 +381,10 @@ private:
     /* Mirrors the cache's byte limit for the automatic preroll budget. */
     size_t MaxCacheBytes = 100 * 1024 * 1024;
     void UpdateAutoPreRoll();
+    /* What a cached index has to match; StreamDuration is the image count of a sequence */
     int64_t FileSize = -1;
+    int64_t SourceTime = NoSourceModificationTime;
+    int64_t StreamDuration = 0;
     static constexpr size_t RetrySeekAttempts = 10;
     std::set<int64_t> BadSeekLocations;
     void SetLinearMode();
@@ -434,6 +437,7 @@ public:
     [[nodiscard]] BestVideoFrame *GetFrame(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameWithRFF(int64_t N, bool Linear = false);
     [[nodiscard]] BestVideoFrame *GetFrameByTime(double Time, bool Linear = false); /* Time is in seconds */
+    [[nodiscard]] int64_t GetFrameNumberByTime(double Time) const; /* -1 when there are no frames */
     [[nodiscard]] bool GetFrameIsTFF(int64_t N, bool RFF = false);
     void WriteTimecodes(const std::filesystem::path &TimecodeFile) const;
     [[nodiscard]] const FrameInfo &GetFrameInfo(int64_t N) const; /* Note that this function is always in relation to the frame returned by GetFrame() and takes the current format set into account */

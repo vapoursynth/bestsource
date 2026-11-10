@@ -24,6 +24,9 @@
 #include <string>
 #include <atomic>
 #include <cassert>
+#include <cinttypes>
+#include <cstdlib>
+#include <cstring>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -108,10 +111,19 @@ static std::filesystem::path GetDefaultCacheSubTreePath() {
     }
 #endif
 
-    assert(!IndexPath.empty());
-
-    IndexPath /= "bsindex";
+    if (!IndexPath.empty())
+        IndexPath /= "bsindex";
     return IndexPath;
+}
+
+int64_t GetSourceModificationTime(const std::filesystem::path &Source) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(Source, ec))
+        return NoSourceModificationTime;
+    const auto Time = std::filesystem::last_write_time(Source, ec);
+    if (ec)
+        return NoSourceModificationTime;
+    return static_cast<int64_t>(Time.time_since_epoch().count());
 }
 
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
@@ -177,10 +189,14 @@ file_ptr_t OpenNormalFile(const std::filesystem::path &Filename, bool Write) {
 file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CachePath, const std::filesystem::path &Source, int Track, bool Write) {
     std::filesystem::path CacheFile;
 
-    if (AbsolutePath)
+    if (AbsolutePath) {
         CacheFile = CachePath.empty() ? Source : CachePath;
-    else
-        CacheFile = MangleCachePath(CachePath.empty() ? GetDefaultCacheSubTreePath() : CachePath, Source);
+    } else {
+        const std::filesystem::path BasePath = CachePath.empty() ? GetDefaultCacheSubTreePath() : CachePath;
+        if (BasePath.empty())
+            return nullptr;
+        CacheFile = MangleCachePath(BasePath, Source);
+    }
 
     CacheFile += "." + std::to_string(Track) + ".bsindex";
     if (Write) {

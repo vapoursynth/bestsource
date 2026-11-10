@@ -139,15 +139,18 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         VSFrame *Dst = nullptr;
         VSFrame *AlphaDst = nullptr;
         std::unique_ptr<BestVideoFrame> Src;
+        /* Constant rate output picks the source frame by time */
+        int64_t SrcN = std::min(n, D->VI.numFrames - 1);
         try {
             if (D->RFF) {
-                Src.reset(D->V->GetFrameWithRFF(std::min(n, D->VI.numFrames - 1)));
+                Src.reset(D->V->GetFrameWithRFF(SrcN));
             } else if (D->FPSNum > 0) {
                 double currentTime = D->V->GetVideoProperties().StartTime +
-                    (double)std::min(n, D->VI.numFrames - 1) * D->FPSDen / D->FPSNum;
-                Src.reset(D->V->GetFrameByTime(currentTime));
+                    (double)SrcN * D->FPSDen / D->FPSNum;
+                SrcN = D->V->GetFrameNumberByTime(currentTime);
+                Src.reset(D->V->GetFrame(SrcN));
             } else {
-                Src.reset(D->V->GetFrame(std::min(n, D->VI.numFrames - 1)));
+                Src.reset(D->V->GetFrame(SrcN));
             }
 
             if (!Src)
@@ -198,7 +201,7 @@ static const VSFrame *VS_CC BestVideoSourceGetFrame(int n, int ActivationReason,
         if (AlphaDst)
             vsapi->mapConsumeFrame(Props, "_Alpha", AlphaDst, maAppend);
 
-        SetSynthFrameProperties(n, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(n, D->RFF), D->RotationApplied,
+        SetSynthFrameProperties(SrcN, Src, *D->V, D->RFFIsUsed, D->V->GetFrameIsTFF(SrcN, D->RFF), D->RotationApplied,
             [Props, vsapi](const char *Name, int64_t V) { vsapi->mapSetInt(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, double V) { vsapi->mapSetFloat(Props, Name, V, maAppend); },
             [Props, vsapi](const char *Name, const char *V, int Size, bool Utf8) { vsapi->mapSetData(Props, Name, V, Size, Utf8 ? dtUtf8 : dtBinary, maAppend); },
@@ -407,7 +410,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         if ((VP.SSModWidth == 0 || VP.SSModHeight == 0) && !(VariableNode && VP.Width == 0 && VP.Height == 0))
             throw BestSourceException("Rounding dimensions down to nearest subsampling multiple leaves nothing to output");
 
-        D->RFFIsUsed = (VP.NumFrames != VP.NumRFFFrames);
+        D->RFFIsUsed = D->RFF && (VP.NumFrames != VP.NumRFFFrames);
         D->VI.width = VP.SSModWidth;
         D->VI.height = VP.SSModHeight;
         D->VI.numFrames = vsh::int64ToIntS(VP.NumFrames);
@@ -570,8 +573,8 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         D->A->SelectFormatSet(VariableFormat);
 
         const BSAudioProperties &AP = D->A->GetAudioProperties();
-        D->Is8Bit = (AP.AF.Bits <= 8);
-        if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, D->Is8Bit ? 16 : AP.AF.Bits, AP.ChannelLayout, Core))
+        D->Is8Bit = (AP.AF.BytesPerSample == 1);
+        if (!vsapi->queryAudioFormat(&D->AI.format, AP.AF.Float, std::max(AP.AF.Bits, 16), AP.ChannelLayout, Core))
             throw BestSourceException("Unsupported audio format from decoder (probably 64 bit float or a channel layout VapourSynth can't represent)");
         D->AI.sampleRate = AP.SampleRate;
         D->AI.numSamples = AP.NumSamples;
@@ -641,7 +644,14 @@ static void VS_CC GetMetadata(const VSMap *In, VSMap *Out, void *, VSCore *core,
         auto Metadata = (Track < 0) ? TrackList->GetFileMetadata() : TrackList->GetTrackMetadata(Track);
 
         for (const auto &Iter : Metadata) {
-            vsapi->mapSetData(Out, Iter.first.c_str(), Iter.second.c_str(), -1, dtUtf8, maAppend);
+            /* Map keys only allow letters, digits and underscores, and no leading digit */
+            std::string Key = Iter.first;
+            for (char &C : Key)
+                if (!((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z') || (C >= '0' && C <= '9') || C == '_'))
+                    C = '_';
+            if (Key.empty() || (Key[0] >= '0' && Key[0] <= '9'))
+                Key.insert(0, "_");
+            vsapi->mapSetData(Out, Key.c_str(), Iter.second.c_str(), -1, dtUtf8, maAppend);
         }
     } catch (const std::exception &e) {
         vsapi->mapSetError(Out, (std::string("Metadata: ") + e.what()).c_str());

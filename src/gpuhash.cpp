@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>

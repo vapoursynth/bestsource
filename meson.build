@@ -145,7 +145,7 @@ if enable_plugin
     # does not match the host AviSynth+ can never be loaded by it. Leave the interface out entirely
     # in that case instead of exporting an AvisynthPluginInit3 that cannot work.
     if get_option('enable_avisynth')
-        deps += dependency('avisynthplus')
+        deps += dependency('avisynthplus', version: '>=3.7.6')
 
         sources += files(
             'src/avisynth.cpp',

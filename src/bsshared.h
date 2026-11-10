@@ -93,6 +93,10 @@ int SetFFmpegLogLevel(int Level);
 void SetBSDebugOutput(bool DebugOutput);
 void BSDebugPrint(const std::string_view Message, int64_t RequestedN = -1, int64_t CurrentN = -1);
 
+/* NoSourceModificationTime for anything that isn't a regular file, such as an image sequence or a URL */
+constexpr int64_t NoSourceModificationTime = INT64_MIN;
+int64_t GetSourceModificationTime(const std::filesystem::path &Source);
+
 bool ShouldWriteIndex(int CacheMode, size_t Frames);
 bool IsAbsolutePathCacheMode(int CacheMode);
 bool IndexWriteFailureIsFatal(int CacheMode);
