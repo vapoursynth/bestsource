@@ -50,6 +50,76 @@ static void BSInit() {
         });
 }
 
+/* Indexing progress as information level log messages, for both kinds of source.
+
+   Nothing is said for the first second of a pass, so indexing that takes less than that only
+   produces the final "indexing complete". From then on there is at most one "index progress"
+   message a second, which shows how far into the source the pass has read, as a percentage of
+   its size or in megabytes when the size isn't known. Sources that aren't read as one stream of
+   bytes, such as image sequences, have no position to report and get no progress messages. A
+   position can also start out ahead of what has been indexed, as far as probing the file read
+   and at worst at its end, before it drops back, which is why the first report of a pass only
+   starts the clock and the value reported never goes down.
+
+   Creating a source can take more than one attempt, each of which may index, and an attempt can
+   still fail once its indexing is done. So the completion isn't logged when a pass ends but by
+   LogComplete(), called once the source that is going to be used exists. Frontends that follow
+   the log wait for that message, which is why the one second limit doesn't apply to it. */
+class IndexProgressLog {
+private:
+    const char *Name;
+    bool Enabled;
+    VSCore *Core;
+    const VSAPI *vsapi;
+    std::chrono::steady_clock::time_point NextUpdate;
+    bool Started = false;
+    int64_t LastValue = -1;
+    int CompleteTrack = -1;
+
+    void Log(int Track, const std::string &Text) const {
+        vsapi->logMessage(mtInformation, (std::string(Name) + " track #" + std::to_string(Track) + " " + Text).c_str(), Core);
+    }
+public:
+    IndexProgressLog(const char *Name, bool Enabled, VSCore *Core, const VSAPI *vsapi) : Name(Name), Enabled(Enabled), Core(Core), vsapi(vsapi) {}
+    IndexProgressLog(const IndexProgressLog &) = delete;
+    IndexProgressLog &operator=(const IndexProgressLog &) = delete;
+
+    /* The callback to create a source with, good for that one attempt and no longer than this
+       object. An empty ProgressFunction is the documented way to ask for no progress reports. */
+    [[nodiscard]] ProgressFunction StartPass() {
+        Started = false;
+        LastValue = -1;
+        CompleteTrack = -1;
+        if (!Enabled)
+            return nullptr;
+        return [this](int Track, int64_t Cur, int64_t Total) {
+            const auto Now = std::chrono::steady_clock::now();
+            if (Total == INT64_MAX && Cur == Total) {
+                CompleteTrack = Track;
+            } else if (!Started) {
+                Started = true;
+                NextUpdate = Now + std::chrono::seconds(1);
+            } else if (Cur >= 0 && NextUpdate < Now) {
+                const bool Percent = (Total > 0);
+                /* A file that is still being written can be read past the size it had at first */
+                const int64_t Value = Percent ? static_cast<int64_t>(std::min(static_cast<double>(Cur) / static_cast<double>(Total), 1.0) * 100) : Cur / (1024 * 1024);
+                if (Value > LastValue) {
+                    Log(Track, "index progress " + std::to_string(Value) + (Percent ? "%" : "MB"));
+                    LastValue = Value;
+                    NextUpdate = Now + std::chrono::seconds(1);
+                }
+            }
+            return true;
+            };
+    }
+
+    void LogComplete() {
+        if (CompleteTrack >= 0)
+            Log(CompleteTrack, "indexing complete");
+        CompleteTrack = -1;
+    }
+};
+
 struct BestVideoSourceData {
     VSVideoInfo VI = {};
     std::unique_ptr<BestVideoSource> V;
@@ -279,30 +349,12 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         /* Constructing the source may have to be done twice, once on the GPU and once on the CPU
            if that fails and gpufallback allows it, so the call is written once here rather than at
            each of the places that can fall back. Everything it touches has to outlive the last of
-           those, which is why the progress state lives out here instead of in a branch. An empty
-           ProgressFunction is the documented way to ask for no progress reports. */
-        auto NextUpdate = std::chrono::high_resolution_clock::now();
-        int LastValue = -1;
-        ProgressFunction ProgressCB;
-        if (ShowProgress) {
-            ProgressCB = [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
-                if (Total == INT64_MAX && Cur == Total) {
-                    vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                } else if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                    int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
-                    if (PValue != LastValue) {
-                        vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
-                        LastValue = PValue;
-                        NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                    }
-                }
-                return true;
-                };
-        }
+           those, which is why the progress log lives out here instead of in a branch. */
+        IndexProgressLog Progress("VideoSource", ShowProgress, Core, vsapi);
 
         auto MakeSource = [&](bool UseGPU) {
             D->V.reset();
-            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, (UseGPU && !ThreadsSet) ? 1 : Threads, CacheMode, CachePath, &Opts, ProgressCB));
+            D->V.reset(new BestVideoSource(Source, UseGPU, UseGPU ? GpuDevice : decltype(GpuDevice){}, Track, ViewID, (UseGPU && !ThreadsSet) ? 1 : Threads, CacheMode, CachePath, &Opts, Progress.StartPass()));
             };
 
         try {
@@ -329,6 +381,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 MakeSource(false);
             }
         }
+
+        Progress.LogComplete();
 
         if (GPU && !MaxDecodersSet)
             MaxDecoders = 1;
@@ -508,27 +562,9 @@ static void VS_CC CreateBestAudioSource(const VSMap *In, VSMap *Out, void *, VSC
         if (VariableFormat < 0)
             throw BestSourceException("Variable format number must be 0 or greater");
 
-        if (ShowProgress) {
-            auto NextUpdate = std::chrono::high_resolution_clock::now();
-            int LastValue = -1;
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale,
-                [vsapi, Core, &NextUpdate, &LastValue](int Track, int64_t Cur, int64_t Total) {
-                    if (Total == INT64_MAX && Cur == Total) {
-                        vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " indexing complete").c_str(), Core);
-                    } else if (NextUpdate < std::chrono::high_resolution_clock::now()) {
-                        int PValue = (Total > 0) ? static_cast<int>((static_cast<double>(Cur) / static_cast<double>(Total)) * 100) : static_cast<int>(Cur / (1024 * 1024));
-                        if (PValue != LastValue) {
-                            vsapi->logMessage(mtInformation, ("AudioSource track #" + std::to_string(Track) + " index progress " + std::to_string(PValue) + ((Total > 0) ? "%" : "MB")).c_str(), Core);
-                            LastValue = PValue;
-                            NextUpdate = std::chrono::high_resolution_clock::now() + std::chrono::seconds(1);
-                        }
-                    }
-                    return true;
-                }));
-
-        } else {
-            D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale));
-        }
+        IndexProgressLog Progress("AudioSource", ShowProgress, Core, vsapi);
+        D->A.reset(new BestAudioSource(Source, Track, AdjustDelay, Threads, CacheMode, CachePath, &Opts, DrcScale, Progress.StartPass()));
+        Progress.LogComplete();
 
         D->A->SetMaxDecoderInstances(MaxDecoders);
         D->A->SelectFormatSet(VariableFormat);

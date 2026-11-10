@@ -1558,7 +1558,8 @@ bool BestVideoSource::IndexTrack(const ProgressFunction &Progress) {
         }
     };
 
-    if (Progress)
+    /* Finding no frames is a failure the caller reports, not a completed index */
+    if (Progress && !TrackIndex.Frames.empty())
         Progress(VideoTrack, INT64_MAX, INT64_MAX);
 
     if (!TrackIndex.Frames.empty()) {
