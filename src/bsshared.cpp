@@ -126,6 +126,17 @@ int64_t GetSourceModificationTime(const std::filesystem::path &Source) {
     return static_cast<int64_t>(Time.time_since_epoch().count());
 }
 
+/* An image sequence pattern isn't a file that exists, so it can still be relative here */
+static std::filesystem::path GetAbsoluteLocalPath(const std::filesystem::path &Source) {
+    const std::string Name = Source.u8string();
+    const char *Protocol = avio_find_protocol_name(Name.c_str());
+    if (Name.empty() || !Protocol || strcmp(Protocol, "file"))
+        return Source;
+    std::error_code ec;
+    const std::filesystem::path Result = std::filesystem::absolute(Name.compare(0, 5, "file:") ? Source : std::filesystem::u8path(Name.substr(5)), ec);
+    return ec ? Source : Result;
+}
+
 static std::filesystem::path MangleCachePath(const std::filesystem::path &CacheBasePath, const std::filesystem::path &Source) {
     std::filesystem::path CachePath = std::filesystem::absolute(CacheBasePath);
     /* Normalized first so different spellings of one path share an index, and any '.' or '..'
@@ -195,7 +206,7 @@ file_ptr_t OpenCacheFile(bool AbsolutePath, const std::filesystem::path &CachePa
         const std::filesystem::path BasePath = CachePath.empty() ? GetDefaultCacheSubTreePath() : CachePath;
         if (BasePath.empty())
             return nullptr;
-        CacheFile = MangleCachePath(BasePath, Source);
+        CacheFile = MangleCachePath(BasePath, GetAbsoluteLocalPath(Source));
     }
 
     CacheFile += "." + std::to_string(Track) + ".bsindex";
@@ -273,7 +284,7 @@ double ReadDouble(file_ptr_t &F) {
 
 std::string ReadString(file_ptr_t &F) {
     int Size = ReadInt(F);
-    if (Size < 0 || Size > 1000)
+    if (Size < 0 || (Size > 0 && !PlausibleRecordCount(F, Size, 1)))
         throw BestSourceException("Invalid index file, string size is unrealistic");
     std::string S;
     S.resize(Size);

@@ -208,6 +208,8 @@ public:
             VI.SetFPS(VP.FPS.Num, VP.FPS.Den);
 
             if (FPSNum > 0) {
+                /* Throws for unknown timestamps, which would otherwise fail every frame */
+                (void)V->GetFrameNumberByTime(VP.StartTime);
                 vsh::reduceRational(&FPSNum, &FPSDen);
                 VI.SetFPS(static_cast<int>(FPSNum), static_cast<int>(FPSDen));
                 const double FrameCount = static_cast<double>(VP.Duration) * VP.TimeBase.ToDouble() * static_cast<double>(VI.fps_numerator) / static_cast<double>(VI.fps_denominator) + 0.5;
@@ -219,6 +221,9 @@ public:
             }
 
             RFFIsUsed = RFF && (VP.NumFrames != VP.NumRFFFrames);
+            /* Avisynth+ doesn't serialize GetParity, so the field table can't be left to first use */
+            if (RFF)
+                (void)V->GetFrameIsTFF(0, true);
 
             V->SetSeekPreRoll(SeekPreRoll);
 
@@ -422,7 +427,7 @@ public:
             VI.audio_samples_per_second = AP.SampleRate;
             VI.num_audio_samples = AP.NumSamples;
             VI.nchannels = AP.Channels;
-            if (AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
+            if (AP.ChannelLayout != 0 && AP.ChannelLayout <= std::numeric_limits<unsigned>::max())
                 VI.SetChannelMask(true, static_cast<unsigned>(AP.ChannelLayout));
 
         } catch (const std::exception &e) {

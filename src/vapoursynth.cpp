@@ -365,7 +365,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         } catch (BestSourceHWDecoderException &) {
             if (!GPU || !GPUFallback)
                 throw;
-            vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " decoding on the CPU instead, the GPU can't decode this track").c_str(), Core);
+            /* Which track a negative number selects isn't known until a source exists */
+            vsapi->logMessage(mtInformation, ("VideoSource" + (Track >= 0 ? " track #" + std::to_string(Track) : std::string()) + " decoding on the CPU instead, the GPU can't decode this track").c_str(), Core);
             GPU = false;
             MakeSource(false);
         }
@@ -379,7 +380,7 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
                 /* Rebuilding means indexing again, since the index records which decoder wrote it.
                    Only reachable when the device turns out not to be shareable after all, which is
                    rare enough not to be worth avoiding at the cost of deferring the check. */
-                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(Track) + " decoding on the CPU instead, " + GpuError).c_str(), Core);
+                vsapi->logMessage(mtInformation, ("VideoSource track #" + std::to_string(D->V->GetTrack()) + " decoding on the CPU instead, " + GpuError).c_str(), Core);
                 GPU = false;
                 MakeSource(false);
             }
@@ -419,6 +420,8 @@ static void VS_CC CreateBestVideoSource(const VSMap *In, VSMap *Out, void *, VSC
         vsh::reduceRational(&D->VI.fpsNum, &D->VI.fpsDen);
 
         if (D->FPSNum > 0) {
+            /* Throws for unknown timestamps, which would otherwise fail every frame */
+            (void)D->V->GetFrameNumberByTime(VP.StartTime);
             vsh::reduceRational(&D->FPSNum, &D->FPSDen);
             D->VI.fpsDen = D->FPSDen;
             D->VI.fpsNum = D->FPSNum;

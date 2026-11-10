@@ -792,7 +792,7 @@ static void MergeFieldInto(AVFrame *Dst, const AVFrame *FieldSrc, bool Top) {
 
         int PlaneHeight = Dst->height;
         if (Plane == 1 || Plane == 2)
-            PlaneHeight >>= Desc->log2_chroma_h;
+            PlaneHeight = AV_CEIL_RSHIFT(PlaneHeight, Desc->log2_chroma_h);
 
         for (int h = Top ? 0 : 1; h < PlaneHeight; h += 2) {
             memcpy(DstData, SrcData, LineBytes);

@@ -281,7 +281,7 @@ void BSAudioFormat::Set(int Format, int BitsPerRawSample) {
     Float = (Format == AV_SAMPLE_FMT_FLTP || Format == AV_SAMPLE_FMT_FLT || Format == AV_SAMPLE_FMT_DBLP || Format == AV_SAMPLE_FMT_DBL);
     BytesPerSample = av_get_bytes_per_sample(static_cast<AVSampleFormat>(Format));
     /* A demuxer can report more bits than the samples hold */
-    Bits =(BitsPerRawSample > 0 && BitsPerRawSample < BytesPerSample * 8 && !Float) ? BitsPerRawSample : (BytesPerSample * 8);
+    Bits = (BitsPerRawSample > 0 && BitsPerRawSample < BytesPerSample * 8 && !Float) ? BitsPerRawSample : (BytesPerSample * 8);
 }
 
 BestAudioFrame::BestAudioFrame(AVFrame *F, int BitsPerSample) {
@@ -1162,7 +1162,7 @@ bool BestAudioSource::FillInFramePlanar(const BestAudioFrame *Frame, int64_t Fra
 
 void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count) {
     // FIXME, relax the restriction to only requiring the same format within the range if anyone complains
-    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
+    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.SampleRate == 0)
         throw BestSourceException("GetPackedAudio() can only be used when variable format is disabled");
 
     Start -= SampleDelay;
@@ -1192,7 +1192,7 @@ void BestAudioSource::GetPackedAudio(uint8_t *Data, int64_t Start, int64_t Count
 }
 
 void BestAudioSource::GetPlanarAudio(uint8_t *const *const Data, int64_t Start, int64_t Count) {
-    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.ChannelLayout == 0 || AP.SampleRate == 0)
+    if (AP.Format == AV_SAMPLE_FMT_NONE || AP.BitsPerSample == 0 || AP.Channels == 0 || AP.SampleRate == 0)
         throw BestSourceException("GetPlanarAudio() can only be used when variable format is disabled");
 
     Start -= SampleDelay;
